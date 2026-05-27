@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Vistoria de Imóvel · G&G Engenharia</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --brand: #1A3C5E; --brand2: #2B5F96; --accent: #D4762A;
+    --success: #1A6B3C; --danger: #C0392B;
+    --surface: #F7F5F2; --card: #FFFFFF; --border: #DDD8D0;
+    --text: #1C1917; --muted: #6B6560; --light: #F0EDE8;
+    --radius: 12px; --font: 'Montserrat', sans-serif;
+  }
+  body { font-family: var(--font); background: var(--surface); color: var(--text); min-height: 100vh; }
+
+  .app-header { background: var(--brand); color: #fff; padding: 12px 20px; display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  .app-header img { width: 32px; height: 32px; object-fit: contain; border-radius: 4px; background: #fff; padding: 2px; }
+  .app-header h1 { font-size: 15px; font-weight: 700; letter-spacing: .3px; }
+  .app-header .badge { background: var(--accent); font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px; }
+  .progress-track { background: rgba(255,255,255,.2); height: 3px; flex: 1; border-radius: 2px; max-width: 80px; }
+  .progress-fill { background: var(--accent); height: 100%; border-radius: 2px; transition: width .3s; }
+
+  .screen { display: none; max-width: 520px; margin: 0 auto; padding: 16px 16px 100px; }
+  .screen.active { display: block; }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 14px; }
+  .card-title { font-size: 16px; font-weight: 700; color: var(--brand); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; margin-bottom: 5px; }
+  .field input, .field select, .field textarea { width: 100%; padding: 11px 13px; border: 1.5px solid var(--border); border-radius: 8px; font-family: var(--font); font-size: 14px; color: var(--text); background: #fff; transition: border .15s; outline: none; }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--brand); }
+  .field textarea { resize: vertical; min-height: 80px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+  .option-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 6px; }
+  .opt-btn { padding: 12px 8px; border: 1.5px solid var(--border); border-radius: 10px; background: #fff; cursor: pointer; font-family: var(--font); font-size: 13px; font-weight: 600; color: var(--text); text-align: center; transition: all .15s; display: flex; align-items: center; justify-content: center; gap: 6px; line-height: 1.3; }
+  .opt-btn:hover { border-color: var(--brand2); background: #EEF4FB; }
+  .opt-btn.selected { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .opt-btn.accent { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .opt-btn.success { background: var(--success); color: #fff; border-color: var(--success); }
+  .opt-btn i { font-size: 17px; }
+
+  .upload-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 22px 16px; text-align: center; cursor: pointer; transition: all .2s; background: #FDFCFB; margin-bottom: 10px; }
+  .upload-zone:hover { border-color: var(--brand); background: #EEF4FB; }
+  .upload-zone i { font-size: 30px; color: var(--muted); display: block; margin-bottom: 6px; }
+  .upload-zone p { font-size: 13px; color: var(--muted); }
+  .upload-zone strong { color: var(--brand); }
+
+  .photo-preview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  .photo-thumb { position: relative; border-radius: 8px; overflow: hidden; aspect-ratio: 1; }
+  .photo-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .photo-thumb .ai-overlay { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,.65); color: #fff; font-size: 10px; padding: 4px 6px; line-height: 1.3; font-family: var(--font); }
+  .photo-thumb .remove-photo, .single-thumb .remove-photo { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; background: rgba(0,0,0,.55); color: #fff; border: none; border-radius: 50%; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .analyzing-tag { position: absolute; top: 4px; left: 4px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 8px; }
+  .single-thumb { position: relative; border-radius: 8px; overflow: hidden; margin-top: 10px; }
+  .single-thumb img { width: 100%; max-height: 180px; object-fit: cover; border-radius: 8px; display: block; }
+
+  .bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid var(--border); padding: 12px 16px; display: flex; gap: 10px; z-index: 50; }
+  .btn { flex: 1; padding: 13px; border-radius: 10px; font-family: var(--font); font-size: 14px; font-weight: 700; cursor: pointer; border: none; transition: all .15s; display: flex; align-items: center; justify-content: center; gap: 7px; }
+  .btn-primary { background: var(--brand); color: #fff; }
+  .btn-primary:hover { background: #122D47; }
+  .btn-accent { background: var(--accent); color: #fff; }
+  .btn-outline { background: #fff; color: var(--brand); border: 1.5px solid var(--brand); flex: 0 0 auto; padding: 13px 16px; }
+  .btn-success { background: var(--success); color: #fff; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  .section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin-bottom: 10px; margin-top: 6px; }
+  .registro-list { display: flex; flex-direction: column; gap: 8px; }
+  .registro-item { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; align-items: flex-start; gap: 10px; }
+  .registro-item img { width: 50px; height: 50px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+  .registro-item .ambiente-tag { display: inline-block; background: var(--brand); color: #fff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-bottom: 3px; }
+  .registro-item .defeito-tag { display: inline-block; background: #FDF0E4; color: #7A3D10; border: 1px solid #EDCFAD; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-left: 3px; }
+  .registro-item .ai-desc { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 2px; }
+  .count-badge { background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
+
+  .success-icon { width: 68px; height: 68px; background: #E6F4EC; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; }
+  .success-icon i { font-size: 34px; color: var(--success); }
+  .success-title { font-size: 22px; font-weight: 700; color: var(--brand); text-align: center; margin-bottom: 6px; }
+  .success-sub { font-size: 13px; color: var(--muted); text-align: center; margin-bottom: 22px; }
+  .download-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; display: flex; align-items: center; gap: 12px; cursor: pointer; margin-bottom: 10px; transition: border .15s; }
+  .download-card:hover { border-color: var(--brand); }
+  .download-card i { font-size: 26px; }
+  .download-card .dl-info strong { display: block; font-size: 14px; font-weight: 700; }
+  .download-card .dl-info span { font-size: 12px; color: var(--muted); }
+
+  .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: middle; margin-right: 5px; }
+  .sp2 { width: 14px; height: 14px; border: 2px solid rgba(26,60,94,.15); border-top-color: var(--brand); border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .processing-msg { font-size: 12px; color: var(--muted); text-align: center; padding: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+
+  .hist-item { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .hist-item .info { flex: 1; }
+  .hist-item .info strong { display: block; font-size: 13px; font-weight: 700; }
+  .hist-item .info span { font-size: 11px; color: var(--muted); }
+  .hist-btn { padding: 7px 12px; border-radius: 7px; font-size: 11px; font-weight: 700; cursor: pointer; border: none; background: var(--brand); color: #fff; font-family: var(--font); }
+  .search-bar { display: flex; gap: 8px; margin-bottom: 14px; }
+  .search-bar input { flex: 1; padding: 10px 13px; border: 1.5px solid var(--border); border-radius: 8px; font-family: var(--font); font-size: 13px; outline: none; }
+  .search-bar input:focus { border-color: var(--brand); }
+  .nav-tabs { display: flex; gap: 4px; margin-bottom: 16px; background: var(--light); padding: 4px; border-radius: 10px; }
+  .nav-tab { flex: 1; padding: 9px; text-align: center; font-size: 12px; font-weight: 700; border-radius: 7px; cursor: pointer; border: none; background: transparent; color: var(--muted); font-family: var(--font); transition: all .15s; }
+  .nav-tab.active { background: #fff; color: var(--brand); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <img src="/logo.png" alt="G&G" style="width:40px;height:40px;object-fit:contain;background:#fff;border-radius:6px;padding:3px">
+  <h1>G&G Engenharia</h1>
+  <span class="badge">IA</span>
+  <div style="flex:1"></div>
+  <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:10%"></div></div>
+</div>
+
+<div style="max-width:520px;margin:0 auto;padding:12px 16px 0">
+  <div class="nav-tabs">
+    <button class="nav-tab active" id="tab-vistoria" onclick="switchTab('vistoria')"><i class="ti ti-clipboard-check"></i> Vistoria</button>
+    <button class="nav-tab" id="tab-historico" onclick="switchTab('historico')"><i class="ti ti-history"></i> Histórico</button>
+  </div>
+</div>
+
+<div id="vistoria-screens">
+
+<!-- TELA 1: DADOS -->
+<div class="screen active" id="screen-dados">
+  <div class="card">
+    <div class="card-title"><i class="ti ti-user-check"></i> Dados do cliente</div>
+    <div class="field"><label>Nome completo</label><input type="text" id="nomeCliente" placeholder="Maria Souza da Silva" /></div>
+    <div class="grid2">
+      <div class="field"><label>CPF</label><input type="text" id="cpf" placeholder="000.000.000-00" maxlength="14" /></div>
+      <div class="field"><label>Telefone</label><input type="text" id="telefone" placeholder="(34) 99999-0000" /></div>
+    </div>
+    <div class="field"><label>Empreendimento</label><input type="text" id="empreendimento" placeholder="Nome do condomínio / residencial" /></div>
+    <div class="field"><label>Endereço</label><input type="text" id="endereco" placeholder="Rua das Flores, 123" /></div>
+    <div class="grid3">
+      <div class="field"><label>Bloco</label><input type="text" id="bloco" placeholder="Bloco A" /></div>
+      <div class="field"><label>Apto</label><input type="text" id="apto" placeholder="401" /></div>
+      <div class="field"><label>CEP</label><input type="text" id="cep" placeholder="38400-000" maxlength="9" /></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Cidade / UF</label><input type="text" id="cidade" placeholder="Uberlândia - MG" /></div>
+      <div class="field"><label>Metragem (m²)</label><input type="text" id="metragem" placeholder="59,00" /></div>
+    </div>
+    <div class="field"><label>Data da vistoria</label><input type="date" id="dataVistoria" /></div>
+
+  <div class="card">
+    <div class="card-title"><i class="ti ti-layout-list"></i> Descrição do imóvel</div>
+    <div class="field">
+      <label>Cômodos (um por linha)</label>
+      <textarea id="comodos" placeholder="2 quartos, sendo 1 suíte;&#10;Sala em dois ambientes;&#10;Banheiro social;&#10;Cozinha;&#10;Lavanderia;&#10;Vaga de garagem."></textarea>
+    </div>
+    <div class="field"><label>Planta do imóvel</label></div>
+    <div class="upload-zone" onclick="document.getElementById('plantaInput').click()">
+      <i class="ti ti-blueprint"></i>
+      <p>Toque para enviar a <strong>planta</strong> do imóvel</p>
+    </div>
+    <input type="file" id="plantaInput" accept="image/*" style="display:none" />
+    <div id="plantaPreview"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><i class="ti ti-map-pin"></i> Localização (Google Maps)</div>
+    <div class="upload-zone" onclick="document.getElementById('mapaInput').click()">
+      <i class="ti ti-map-2"></i>
+      <p>Envie o <strong>print do Google Maps</strong> do endereço</p>
+    </div>
+    <input type="file" id="mapaInput" accept="image/*" style="display:none" />
+    <div id="mapaPreview"></div>
+  </div>
+
+  <div class="bottom-bar">
+    <button class="btn btn-primary" onclick="irParaAmbiente()"><i class="ti ti-arrow-right"></i> Iniciar vistoria</button>
+  </div>
+</div>
+
+<!-- TELA 2: AMBIENTE -->
+<div class="screen" id="screen-ambiente">
+  <div style="margin-top:12px">
+    <div class="card-title" style="padding:0 4px 10px;font-size:16px;font-weight:700;color:var(--brand)"><i class="ti ti-layout-grid"></i> Escolha o ambiente</div>
+    <div class="option-grid">
+      <button class="opt-btn" onclick="selecionarAmbiente('Sala')"><i class="ti ti-sofa"></i> Sala</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Cozinha')"><i class="ti ti-tools-kitchen-2"></i> Cozinha</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Banheiro')"><i class="ti ti-bath"></i> Banheiro</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Quarto')"><i class="ti ti-bed"></i> Quarto</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Área de serviço')"><i class="ti ti-wash-machine"></i> Área de serviço</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Sacada')"><i class="ti ti-building-arch"></i> Sacada</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Garagem')"><i class="ti ti-car"></i> Garagem</button>
+      <button class="opt-btn" onclick="pedirOutroAmbiente()"><i class="ti ti-plus"></i> Outro</button>
+    </div>
+    <div id="outroAmbienteField" style="display:none;margin-top:10px">
+      <div class="field"><label>Nome do ambiente</label><input type="text" id="outroAmbienteInput" placeholder="Ex: Suíte, Hall, Lavabo..." /></div>
+      <button class="btn btn-primary" style="width:100%" onclick="confirmarOutroAmbiente()">Confirmar</button>
+    </div>
+    <div id="resumoRegistros" style="margin-top:16px;display:none">
+      <div class="section-label">Registros <span class="count-badge" id="countBadge">0</span></div>
+      <div class="registro-list" id="registroList"></div>
+    </div>
+    <div style="height:16px"></div>
+    <button class="btn btn-success" style="width:100%" onclick="irParaObs()"><i class="ti ti-check"></i> Finalizar vistoria</button>
+  </div>
+</div>
+
+<!-- TELA 3: FOTO -->
+<div class="screen" id="screen-foto">
+  <div style="margin-top:12px">
+    <div class="card">
+      <div class="card-title"><i class="ti ti-camera"></i> <span id="ambienteFotoTitle">Ambiente</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div class="upload-zone" style="margin-bottom:0" onclick="document.getElementById('fileInputPhoto').click()">
+          <i class="ti ti-camera"></i>
+          <p><strong>Câmera</strong></p>
+        </div>
+        <div class="upload-zone" style="margin-bottom:0" onclick="document.getElementById('fileInputGallery').click()">
+          <i class="ti ti-photo"></i>
+          <p><strong>Galeria</strong></p>
+        </div>
+      </div>
+      <input type="file" id="fileInputPhoto" accept="image/*" multiple capture="environment" style="display:none" />
+      <input type="file" id="fileInputGallery" accept="image/*" multiple style="display:none" />
+      <div class="photo-preview" id="photoPreviewGrid"></div>
+      <div class="processing-msg" id="processingMsg" style="display:none"><span class="sp2"></span> Analisando com IA...</div>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    <button class="btn btn-outline" onclick="voltarParaAmbiente()"><i class="ti ti-arrow-left"></i></button>
+    <button class="btn btn-primary" onclick="irParaDefeito()"><i class="ti ti-arrow-right"></i> Próximo</button>
+  </div>
+</div>
+
+<!-- TELA 4: DEFEITO -->
+<div class="screen" id="screen-defeito">
+  <div style="margin-top:12px">
+    <div class="card-title" style="padding:0 4px 10px;font-size:16px;font-weight:700;color:var(--brand)"><i class="ti ti-alert-triangle"></i> Qual defeito foi encontrado?</div>
+    <div class="option-grid" id="defeitoGrid">
+      <button class="opt-btn" onclick="selecionarDefeito(this,'Falhas no rejunte do revestimento')"><i class="ti ti-grid-dots"></i> Falha no rejunte</button>
+      <button class="opt-btn" onclick="selecionarDefeito(this,'Revestimento com som cavo (oco)')"><i class="ti ti-ear"></i> Revestimento oco</button>
+      <button class="opt-btn" onclick="selecionarDefeito(this,'Revestimento com som cavo (oco) e com falha no rejunte')"><i class="ti ti-alert-circle"></i> Oco + falha rejunte</button>
+      <button class="opt-btn" onclick="selecionarDefeito(this,'Revestimento lascado')"><i class="ti ti-scissors"></i> Revestimento lascado</button>
+      <button class="opt-btn" onclick="selecionarDefeito(this,'Revestimento trincado')"><i class="ti ti-line-dashed"></i> Revestimento trincado</button>
+      <button class="opt-btn" onclick="selecionarDefeito(this,'Falha na pintura')"><i class="ti ti-paint"></i> Falha na pintura</button>
+      <button class="opt-btn" onclick="selecionarDefeito(this,'Mancha na pintura')"><i class="ti ti-droplet"></i> Mancha na pintura</button>
+      <button class="opt-btn" onclick="selecionarDefeito(this,'Fissura na parede')"><i class="ti ti-wave-sine"></i> Fissura na parede</button>
+      <button class="opt-btn" onclick="selecionarDefeito(this,'Marcas de infiltração')"><i class="ti ti-droplets"></i> Infiltração</button>
+      <button class="opt-btn" onclick="selecionarDefeito(this,'Falha na queda/caimento do piso')"><i class="ti ti-trending-down"></i> Queda do piso</button>
+      <button class="opt-btn" onclick="selecionarDefeito(this,'Falha na limpeza')"><i class="ti ti-brush"></i> Falha na limpeza</button>
+      <button class="opt-btn" onclick="selecionarDefeito(this,'Porta lascada')"><i class="ti ti-door"></i> Porta lascada</button>
+      <button class="opt-btn" onclick="selecionarDefeito(this,'Outro defeito')"><i class="ti ti-dots"></i> Outro defeito</button>
+    </div>
+    <div id="outroDefeitoField" style="display:none;margin-top:10px">
+      <div class="field"><label>Descreva o defeito</label><input type="text" id="outroDefeitoInput" placeholder="Ex: Porta travando, Tomada solta..." /></div>
+    </div>
+    <div style="margin-top:14px">
+      <div class="section-label">O que fazer a seguir?</div>
+      <div class="option-grid">
+        <button class="opt-btn accent" onclick="salvarEProximoAmbiente()"><i class="ti ti-refresh"></i> Próximo ambiente</button>
+        <button class="opt-btn success" onclick="salvarEVoltarAmbiente()"><i class="ti ti-check"></i> Salvar registro</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TELA 5: OBSERVAÇÃO -->
+<div class="screen" id="screen-obs">
+  <div style="margin-top:12px">
+    <div class="card">
+      <div class="card-title"><i class="ti ti-pencil"></i> Observação final</div>
+      <div class="option-grid" style="margin-bottom:14px">
+        <button class="opt-btn" id="btnSimObs" onclick="mostrarObs(true)"><i class="ti ti-check"></i> Adicionar</button>
+        <button class="opt-btn" id="btnNaoObs" onclick="mostrarObs(false)"><i class="ti ti-x"></i> Não precisa</button>
+      </div>
+      <div id="obsField" style="display:none">
+        <div class="field"><textarea id="obsGeral" placeholder="Ex: Apartamento sem energia no momento da vistoria..."></textarea></div>
+      </div>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    <button class="btn btn-outline" onclick="mostrarScreen('screen-ambiente')"><i class="ti ti-arrow-left"></i></button>
+    <button class="btn btn-accent" onclick="processarLaudo()"><i class="ti ti-file-text"></i> Gerar laudo</button>
+  </div>
+</div>
+
+<!-- TELA 6: SUCESSO -->
+<div class="screen" id="screen-sucesso">
+  <div style="margin-top:36px;padding:0 4px">
+    <div class="success-icon"><i class="ti ti-circle-check"></i></div>
+    <h2 class="success-title">Vistoria finalizada!</h2>
+    <p class="success-sub">Escolha o formato para baixar o laudo.</p>
+    <div class="download-card" id="btnBaixarDocx">
+      <i class="ti ti-file-word" style="color:#2B5F96"></i>
+      <div class="dl-info"><strong>Baixar Word (.docx)</strong><span>Editável — para ajustes</span></div>
+      <i class="ti ti-download" style="color:var(--muted)"></i>
+    </div>
+
+    <button class="btn btn-outline" style="width:100%;margin-top:14px" onclick="novaVistoria()"><i class="ti ti-plus"></i> Nova vistoria</button>
+    <p id="gerandoMsg" style="font-size:12px;color:var(--muted);text-align:center;margin-top:10px;display:none"></p>
+  </div>
+</div>
+
+</div><!-- /vistoria-screens -->
+
+<!-- HISTÓRICO -->
+<div id="historico-screen" style="display:none;max-width:520px;margin:0 auto;padding:0 16px 80px">
+  <div class="search-bar">
+    <input type="text" id="searchInput" placeholder="Buscar por nome ou data..." oninput="filtrarHistorico()" />
+    <button class="btn btn-primary" style="flex:0 0 auto;padding:10px 14px" onclick="carregarHistorico()"><i class="ti ti-refresh"></i></button>
+  </div>
+  <div id="historicoList"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p></div>
+</div>
+
+<script>
+const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', obsGeral:'', plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null };
+let todosLaudos = [];
+
+document.getElementById('dataVistoria').value = new Date().toISOString().split('T')[0];
+
+document.getElementById('cpf').addEventListener('input', function() {
+  this.value = this.value.replace(/\D/g,'').replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d{1,2})$/,'$1-$2');
+});
+document.getElementById('cep').addEventListener('input', function() {
+  this.value = this.value.replace(/\D/g,'').replace(/(\d{5})(\d)/,'$1-$2');
+});
+
+function setupUpload(inputId, previewId, stateKey, stateMediaKey) {
+  document.getElementById(inputId).addEventListener('change', function(e) {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      state[stateKey] = ev.target.result.split(',')[1];
+      state[stateMediaKey] = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+      document.getElementById(previewId).innerHTML = `<div class="single-thumb"><img src="${ev.target.result}"><button class="remove-photo" onclick="removerUpload('${previewId}','${stateKey}','${stateMediaKey}','${inputId}')">✕</button></div>`;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+setupUpload('plantaInput','plantaPreview','plantaBase64','plantaMediaType');
+setupUpload('mapaInput','mapaPreview','mapaBase64','mapaMediaType');
+
+function removerUpload(previewId, stateKey, stateMediaKey, inputId) {
+  state[stateKey] = null; state[stateMediaKey] = null;
+  document.getElementById(previewId).innerHTML = '';
+  document.getElementById(inputId).value = '';
+}
+
+function switchTab(tab) {
+  document.getElementById('tab-vistoria').classList.toggle('active', tab==='vistoria');
+  document.getElementById('tab-historico').classList.toggle('active', tab==='historico');
+  document.getElementById('vistoria-screens').style.display = tab==='vistoria' ? 'block' : 'none';
+  document.getElementById('historico-screen').style.display = tab==='historico' ? 'block' : 'none';
+  if (tab==='historico') carregarHistorico();
+}
+
+function mostrarScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  window.scrollTo(0, 0);
+  const steps = {'screen-dados':10,'screen-ambiente':35,'screen-foto':55,'screen-defeito':70,'screen-obs':85,'screen-sucesso':100};
+  document.getElementById('progressFill').style.width = (steps[id]||10) + '%';
+}
+
+function selectTipo(el, val) {
+  
+  el.classList.add('selected'); state.tipoVistoria = val;
+}
+
+function irParaAmbiente() {
+  state.dados = {
+    nome: document.getElementById('nomeCliente').value.trim(),
+    cpf: document.getElementById('cpf').value.trim(),
+    telefone: document.getElementById('telefone').value.trim(),
+    empreendimento: document.getElementById('empreendimento').value.trim(),
+    endereco: document.getElementById('endereco').value.trim(),
+    bloco: document.getElementById('bloco').value.trim(),
+    apto: document.getElementById('apto').value.trim(),
+    cep: document.getElementById('cep').value.trim(),
+    cidade: document.getElementById('cidade').value.trim(),
+    metragem: document.getElementById('metragem').value.trim(),
+    data: document.getElementById('dataVistoria').value,
+    comodos: document.getElementById('comodos').value.trim()
+  };
+  if (!state.dados.nome) { alert('Informe o nome do cliente.'); return; }
+  state.tipoVistoria = '';
+  mostrarScreen('screen-ambiente');
+}
+
+function selecionarAmbiente(nome) {
+  state.ambienteAtual = nome; state.fotosAtuais = [];
+  document.getElementById('ambienteFotoTitle').textContent = nome;
+  document.getElementById('photoPreviewGrid').innerHTML = '';
+  document.getElementById('processingMsg').style.display = 'none';
+  document.getElementById('outroAmbienteField').style.display = 'none';
+  mostrarScreen('screen-foto');
+}
+function pedirOutroAmbiente() { document.getElementById('outroAmbienteField').style.display='block'; document.getElementById('outroAmbienteInput').focus(); }
+function confirmarOutroAmbiente() { const v=document.getElementById('outroAmbienteInput').value.trim(); if(!v) return; document.getElementById('outroAmbienteInput').value=''; selecionarAmbiente(v); }
+function voltarParaAmbiente() { state.fotosAtuais=[]; document.getElementById('photoPreviewGrid').innerHTML=''; mostrarScreen('screen-ambiente'); }
+function irParaObs() { mostrarScreen('screen-obs'); }
+
+function atualizarResumo() {
+  const div = document.getElementById('resumoRegistros');
+  if (state.registros.length === 0) { div.style.display='none'; return; }
+  div.style.display='block';
+  document.getElementById('countBadge').textContent = state.registros.length;
+  document.getElementById('registroList').innerHTML = state.registros.map(r => {
+    const thumb = r.fotos[0] ? `<img src="${r.fotos[0].src}">` : '<div style="width:50px;height:50px;background:var(--light);border-radius:6px;flex-shrink:0"></div>';
+    return `<div class="registro-item">${thumb}<div class="info"><span class="ambiente-tag">${r.ambiente}</span><span class="defeito-tag">${r.defeito}</span>${r.fotos[0]?.aiDesc?`<p class="ai-desc">${r.fotos[0].aiDesc}</p>`:''}</div></div>`;
+  }).join('');
+}
+
+const fileInput = document.getElementById('fileInputPhoto');
+fileInput.addEventListener('change', e => { handleFiles(e.target.files); fileInput.value=''; });
+
+function handleFiles(files) {
+  Array.from(files).slice(0,8).forEach(file => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const id = 'p'+Date.now()+Math.random().toString(36).slice(2);
+      const entry = { id, src: ev.target.result, base64: ev.target.result.split(',')[1], mediaType: file.type==='image/png'?'image/png':'image/jpeg', aiDesc:null, analyzing:true };
+      state.fotosAtuais.push(entry); renderFotoPreview(); analyzePhoto(entry);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderFotoPreview() {
+  document.getElementById('photoPreviewGrid').innerHTML = state.fotosAtuais.map(p => `
+    <div class="photo-thumb"><img src="${p.src}">
+      ${p.analyzing?'<div class="analyzing-tag">IA...</div>':''}
+      ${p.aiDesc?`<div class="ai-overlay">${p.aiDesc}</div>`:''}
+      <button class="remove-photo" onclick="removerFoto('${p.id}')">✕</button>
+    </div>`).join('');
+  document.getElementById('processingMsg').style.display = state.fotosAtuais.some(p=>p.analyzing)?'flex':'none';
+}
+
+function removerFoto(id) { state.fotosAtuais=state.fotosAtuais.filter(p=>p.id!==id); renderFotoPreview(); }
+
+async function analyzePhoto(entry) {
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:80,
+        system:'Analise foto de vistoria de imóvel. Retorne SOMENTE JSON: {"descricao":"descrição técnica do defeito, máx 60 chars"}. Sem markdown.',
+        messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:entry.mediaType,data:entry.base64}},{type:'text',text:'Descreva o defeito.'}]}]
+      })
+    });
+    const data = await res.json();
+    const parsed = JSON.parse(data.content?.[0]?.text?.replace(/```json|```/g,'').trim()||'{}');
+    entry.aiDesc = parsed.descricao||'';
+  } catch { entry.aiDesc=''; }
+  entry.analyzing=false; renderFotoPreview();
+}
+
+function irParaDefeito() {
+  if (state.fotosAtuais.length===0) { alert('Envie ao menos uma foto.'); return; }
+  document.querySelectorAll('#defeitoGrid .opt-btn').forEach(b=>b.classList.remove('selected'));
+  state.defeitoAtual=''; document.getElementById('outroDefeitoField').style.display='none';
+  mostrarScreen('screen-defeito');
+}
+
+function selecionarDefeito(el, val) {
+  document.querySelectorAll('#defeitoGrid .opt-btn').forEach(b=>b.classList.remove('selected'));
+  el.classList.add('selected'); state.defeitoAtual=val;
+  document.getElementById('outroDefeitoField').style.display=val==='Outro defeito'?'block':'none';
+  if (val==='Outro defeito') document.getElementById('outroDefeitoInput').focus();
+}
+
+function salvarRegistro() {
+  let defeito = state.defeitoAtual;
+  if (defeito==='Outro defeito') defeito=document.getElementById('outroDefeitoInput').value.trim()||'Outro defeito';
+  if (!defeito) { alert('Selecione o tipo de defeito.'); return false; }
+  state.registros.push({ ambiente:state.ambienteAtual, fotos:[...state.fotosAtuais], defeito });
+  state.fotosAtuais=[]; atualizarResumo(); return true;
+}
+
+function salvarEProximoAmbiente() { if(!salvarRegistro()) return; document.getElementById('photoPreviewGrid').innerHTML=''; mostrarScreen('screen-ambiente'); }
+function salvarEVoltarAmbiente() { if(!salvarRegistro()) return; document.getElementById('photoPreviewGrid').innerHTML=''; mostrarScreen('screen-ambiente'); }
+
+function mostrarObs(sim) {
+  document.getElementById('btnSimObs').classList.toggle('selected',sim);
+  document.getElementById('btnNaoObs').classList.toggle('selected',!sim);
+  document.getElementById('obsField').style.display=sim?'block':'none';
+}
+
+function processarLaudo() {
+  state.obsGeral=document.getElementById('obsGeral').value.trim();
+  mostrarScreen('screen-sucesso');
+  document.getElementById('btnBaixarDocx').onclick=()=>gerarDocumento('docx');
+}
+
+async function gerarDocumento(tipo) {
+  const msg=document.getElementById('gerandoMsg');
+  msg.style.display='block'; msg.innerHTML='<span class="spinner"></span> Gerando documento...';
+  try {
+    const registrosData=state.registros.map(r=>({ambiente:r.ambiente,defeito:r.defeito,fotos:r.fotos.map(f=>({base64:f.base64,mediaType:f.mediaType,aiDesc:f.aiDesc||''}))}));
+    const payload={dados:state.dados,tipoVistoria:state.tipoVistoria,obsGeral:state.obsGeral,registros:registrosData,formato:tipo,plantaBase64:state.plantaBase64,plantaMediaType:state.plantaMediaType,mapaBase64:state.mapaBase64,mapaMediaType:state.mapaMediaType};
+    const res=await fetch('/gerar-laudo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!res.ok) throw new Error('Erro no servidor');
+    const blob=await res.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download=`Laudo_${(state.dados.nome||'cliente').split(' ')[0]}_${state.dados.data||'vistoria'}.${tipo}`; a.click();
+    URL.revokeObjectURL(url); msg.textContent='✓ Download iniciado!';
+  } catch(e) { msg.textContent='⚠ Erro ao gerar. Tente novamente.'; console.error(e); }
+}
+
+function novaVistoria() {
+  Object.assign(state,{dados:{},tipoVistoria:'',registros:[],ambienteAtual:'',fotosAtuais:[],defeitoAtual:'',obsGeral:'',plantaBase64:null,plantaMediaType:null,mapaBase64:null,mapaMediaType:null});
+  ['nomeCliente','cpf','telefone','empreendimento','endereco','bloco','apto','cep','cidade','metragem','comodos','obsGeral'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('dataVistoria').value=new Date().toISOString().split('T')[0];
+  
+  document.getElementById('registroList').innerHTML='';
+  document.getElementById('resumoRegistros').style.display='none';
+  document.getElementById('plantaPreview').innerHTML='';
+  document.getElementById('mapaPreview').innerHTML='';
+  mostrarScreen('screen-dados');
+}
+
+document.getElementById('fileInputGallery').addEventListener('change', e => { handleFiles(e.target.files); document.getElementById('fileInputGallery').value=''; });
+
+async function baixarPdfHistorico(arquivo) {
+  const url = `/download-pdf/${arquivo}`;
+  const a = document.createElement('a');
+  a.href = url; a.download = decodeURIComponent(arquivo).replace('.docx','.pdf'); a.click();
+}
+
+async function carregarHistorico() {
+  document.getElementById('historicoList').innerHTML='<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p>';
+  try { const res=await fetch('/historico'); todosLaudos=await res.json(); renderHistorico(todosLaudos); }
+  catch { document.getElementById('historicoList').innerHTML='<p style="color:var(--danger);font-size:13px;text-align:center;padding:20px">Erro ao carregar.</p>'; }
+}
+
+function filtrarHistorico() {
+  const q=document.getElementById('searchInput').value.toLowerCase();
+  renderHistorico(todosLaudos.filter(l=>l.nome.toLowerCase().includes(q)||l.data.includes(q)));
+}
+
+function renderHistorico(lista) {
+  if(!lista.length){document.getElementById('historicoList').innerHTML='<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nenhum laudo encontrado.</p>';return;}
+  document.getElementById('historicoList').innerHTML=lista.map(l=>`
+    <div class="hist-item">
+      <i class="ti ti-file-text" style="font-size:26px;color:var(--brand)"></i>
+      <div class="info"><strong>${l.nome}${l.empreendimento?' - '+l.empreendimento:''}</strong><span>${l.data}</span></div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <a href="/download/${encodeURIComponent(l.arquivo)}" download><button class="hist-btn" style="width:100%"><i class="ti ti-file-word"></i> Word</button></a>
+        <button class="hist-btn" style="background:#C0392B;width:100%" onclick="baixarPdfHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-type-pdf"></i> PDF</button>
+      </div>
+    </div>`).join('');
+}
+</script>
+</body>
+</html>
