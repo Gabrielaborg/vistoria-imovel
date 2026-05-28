@@ -2,7 +2,7 @@
   "name": "vistoria-imovel",
   "version": "1.0.0",
   "scripts": {
-    "start": "node servidor.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "docx": "^9.7.0"
