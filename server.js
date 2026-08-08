@@ -110,7 +110,6 @@ async function gerarDocx(payload) {
 
   // ─── Registros ──────────────────────────────────────────
   const registrosParagraphs = [];
-  let imgCounter = 1;
   const byAmbiente = {};
   registros.forEach(r => { if (!byAmbiente[r.ambiente]) byAmbiente[r.ambiente] = []; byAmbiente[r.ambiente].push(r); });
 
@@ -118,16 +117,25 @@ async function gerarDocx(payload) {
     registrosParagraphs.push(new Paragraph({
       children: [B(ambiente, 20)], indent, spacing: { before: 200, after: 100 }
     }));
+    // Agrupa registros com o MESMO texto de defeito dentro do mesmo ambiente,
+    // mesmo que tenham sido salvos em momentos separados durante a vistoria.
+    const porDefeito = {};
+    const ordemDefeitos = [];
     for (const item of items) {
-      // Texto completo do defeito aparece UMA VEZ por registro (não repete por foto)
+      if (!porDefeito[item.defeito]) { porDefeito[item.defeito] = []; ordemDefeitos.push(item.defeito); }
+      porDefeito[item.defeito].push(...item.fotos);
+    }
+    for (const defeito of ordemDefeitos) {
+      const fotosDoGrupo = porDefeito[defeito];
+      // Texto completo do defeito aparece UMA VEZ por grupo (não repete por foto nem por registro separado)
       registrosParagraphs.push(new Paragraph({
-        children: [N(item.defeito, 20)], indent, spacing: { after: 80 }, alignment: AlignmentType.JUSTIFIED
+        children: [N(defeito, 20)], indent, spacing: { after: 80 }, alignment: AlignmentType.JUSTIFIED
       }));
-      const totalFotos = item.fotos.length;
+      const totalFotos = fotosDoGrupo.length;
       for (let i = 0; i < totalFotos; i++) {
-        const foto = item.fotos[i];
-        // Fotos ganham só um rótulo curto: "Imagem N" (ou "Imagem N (1 de 3)" se houver mais de uma no mesmo registro)
-        const rotulo = totalFotos > 1 ? `Imagem ${imgCounter} (${i+1} de ${totalFotos})` : `Imagem ${imgCounter}`;
+        const foto = fotosDoGrupo[i];
+        // Rótulo curto: "Evidência N de TOTAL" (numeração local do grupo, ex: 1 de 10, 2 de 10...)
+        const rotulo = totalFotos > 1 ? `Evidência ${i+1} de ${totalFotos}` : `Evidência`;
         registrosParagraphs.push(new Paragraph({
           children: [N(rotulo, 20)], indent, spacing: { after: 60 }
         }));
@@ -139,7 +147,6 @@ async function gerarDocx(payload) {
             alignment: AlignmentType.CENTER, spacing: { before: 80, after: 160 }
           }));
         } catch(e) { console.error('Img error:', e.message); }
-        imgCounter++;
       }
     }
     registrosParagraphs.push(br());
