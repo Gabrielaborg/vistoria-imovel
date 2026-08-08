@@ -12,7 +12,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="EngCheck">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -118,14 +118,26 @@
 </head>
 <body>
 
-<div id="splashWelcome" style="position:fixed;inset:0;background:var(--brand);color:#fff;z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px">
-  <img src="/logo.png" alt="EngCheck" style="width:88px;height:88px;object-fit:contain;background:#fff;border-radius:16px;padding:10px;margin-bottom:22px">
-  <div style="font-size:14px;font-weight:600;opacity:.85;margin-bottom:4px">Seja bem-vindo ao</div>
-  <div style="font-size:34px;font-weight:700;letter-spacing:.3px;margin-bottom:10px">EngCheck</div>
-  <div style="font-size:13px;font-weight:500;opacity:.75;margin-bottom:32px">Desenvolvido por G&G Engenharia</div>
-  <button onclick="fecharSplash()" style="background:var(--accent);color:#fff;border:none;border-radius:10px;padding:13px 32px;font-family:var(--font);font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px">
-    Começar <i class="ti ti-arrow-right"></i>
-  </button>
+<div id="splashWelcome" style="position:fixed;inset:0;background:var(--brand);color:#fff;z-index:200;overflow:hidden">
+
+  <!-- Textura sutil de grade (planta técnica), reforça o universo de engenharia/vistoria -->
+  <div style="position:absolute;inset:0;opacity:.05;pointer-events:none;background-image:linear-gradient(#fff 1px, transparent 1px),linear-gradient(90deg, #fff 1px, transparent 1px);background-size:36px 36px"></div>
+
+  <!-- Logo pequena, discreta, como assinatura no canto — não é o protagonista -->
+  <div style="position:absolute;top:22px;left:22px;display:flex;align-items:center;gap:8px">
+    <img src="/logo.png" alt="G&G" style="width:26px;height:26px;object-fit:contain;background:#fff;border-radius:6px;padding:2px">
+    <span style="font-size:10px;font-weight:700;letter-spacing:1.2px;opacity:.6">G&G ENGENHARIA</span>
+  </div>
+
+  <div style="position:relative;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px">
+    <div style="font-size:12px;font-weight:700;letter-spacing:3px;text-transform:uppercase;opacity:.55;margin-bottom:14px">Seja bem-vindo</div>
+    <div style="font-size:clamp(48px,16vw,88px);font-weight:800;letter-spacing:-1.5px;line-height:.95;margin-bottom:20px">Eng<span style="color:var(--accent)">Check</span></div>
+    <div style="width:52px;height:4px;background:var(--accent);border-radius:2px;margin-bottom:22px"></div>
+    <div style="font-size:13px;font-weight:500;opacity:.7;margin-bottom:40px">Desenvolvido por G&G Engenharia</div>
+    <button onclick="fecharSplash()" style="background:var(--accent);color:#fff;border:none;border-radius:100px;padding:14px 36px;font-family:var(--font);font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:0 8px 24px rgba(212,118,42,.35)">
+      Começar <i class="ti ti-arrow-right"></i>
+    </button>
+  </div>
 </div>
 
 <div class="app-header">
