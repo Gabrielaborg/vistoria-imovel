@@ -1278,9 +1278,19 @@ async function processarLaudo() {
   state.obsGeral=document.getElementById('obsGeral').value.trim();
   salvarRascunho();
   mostrarScreen('screen-sucesso');
-  document.getElementById('btnBaixarDocx').onclick=()=>gerarDocumento('docx');
+  const btnDocx = document.getElementById('btnBaixarDocx');
+  btnDocx.onclick=()=>gerarDocumento('docx');
 
-  // Gera a conclusão personalizada por IA em segundo plano, com base nos defeitos reais.
+  // Enquanto a IA está preparando a conclusão personalizada, o botão de baixar
+  // fica bloqueado — evita que o download saia rápido demais, antes da IA
+  // terminar, e acabe usando o texto padrão fixo por engano.
+  btnDocx.style.opacity = '.5';
+  btnDocx.style.pointerEvents = 'none';
+  const msg = document.getElementById('gerandoMsg');
+  msg.style.display = 'block';
+  msg.innerHTML = '<span class="sp2"></span> Preparando conclusão personalizada...';
+
+  // Gera a conclusão personalizada por IA, com base nos defeitos reais.
   // Se falhar (rede, IA fora do ar, etc.), state.conclusaoIA fica vazio e o servidor
   // usa automaticamente o texto padrão fixo — a vistoria nunca trava por causa disso.
   try {
@@ -1292,6 +1302,12 @@ async function processarLaudo() {
     const data = await res.json();
     state.conclusaoIA = data.conclusao || '';
   } catch { state.conclusaoIA = ''; }
+  finally {
+    btnDocx.style.opacity = '1';
+    btnDocx.style.pointerEvents = 'auto';
+    msg.style.display = 'none';
+    msg.innerHTML = '';
+  }
 }
 
 async function gerarDocumento(tipo) {
