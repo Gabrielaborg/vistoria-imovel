@@ -44,6 +44,7 @@
   .opt-btn.selected { background: var(--brand); color: #fff; border-color: var(--brand); }
   .opt-btn.accent { background: var(--accent); color: #fff; border-color: var(--accent); }
   .opt-btn.success { background: var(--success); color: #fff; border-color: var(--success); }
+  .opt-btn.azul { background: var(--brand2); color: #fff; border-color: var(--brand2); }
   .opt-btn i { font-size: 17px; }
 
   .upload-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 22px 16px; text-align: center; cursor: pointer; transition: all .2s; background: #FDFCFB; margin-bottom: 10px; }
@@ -186,11 +187,23 @@
     <div class="option-grid">
       <button class="opt-btn" onclick="selecionarAmbiente('Sala')"><i class="ti ti-sofa"></i> Sala</button>
       <button class="opt-btn" onclick="selecionarAmbiente('Cozinha')"><i class="ti ti-tools-kitchen-2"></i> Cozinha</button>
-      <button class="opt-btn" onclick="selecionarAmbiente('Banheiro')"><i class="ti ti-bath"></i> Banheiro</button>
-      <button class="opt-btn" onclick="selecionarAmbiente('Quarto')"><i class="ti ti-bed"></i> Quarto</button>
       <button class="opt-btn" onclick="selecionarAmbiente('Área de serviço')"><i class="ti ti-wash-machine"></i> Área de serviço</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Cozinha e área de serviço')"><i class="ti ti-tools-kitchen-2"></i> Cozinha e área de serviço</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Hall')"><i class="ti ti-door"></i> Hall</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Corredor')"><i class="ti ti-arrows-horizontal"></i> Corredor</button>
       <button class="opt-btn" onclick="selecionarAmbiente('Sacada')"><i class="ti ti-building-arch"></i> Sacada</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Laje técnica')"><i class="ti ti-building"></i> Laje técnica</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Lavabo')"><i class="ti ti-droplet"></i> Lavabo</button>
       <button class="opt-btn" onclick="selecionarAmbiente('Garagem')"><i class="ti ti-car"></i> Garagem</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Banheiro social')"><i class="ti ti-bath"></i> Banheiro social</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Banheiro suíte 1')"><i class="ti ti-bath"></i> Banheiro suíte 1</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Banheiro suíte 2')"><i class="ti ti-bath"></i> Banheiro suíte 2</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Banheiro suíte 3')"><i class="ti ti-bath"></i> Banheiro suíte 3</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Quarto social')"><i class="ti ti-bed"></i> Quarto social</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Quarto principal')"><i class="ti ti-bed"></i> Quarto principal</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Quarto suíte 1')"><i class="ti ti-bed"></i> Quarto suíte 1</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Quarto suíte 2')"><i class="ti ti-bed"></i> Quarto suíte 2</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Quarto suíte 3')"><i class="ti ti-bed"></i> Quarto suíte 3</button>
       <button class="opt-btn" onclick="pedirOutroAmbiente()"><i class="ti ti-plus"></i> Outro</button>
     </div>
     <div id="outroAmbienteField" style="display:none;margin-top:10px">
@@ -237,20 +250,17 @@
 <div class="screen" id="screen-defeito">
   <div style="margin-top:12px">
     <div class="card-title" style="padding:0 4px 10px;font-size:16px;font-weight:700;color:var(--brand)"><i class="ti ti-alert-triangle"></i> Qual defeito foi encontrado?</div>
-    <div class="option-grid" id="defeitoGrid">
-      <button class="opt-btn" onclick="selecionarDefeito(this,'Falhas no rejunte do revestimento')"><i class="ti ti-grid-dots"></i> Falha no rejunte</button>
-      <button class="opt-btn" onclick="selecionarDefeito(this,'Revestimento com som cavo (oco)')"><i class="ti ti-ear"></i> Revestimento oco</button>
-      <button class="opt-btn" onclick="selecionarDefeito(this,'Revestimento com som cavo (oco) e com falha no rejunte')"><i class="ti ti-alert-circle"></i> Oco + falha rejunte</button>
-      <button class="opt-btn" onclick="selecionarDefeito(this,'Revestimento lascado')"><i class="ti ti-scissors"></i> Revestimento lascado</button>
-      <button class="opt-btn" onclick="selecionarDefeito(this,'Revestimento trincado')"><i class="ti ti-line-dashed"></i> Revestimento trincado</button>
-      <button class="opt-btn" onclick="selecionarDefeito(this,'Falha na pintura')"><i class="ti ti-paint"></i> Falha na pintura</button>
-      <button class="opt-btn" onclick="selecionarDefeito(this,'Mancha na pintura')"><i class="ti ti-droplet"></i> Mancha na pintura</button>
-      <button class="opt-btn" onclick="selecionarDefeito(this,'Fissura na parede')"><i class="ti ti-wave-sine"></i> Fissura na parede</button>
-      <button class="opt-btn" onclick="selecionarDefeito(this,'Marcas de infiltração')"><i class="ti ti-droplets"></i> Infiltração</button>
-      <button class="opt-btn" onclick="selecionarDefeito(this,'Falha na queda/caimento do piso')"><i class="ti ti-trending-down"></i> Queda do piso</button>
-      <button class="opt-btn" onclick="selecionarDefeito(this,'Falha na limpeza')"><i class="ti ti-brush"></i> Falha na limpeza</button>
-      <button class="opt-btn" onclick="selecionarDefeito(this,'Porta lascada')"><i class="ti ti-door"></i> Porta lascada</button>
-      <button class="opt-btn" onclick="selecionarDefeito(this,'Outro defeito')"><i class="ti ti-dots"></i> Outro defeito</button>
+    <div class="section-label" style="margin-top:0">Fita colorida (atalho)</div>
+    <div class="option-grid" style="margin-bottom:16px">
+      <button class="opt-btn accent" onclick="selecionarDefeito(this,'Peça oca, lascada ou trincada')"><i class="ti ti-tag"></i> 🟠 Peça oca/lascada/trincada</button>
+      <button class="opt-btn success" onclick="selecionarDefeito(this,'Falha de rejunte ou falha na pintura')"><i class="ti ti-tag"></i> 🟢 Rejunte/pintura</button>
+      <button class="opt-btn azul" onclick="selecionarDefeito(this,'Fissura na parede, piso ou teto')"><i class="ti ti-tag"></i> 🔵 Fissura parede/piso/teto</button>
+    </div>
+    <div class="section-label">Outros defeitos (biblioteca de legendas)</div>
+    <div class="option-grid" id="categoriaGrid"></div>
+    <div id="itemGrid" style="display:none">
+      <button class="btn btn-outline" style="width:100%;margin-bottom:10px" onclick="voltarCategorias()"><i class="ti ti-arrow-left"></i> Categorias</button>
+      <div class="registro-list" id="itemLista"></div>
     </div>
     <div id="outroDefeitoField" style="display:none;margin-top:10px">
       <div class="field"><label>Descreva o defeito</label><input type="text" id="outroDefeitoInput" placeholder="Ex: Porta travando, Tomada solta..." /></div>
@@ -519,15 +529,160 @@ function renderFotoPreview() {
 
 function removerFoto(id) { state.fotosAtuais=state.fotosAtuais.filter(p=>p.id!==id); renderFotoPreview(); salvarRascunho(); }
 
+// ══════════════════════════════════════════════════════════════
+// BIBLIOTECA DE LEGENDAS PADRÃO (baseada no documento da G&G Engenharia)
+// Cada item: t = título curto do botão, d = texto completo (usado como legenda da foto)
+// ══════════════════════════════════════════════════════════════
+const LEGENDAS = {
+  "Revestimentos Cerâmicos": [
+    {t:"Cerâmica oca (som cavo)", d:"Durante a vistoria, foi identificada manifestação patológica caracterizada por som cavo (oco) em peças de revestimento cerâmico, sinalizada com adesivo laranja. Essa condição indica falha de aderência entre a cerâmica e a base, podendo resultar em descolamento futuro das peças e redução do desempenho do sistema de revestimento. Recomenda-se a remoção e reinstalação das peças afetadas, com preparo adequado do substrato e utilização de argamassa colante compatível, conforme procedimentos estabelecidos na ABNT NBR 13753:1996."},
+    {t:"Falha no rejunte", d:"Foram identificadas falhas e descontinuidades no rejunte, sinalizadas com adesivo verde, comprometendo o acabamento e podendo permitir a infiltração de água e o acúmulo de sujeira. Recomenda-se a correção com reaplicação adequada do rejunte."},
+    {t:"Cerâmica oca e falha no rejunte", d:"Verifica-se revestimento cerâmico com peças ocas (adesivo laranja) e ausência ou falhas no rejuntamento (adesivo verde), comprometendo a aderência, a uniformidade e o acabamento estético do revestimento. Recomenda-se correção das peças e execução adequada do rejunte para garantir durabilidade e padrão visual adequado."},
+    {t:"Cerâmica trincada", d:"Foi identificada cerâmica trincada, sinalizada com adesivo laranja, comprometendo a integridade e a estética do revestimento. Possivelmente causada por movimentação do substrato ou impacto. Recomenda-se substituição da peça para restabelecer o acabamento e evitar infiltrações."},
+    {t:"Cerâmica lascada", d:"Verifica-se a presença de lascamentos no revestimento cerâmico, sinalizados com adesivo laranja, comprometendo o acabamento, a estética e a durabilidade do material."},
+    {t:"Cerâmica lascada e oca", d:"Foi constatada a presença de peça cerâmica lascada e com som cavo (oco), sinalizada com adesivo laranja. Essa condição pode estar associada a falhas no assentamento, utilização inadequada de argamassa colante ou movimentações do substrato. Recomenda-se a substituição da peça afetada e verificação das demais áreas para evitar recorrências."},
+    {t:"Rodapé oco", d:"Ao realizar a inspeção por percussão, foi constatado som cavo no rodapé, sinalizado com adesivo laranja, indicando falta de aderência adequada ao substrato, com risco de desplacamento. Recomenda-se a remoção e a correta reinstalação do rodapé, garantindo a adequada fixação e acabamento."},
+    {t:"Piso sujo", d:"Observa-se revestimento cerâmico com acúmulo de sujeira e resíduos de obra, comprometendo a aparência e o acabamento final da superfície. Recomenda-se a limpeza adequada e remoção dos resíduos."},
+    {t:"Cerâmica manchada (diferença de lote)", d:"Há variações de tonalidade entre as peças cerâmicas, possivelmente decorrentes do uso de lotes diferentes, resultando em um aspecto visual inconsistente."}
+  ],
+  "Pintura": [
+    {t:"Mancha na pintura", d:"Foram identificadas manchas na pintura, sinalizadas com adesivo verde, comprometendo a uniformidade e a vedação das superfícies."},
+    {t:"Falha na pintura (manchas/ondulações)", d:"Observa-se falhas na pintura, sinalizadas com adesivo verde, com presença de manchas e ondulações visíveis nas superfícies de parede e teto, comprometendo o acabamento estético do ambiente."},
+    {t:"Microfissura", d:"Foi verificado a presença de fissura linear na superfície da parede, sinalizada com adesivo azul, com abertura estimada inferior a 1 mm. Pode estar relacionado à movimentação da edificação, retração de materiais ou variações térmicas. Recomenda-se o reparo com materiais adequados e o monitoramento da área."},
+    {t:"Falha na textura", d:"Foi identificada falha na textura, comprometendo o acabamento e a estética da superfície."},
+    {t:"Mancha de umidade", d:"Evidências de umidade foram observadas na superfície, podendo estar relacionadas a infiltrações, condensação ou falhas na impermeabilização."},
+    {t:"Falha no recorte teto/parede", d:"O acabamento da pintura na transição entre o teto e a parede apresenta irregularidades, sinalizado com adesivo verde, resultando em um aspecto visual desalinhado e comprometendo a estética do ambiente."}
+  ],
+  "Porta": [
+    {t:"Porta quebrada", d:"A porta apresenta danos estruturais que comprometem sua funcionalidade e estética, podendo necessitar de reparo ou substituição."},
+    {t:"Porta fora do prumo", d:"Constata-se que a porta se encontra fora de prumo, o que compromete seu funcionamento adequado. A folha tende a fechar sozinha, o que pode causar desconforto aos usuários e risco de impacto constante ao passar. Essa condição pode estar relacionada à instalação inadequada ou deformações na estrutura. Recomenda-se o ajuste do alinhamento da porta para restabelecer seu uso seguro e confortável."},
+    {t:"Maçaneta com problema", d:"A maçaneta apresenta falhas no acionamento, podendo comprometer a abertura e o fechamento da porta."},
+    {t:"Falha ao trancar", d:"O mecanismo de fechamento da porta não está operando corretamente, dificultando o travamento adequado."},
+    {t:"Faltando dobradiça", d:"A ausência de dobradiça compromete a estabilidade e o correto funcionamento da porta, podendo impactar sua fixação e segurança."},
+    {t:"Batente e alizar lascado", d:"Foram identificados danos no batente e alizar, resultando em falhas na integridade e estética do acabamento."},
+    {t:"Ruído na abertura", d:"Ao movimentar a porta, foi constatada a emissão de ruído nas dobradiças, indicando possível aperto excessivo, falta de lubrificação ou desalinhamento. Recomenda-se verificação, ajuste e lubrificação."}
+  ],
+  "Porta de correr": [
+    {t:"Não desliza", d:"A porta de correr apresenta dificuldades no deslizamento, possivelmente devido a desalinhamento, sujeira no trilho ou desgaste dos componentes."},
+    {t:"Trilho amassado", d:"O trilho da porta de correr apresenta deformações, o que pode comprometer o deslizamento adequado da porta e exigir reparo ou substituição."},
+    {t:"Vidro arranhado", d:"Vidro da porta de correr apresenta arranhões visíveis, comprometendo o acabamento e a estética. Recomenda-se substituição ou polimento, conforme viabilidade."},
+    {t:"Falha ao trancar", d:"O mecanismo de travamento da porta de correr não está operando corretamente, dificultando seu fechamento seguro."}
+  ],
+  "Janela": [
+    {t:"Janela quebrada", d:"A estrutura da janela apresenta danos, comprometendo sua funcionalidade e segurança."},
+    {t:"Falha na movimentação", d:"Foi identificado que a janela apresenta dificuldade ao abrir, ficando travada, o que compromete seu funcionamento adequado."},
+    {t:"Trinco não funciona", d:"O trinco da janela não está operando corretamente, dificultando seu fechamento seguro."},
+    {t:"Peitoril lascado", d:"O peitoril apresenta danos na superfície, sinalizados com adesivo laranja, afetando sua estética e podendo comprometer sua resistência."},
+    {t:"Falha na vedação do PU", d:"A vedação com PU apresenta falhas, o que pode comprometer a impermeabilização e permitir infiltrações."},
+    {t:"Peitoril oco e falha rejunte", d:"O peitoril apresenta som cavo (adesivo laranja), comprometendo a estabilidade e segurança, além de falha no rejuntamento (adesivo verde) entre peças prejudicando a vedação."},
+    {t:"Alizar mal encaixado", d:"Constatou-se que o alizar não apresenta bom encaixe no encontro com o marco da janela, resultando em frestas e desnível no acabamento. A situação compromete a estética, facilita o acúmulo de sujeira e pode permitir a passagem de ar e água. Recomenda-se o reposicionamento e fixação correta do alizar, com vedação adequada."},
+    {t:"Alizar com pontas pontiagudas (risco de corte)", d:"Foi identificado que o alizar apresenta pontas pontiagudas nas quinas, representando risco de corte aos usuários durante o manuseio ou circulação próxima ao ambiente. Recomenda-se o lixamento ou arredondamento das extremidades, garantindo segurança adequada."},
+    {t:"Fresta de luz / janela desaprumada", d:"A folha da janela apresenta fresta de luz ao ser fechada, indicando desaprumo e falha no alinhamento da esquadria. Recomenda-se o ajuste da folha para garantir vedação adequada e o correto funcionamento do fechamento."}
+  ],
+  "Pia e tanque": [
+    {t:"Pia trincada", d:"Foi identificada uma trinca na superfície da pia, podendo comprometer sua resistência e estética."},
+    {t:"Pia lascada", d:"A pia apresenta lascas, afetando o acabamento e podendo comprometer sua durabilidade."},
+    {t:"Vazamento no sifão", d:"O sifão da pia apresenta vazamento, comprometendo a vedação e o funcionamento adequado do sistema."},
+    {t:"Vazamento no engate", d:"Foi identificado vazamento no engate, o que pode comprometer a vedação e causar infiltrações."},
+    {t:"Vazamento na torneira", d:"A torneira da pia apresenta vazamento, podendo gerar desperdício de água e umidade excessiva na bancada."},
+    {t:"Falha na vedação", d:"A vedação da pia apresenta irregularidades, o que pode permitir infiltrações e comprometer a impermeabilização do ambiente."},
+    {t:"Pia desnivelada", d:"Foi observado desnivelamento na instalação da pia, o que pode impactar o escoamento da água e a funcionalidade do conjunto."}
+  ],
+  "Elétrica": [
+    {t:"Espelho quebrado", d:"O espelho da tomada e do interruptor apresenta danos, comprometendo a segurança e a estética do ambiente."},
+    {t:"Interruptor sem acionar", d:"O interruptor não está funcionando corretamente, podendo dificultar o acionamento da iluminação."},
+    {t:"QDC sem identificação", d:"O Quadro de Distribuição de Circuitos (QDC) não possui identificação, dificultando a localização e o manuseio correto dos disjuntores."},
+    {t:"QDC com falha na fixação", d:"O QDC não está devidamente fixado, o que pode comprometer sua estabilidade e segurança."},
+    {t:"Espelho sujo", d:"O interruptor e as tomadas apresentam sujeira, comprometendo o acabamento e a apresentação estética."},
+    {t:"Placa desalinhada", d:"Identificamos que a placa (tomada ou interruptor) está desalinhada e mal instalada, comprometendo a estética do ambiente."},
+    {t:"QDC com espaço/disjuntor exposto", d:"Constatada a existência de espaço aberto no QDC (Quadro de Distribuição de Circuitos), sem disjuntor instalado e sem proteção adequada, permitindo acesso à parte interna energizada. É necessária a instalação de tampa cega ou proteção plástica conforme normas de segurança."}
+  ],
+  "Bacia Sanitária": [
+    {t:"Bacia quebrada", d:"A bacia sanitária apresenta danos estruturais, comprometendo sua funcionalidade e segurança."},
+    {t:"Falha na fixação", d:"A fixação da bacia sanitária apresenta instabilidade, sendo necessário apertar os parafusos para garantir sua estabilidade."},
+    {t:"Falha no acionamento", d:"O sistema de acionamento da bacia sanitária não está operando corretamente, dificultando seu funcionamento adequado."},
+    {t:"Vazamento no engate", d:"Foi identificado vazamento no engate do vaso sanitário, comprometendo o funcionamento adequado dos sistemas."},
+    {t:"Vazamento no pé", d:"Foi identificado vazamento na base da bacia sanitária, possivelmente devido a falhas na vedação ou no sistema de escoamento."},
+    {t:"Vedação do pé com rejunte branco", d:"A vedação da base da bacia sanitária foi executada com rejunte na cor branca. Não se recomenda essa prática, pois o rejunte branco tende a apresentar mofo e encardimento ao longo do tempo devido à umidade constante na região, comprometendo o aspecto estético e a higiene do ambiente. Recomenda-se a utilização de rejunte em tonalidade mais escura, mais resistente ao mofo e ao encardimento."}
+  ],
+  "Ralo": [
+    {t:"Obstruído / precisa limpeza", d:"O ralo apresenta acúmulo de resíduos, impedindo o escoamento adequado da água e necessitando de limpeza."},
+    {t:"Sem sifão", d:"O ralo não possui sifão, o que pode comprometer a vedação contra odores e gases provenientes da tubulação."},
+    {t:"Grelha quebrada", d:"A grelha do ralo apresenta danos, podendo comprometer sua funcionalidade e segurança."},
+    {t:"Sem grelha", d:"O ralo está sem a grelha de proteção, podendo gerar risco de obstrução ou acidentes."},
+    {t:"Retorno de água no ralo", d:"Verificou-se retorno de água no ralo, indicando possível obstrução parcial na tubulação ou ausência de declividade adequada no ponto de escoamento. Recomenda-se verificação e correção do sistema de drenagem, garantindo o fluxo adequado da água e evitando acúmulo ou refluxo."},
+    {t:"Fresta entre porta-grelha e tubulação", d:"Existe uma falha no encaixe da tubulação de esgoto com o porta-grelha, com fresta visível entre as peças, indicando que não estão devidamente encaixadas. Essa condição pode comprometer o escoamento da água, podendo gerar infiltração, e necessita reparo ou substituição."}
+  ],
+  "Piso Laminado": [
+    {t:"Lascado e falha no encaixe", d:"O piso laminado apresenta peças lascadas, falhas no encaixe com espaços visíveis entre as peças e pontos com instabilidade ao pisar."},
+    {t:"Fresta entre placas", d:"O piso laminado apresenta falha no encaixe entre as placas, com fresta visível na junção, comprometendo o acabamento e podendo permitir acúmulo de sujeira ou umidade entre as peças."},
+    {t:"Piso afundando", d:"Foi identificado que o piso laminado apresenta afundamento ao ser pisado em determinados pontos, indicando falha na base de apoio ou no assentamento das placas. Recomenda-se verificação da estrutura de suporte e correção do nivelamento."},
+    {t:"Piso estalando", d:"Foi constatado que o piso laminado apresenta estalos ao ser pisado em determinados pontos, podendo indicar má fixação das placas, folga na base de apoio ou falha no encaixe entre os componentes. Recomenda-se verificação do assentamento e correção conforme necessário."}
+  ],
+  "Queda (caimento)": [
+    {t:"Queda insuficiente", d:"O piso apresenta falha na queda, podendo comprometer o escoamento adequado da água."},
+    {t:"Queda excessiva", d:"O piso apresenta inclinação excessiva, causando desconforto ao caminhar e podendo indicar execução fora do padrão técnico. Recomenda-se correção da inclinação."}
+  ],
+  "Drywall": [
+    {t:"Fissura na placa", d:"Foi identificada fissura na placa de drywall, o defeito compromete o acabamento e pode indicar movimentação da estrutura, aplicação incorreta ou dilatação dos materiais. Recomenda-se análise detalhada e correção adequada."},
+    {t:"Ondulação na emenda", d:"Foi identificada ondulação na região da emenda entre as placas de drywall, comprometendo a planeza e o acabamento da superfície. Essa condição pode estar relacionada a falhas no tratamento das juntas ou na aplicação da massa de rejunte. Recomenda-se o retrabalho da emenda para restabelecer o alinhamento adequado."}
+  ],
+  "Registro": [
+    {t:"Registro manchado", d:"Acabamento do registro apresenta manchas visíveis, comprometendo o aspecto estético do item. Recomenda-se a substituição da peça."},
+    {t:"Registro longe da parede", d:"O registro foi instalado de forma recuada em relação ao revestimento, resultando em uma fresta visível entre a canopla e a parede. Recomenda-se o reposicionamento ou ajuste com canopla adequada."},
+    {t:"Registro não fecha a água", d:"Foi constatado que o registro não realiza o fechamento adequado do fluxo de água, permanecendo com vazamento mesmo na posição fechada. Recomenda-se a verificação e substituição do componente para garantir o correto funcionamento."},
+    {t:"Registro sem acabamento", d:"Foi identificado que o registro está instalado sem o acabamento adequado (canopla/espelho), comprometendo a estética do ponto e deixando a tubulação aparente."}
+  ],
+  "Soleira": [
+    {t:"Soleira trincada", d:"Foi identificada trinca na soleira. Pode estar relacionada a impactos, assentamento inadequado, movimentações da base ou sobrecarga localizada. Recomenda-se a substituição da peça e a verificação do assentamento e rejuntamento adjacente."},
+    {t:"Soleira sem desnível", d:"A soleira encontra-se instalada no mesmo nível do piso interno, sem o desnível obrigatório entre área seca e área molhada. Recomenda-se executar o rebaixamento do piso ou o alteamento da soleira."}
+  ],
+  "Alvenaria": [
+    {t:"Fissura atravessando a parede", d:"Foi identificada fissura que atravessa a parede, sinalizada com adesivo azul, indicando que a manifestação atinge também a alvenaria, não só o revestimento. Recomenda-se avaliação detalhada da origem, monitoramento da fissura e execução de reparos após a estabilização da causa."},
+    {t:"Fissura no encontro do muro", d:"Foram identificadas fissuras na parede externa e no encontro do muro, sinalizadas com adesivo azul, possivelmente decorrentes de ausência de travamento adequado ou movimentações diferenciais. Recomenda-se avaliação estrutural detalhada e monitoramento."},
+    {t:"Falha na pintura e infiltração no teto", d:"Foi identificada falha na pintura da parede, com perda de uniformidade, além de mancha de infiltração no teto, possivelmente decorrente de falhas na impermeabilização ou instalações hidráulicas superiores. Recomenda-se investigar a origem antes de qualquer reparo estético."},
+    {t:"Fissura superficial", d:"Identificado fissura na parede, sinalizada com adesivo azul, restrita ao revestimento/pintura, sem indícios de comprometimento da alvenaria. Pode estar relacionada à retração de materiais, movimentação natural da edificação ou variações térmicas. Recomenda-se o reparo com materiais adequados e monitoramento da área para verificar possível recorrência."}
+  ],
+  "Contra-piso": [
+    {t:"Contra-piso oco", d:"Foi identificado contra piso com áreas ocas (som oco ao toque), indicando falha no assentamento da argamassa. Recomenda-se remoção das áreas comprometidas, correção do assentamento e verificação da superfície adjacente."}
+  ],
+  "Garagem / Diversos": [
+    {t:"Falha na fixação de placa pré-moldada", d:"Foi identificada anomalia de fixação em uma das placas de piso pré-moldadas, caracterizando falha de estabilidade. Recomenda-se a recolocação e nivelamento adequado da placa, com correção da base de apoio."},
+    {t:"Fissura e infiltração no forro", d:"Foi identificada manifestação patológica no forro de gesso, com fissuras lineares e marcas de umidade. Recomenda-se investigar a origem da infiltração antes de qualquer reparo estético."},
+    {t:"Spot de iluminação não funciona", d:"Foi constatado que um dos spots embutidos no teto não está funcionando, enquanto os demais funcionam normalmente. Recomenda-se verificação do ponto elétrico e substituição da lâmpada, se necessário."},
+    {t:"Armário com falha no encaixe", d:"O armário apresenta falha no encaixe das portas, com amortecedor não funcionando adequadamente. Recomenda-se revisar o ajuste das portas e substituir o amortecedor danificado."}
+  ]
+};
+
+function renderCategorias() {
+  document.getElementById('categoriaGrid').innerHTML = Object.keys(LEGENDAS).map(cat =>
+    `<button class="opt-btn" onclick="selecionarCategoria('${cat.replace(/'/g,"\\'")}')"><i class="ti ti-folder"></i> ${cat}</button>`
+  ).join('') + `<button class="opt-btn" onclick="selecionarDefeito(this,'Outro defeito')"><i class="ti ti-dots"></i> Outro / não listado</button>`;
+  document.getElementById('categoriaGrid').style.display = 'grid';
+  document.getElementById('itemGrid').style.display = 'none';
+}
+
+function selecionarCategoria(cat) {
+  const itens = LEGENDAS[cat] || [];
+  document.getElementById('itemLista').innerHTML = itens.map((item, i) =>
+    `<button class="opt-btn" style="width:100%;text-align:left;justify-content:flex-start" onclick="selecionarDefeito(this,'${item.d.replace(/'/g,"\\'").replace(/\n/g,' ')}')"><i class="ti ti-tag"></i> ${item.t}</button>`
+  ).join('');
+  document.getElementById('categoriaGrid').style.display = 'none';
+  document.getElementById('itemGrid').style.display = 'block';
+}
+
+function voltarCategorias() { renderCategorias(); }
+
 function irParaDefeito() {
   if (state.fotosAtuais.length===0) { alert('Envie ao menos uma foto.'); return; }
-  document.querySelectorAll('#defeitoGrid .opt-btn').forEach(b=>b.classList.remove('selected'));
+  document.querySelectorAll('#screen-defeito .opt-btn').forEach(b=>b.classList.remove('selected'));
   state.defeitoAtual=''; document.getElementById('outroDefeitoField').style.display='none';
+  renderCategorias();
   mostrarScreen('screen-defeito');
 }
 
 function selecionarDefeito(el, val) {
-  document.querySelectorAll('#defeitoGrid .opt-btn').forEach(b=>b.classList.remove('selected'));
+  document.querySelectorAll('#screen-defeito .opt-btn').forEach(b=>b.classList.remove('selected'));
   el.classList.add('selected'); state.defeitoAtual=val;
   document.getElementById('outroDefeitoField').style.display=val==='Outro defeito'?'block':'none';
   if (val==='Outro defeito') document.getElementById('outroDefeitoInput').focus();
