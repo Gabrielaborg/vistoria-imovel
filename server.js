@@ -375,7 +375,7 @@ const server = http.createServer(async (req, res) => {
         return res.end(JSON.stringify({ erro: 'Chave do serviço de mapas (GEOAPIFY_API_KEY) não configurada no servidor.' }));
       }
       // Geoapify Static Maps: serviço confiável baseado no OpenStreetMap, com tier gratuito
-      const mapaUrl = `https://maps.geoapify.com/v1/staticmap?style=osm-bright&width=640&height=400&center=lonlat:${lon},${lat}&zoom=17&marker=lonlat:${lon},${lat};type:awesome;color:orange;size:large&apiKey=${GEOAPIFY_API_KEY}`;
+      const mapaUrl = `https://maps.geoapify.com/v1/staticmap?style=osm-bright&width=640&height=400&center=lonlat:${lon},${lat}&zoom=15&marker=lonlat:${lon},${lat};type:awesome;color:orange;size:large&apiKey=${GEOAPIFY_API_KEY}`;
       const mapaRes = await fetch(mapaUrl);
       if (!mapaRes.ok) {
         const corpoErro = await mapaRes.text().catch(() => '');
