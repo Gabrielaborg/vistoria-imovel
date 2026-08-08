@@ -110,6 +110,7 @@ async function gerarDocx(payload) {
 
   // ─── Registros ──────────────────────────────────────────
   const registrosParagraphs = [];
+  let imgCounter = 1; // numeração contínua por TODO o laudo (não reinicia a cada ambiente/defeito)
   const byAmbiente = {};
   registros.forEach(r => { if (!byAmbiente[r.ambiente]) byAmbiente[r.ambiente] = []; byAmbiente[r.ambiente].push(r); });
 
@@ -132,12 +133,16 @@ async function gerarDocx(payload) {
         children: [N(defeito, 20)], indent, spacing: { after: 80 }, alignment: AlignmentType.JUSTIFIED
       }));
       const totalFotos = fotosDoGrupo.length;
+      const inicio = imgCounter;
+      const fim = imgCounter + totalFotos - 1;
+      const referencia = totalFotos > 1 ? `Evidenciado nas imagens ${inicio} a ${fim}.` : `Evidenciado na imagem ${inicio}.`;
+      registrosParagraphs.push(new Paragraph({
+        children: [N(referencia, 18)], indent, spacing: { after: 100 }
+      }));
       for (let i = 0; i < totalFotos; i++) {
         const foto = fotosDoGrupo[i];
-        // Rótulo curto: "Evidência N de TOTAL" (numeração local do grupo, ex: 1 de 10, 2 de 10...)
-        const rotulo = totalFotos > 1 ? `Evidência ${i+1} de ${totalFotos}` : `Evidência`;
         registrosParagraphs.push(new Paragraph({
-          children: [N(rotulo, 20)], indent, spacing: { after: 60 }
+          children: [N(`Imagem ${imgCounter}`, 20)], indent, spacing: { after: 60 }
         }));
         try {
           const imgBuf = Buffer.from(foto.base64, 'base64');
@@ -147,6 +152,7 @@ async function gerarDocx(payload) {
             alignment: AlignmentType.CENTER, spacing: { before: 80, after: 160 }
           }));
         } catch(e) { console.error('Img error:', e.message); }
+        imgCounter++;
       }
     }
     registrosParagraphs.push(br());
