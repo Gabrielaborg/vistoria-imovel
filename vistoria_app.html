@@ -500,6 +500,34 @@ async function atualizarBannerFila() {
   banner.innerHTML = `<span class="sp2" style="border-color:rgba(255,255,255,.4);border-top-color:#fff"></span> Reenviando laudo pendente (${fila.length}): ${nomes}`;
 }
 
+// Baixa um arquivo pro usuário de um jeito seguro em qualquer plataforma.
+// No iPhone com o app instalado (modo "tela cheia"/standalone), o download
+// tradicional abre uma pré-visualização de tela cheia SEM botão de voltar,
+// obrigando a pessoa a fechar e reabrir o app. Nesse caso específico, usamos
+// o menu de compartilhar nativo do iOS, que sempre pode ser fechado normalmente.
+async function baixarArquivo(blob, filename, mimeType) {
+  const emModoStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+  if (emModoStandalone && isIOS && navigator.canShare) {
+    try {
+      const file = new File([blob], filename, { type: mimeType });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] });
+        return;
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return; // pessoa cancelou o compartilhamento, tudo certo
+      console.error('Falha ao compartilhar, tentando download tradicional:', e);
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
 // Tenta reenviar tudo que estiver na fila. Chamado ao abrir o app, periodicamente,
 // e sempre que o celular voltar a ter internet.
 let reenviandoFila = false;
@@ -518,12 +546,9 @@ async function tentarReenviarFila() {
         });
         if (!res.ok) throw new Error('Servidor respondeu erro ao reenviar');
         const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Laudo_${(item.payload.dados.nome || 'cliente').split(' ')[0]}_${item.payload.dados.data || 'vistoria'}.${item.tipo}`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const nomeArquivo = `Laudo_${(item.payload.dados.nome || 'cliente').split(' ')[0]}_${item.payload.dados.data || 'vistoria'}.${item.tipo}`;
+        const mimeType = item.tipo === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        await baixarArquivo(blob, nomeArquivo, mimeType);
         await removerDaFila(item.id);
       } catch (e) {
         console.error('Reenvio ainda falhou, vai tentar de novo depois:', e.message);
@@ -1163,10 +1188,10 @@ async function gerarDocumento(tipo) {
     const res=await fetch('/gerar-laudo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if(!res.ok) throw new Error('Erro no servidor');
     const blob=await res.blob();
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url; a.download=`Laudo_${(state.dados.nome||'cliente').split(' ')[0]}_${state.dados.data||'vistoria'}.${tipo}`; a.click();
-    URL.revokeObjectURL(url); msg.textContent='✓ Download iniciado!';
+    const nomeArquivo=`Laudo_${(state.dados.nome||'cliente').split(' ')[0]}_${state.dados.data||'vistoria'}.${tipo}`;
+    const mimeType = tipo === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    await baixarArquivo(blob, nomeArquivo, mimeType);
+    msg.textContent='✓ Download iniciado!';
     await limparRascunho(); // laudo gerado com sucesso, não precisa mais do rascunho salvo
   } catch(e) {
     console.error(e);
@@ -1195,9 +1220,27 @@ function novaVistoria() {
 document.getElementById('fileInputGallery').addEventListener('change', e => { handleFiles(e.target.files); document.getElementById('fileInputGallery').value=''; });
 
 async function baixarPdfHistorico(arquivo) {
-  const url = `/download-pdf/${arquivo}`;
-  const a = document.createElement('a');
-  a.href = url; a.download = decodeURIComponent(arquivo).replace('.docx','.pdf'); a.click();
+  try {
+    const res = await fetch(`/download-pdf/${arquivo}`);
+    const blob = await res.blob();
+    const nomeArquivo = decodeURIComponent(arquivo).replace('.docx', '.pdf');
+    await baixarArquivo(blob, nomeArquivo, 'application/pdf');
+  } catch (e) {
+    console.error('Falha ao baixar PDF do histórico:', e);
+    alert('Não foi possível baixar o PDF agora. Tente novamente.');
+  }
+}
+
+async function baixarWordHistorico(arquivo) {
+  try {
+    const res = await fetch(`/download/${arquivo}`);
+    const blob = await res.blob();
+    const nomeArquivo = decodeURIComponent(arquivo);
+    await baixarArquivo(blob, nomeArquivo, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  } catch (e) {
+    console.error('Falha ao baixar Word do histórico:', e);
+    alert('Não foi possível baixar o Word agora. Tente novamente.');
+  }
 }
 
 async function carregarHistorico() {
@@ -1218,7 +1261,7 @@ function renderHistorico(lista) {
       <i class="ti ti-file-text" style="font-size:26px;color:var(--brand)"></i>
       <div class="info"><strong>${l.nome}${l.empreendimento?' - '+l.empreendimento:''}</strong><span>${l.data}</span></div>
       <div style="display:flex;flex-direction:column;gap:5px">
-        <a href="/download/${encodeURIComponent(l.arquivo)}" download><button class="hist-btn" style="width:100%"><i class="ti ti-file-word"></i> Word</button></a>
+        <button class="hist-btn" style="width:100%" onclick="baixarWordHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-word"></i> Word</button>
         <button class="hist-btn" style="background:#C0392B;width:100%" onclick="baixarPdfHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-type-pdf"></i> PDF</button>
       </div>
     </div>`).join('');
