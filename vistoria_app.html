@@ -224,7 +224,7 @@
       <input type="file" id="fileInputPhoto" accept="image/*" multiple capture="environment" style="display:none" />
       <input type="file" id="fileInputGallery" accept="image/*" multiple style="display:none" />
       <div class="photo-preview" id="photoPreviewGrid"></div>
-      <div class="processing-msg" id="processingMsg" style="display:none"><span class="sp2"></span> Analisando com IA...</div>
+      
     </div>
   </div>
   <div class="bottom-bar">
@@ -314,7 +314,7 @@
 </div>
 
 <script>
-const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', obsGeral:'', plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null };
+const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', obsGeral:'', plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'' };
 let todosLaudos = [];
 
 document.getElementById('dataVistoria').value = new Date().toISOString().split('T')[0];
@@ -392,7 +392,6 @@ function selecionarAmbiente(nome) {
   state.ambienteAtual = nome; state.fotosAtuais = [];
   document.getElementById('ambienteFotoTitle').textContent = nome;
   document.getElementById('photoPreviewGrid').innerHTML = '';
-  document.getElementById('processingMsg').style.display = 'none';
   document.getElementById('outroAmbienteField').style.display = 'none';
   mostrarScreen('screen-foto');
 }
@@ -408,7 +407,7 @@ function atualizarResumo() {
   document.getElementById('countBadge').textContent = state.registros.length;
   document.getElementById('registroList').innerHTML = state.registros.map(r => {
     const thumb = r.fotos[0] ? `<img src="${r.fotos[0].src}">` : '<div style="width:50px;height:50px;background:var(--light);border-radius:6px;flex-shrink:0"></div>';
-    return `<div class="registro-item">${thumb}<div class="info"><span class="ambiente-tag">${r.ambiente}</span><span class="defeito-tag">${r.defeito}</span>${r.fotos[0]?.aiDesc?`<p class="ai-desc">${r.fotos[0].aiDesc}</p>`:''}</div></div>`;
+    return `<div class="registro-item">${thumb}<div class="info"><span class="ambiente-tag">${r.ambiente}</span><span class="defeito-tag">${r.defeito}</span></div></div>`;
   }).join('');
 }
 
@@ -420,8 +419,8 @@ function handleFiles(files) {
     const reader = new FileReader();
     reader.onload = ev => {
       const id = 'p'+Date.now()+Math.random().toString(36).slice(2);
-      const entry = { id, src: ev.target.result, base64: ev.target.result.split(',')[1], mediaType: file.type==='image/png'?'image/png':'image/jpeg', aiDesc:null, analyzing:true };
-      state.fotosAtuais.push(entry); renderFotoPreview(); analyzePhoto(entry);
+      const entry = { id, src: ev.target.result, base64: ev.target.result.split(',')[1], mediaType: file.type==='image/png'?'image/png':'image/jpeg' };
+      state.fotosAtuais.push(entry); renderFotoPreview();
     };
     reader.readAsDataURL(file);
   });
@@ -430,30 +429,11 @@ function handleFiles(files) {
 function renderFotoPreview() {
   document.getElementById('photoPreviewGrid').innerHTML = state.fotosAtuais.map(p => `
     <div class="photo-thumb"><img src="${p.src}">
-      ${p.analyzing?'<div class="analyzing-tag">IA...</div>':''}
-      ${p.aiDesc?`<div class="ai-overlay">${p.aiDesc}</div>`:''}
       <button class="remove-photo" onclick="removerFoto('${p.id}')">✕</button>
     </div>`).join('');
-  document.getElementById('processingMsg').style.display = state.fotosAtuais.some(p=>p.analyzing)?'flex':'none';
 }
 
 function removerFoto(id) { state.fotosAtuais=state.fotosAtuais.filter(p=>p.id!==id); renderFotoPreview(); }
-
-async function analyzePhoto(entry) {
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:80,
-        system:'Analise foto de vistoria de imóvel. Retorne SOMENTE JSON: {"descricao":"descrição técnica do defeito, máx 60 chars"}. Sem markdown.',
-        messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:entry.mediaType,data:entry.base64}},{type:'text',text:'Descreva o defeito.'}]}]
-      })
-    });
-    const data = await res.json();
-    const parsed = JSON.parse(data.content?.[0]?.text?.replace(/```json|```/g,'').trim()||'{}');
-    entry.aiDesc = parsed.descricao||'';
-  } catch { entry.aiDesc=''; }
-  entry.analyzing=false; renderFotoPreview();
-}
 
 function irParaDefeito() {
   if (state.fotosAtuais.length===0) { alert('Envie ao menos uma foto.'); return; }
@@ -486,18 +466,31 @@ function mostrarObs(sim) {
   document.getElementById('obsField').style.display=sim?'block':'none';
 }
 
-function processarLaudo() {
+async function processarLaudo() {
   state.obsGeral=document.getElementById('obsGeral').value.trim();
   mostrarScreen('screen-sucesso');
   document.getElementById('btnBaixarDocx').onclick=()=>gerarDocumento('docx');
+
+  // Gera a conclusão personalizada por IA em segundo plano, com base nos defeitos reais.
+  // Se falhar (rede, IA fora do ar, etc.), state.conclusaoIA fica vazio e o servidor
+  // usa automaticamente o texto padrão fixo — a vistoria nunca trava por causa disso.
+  try {
+    const registrosResumo = state.registros.map(r => ({ ambiente: r.ambiente, defeito: r.defeito }));
+    const res = await fetch('/gerar-conclusao', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ registros: registrosResumo, tipoVistoria: state.tipoVistoria, obsGeral: state.obsGeral })
+    });
+    const data = await res.json();
+    state.conclusaoIA = data.conclusao || '';
+  } catch { state.conclusaoIA = ''; }
 }
 
 async function gerarDocumento(tipo) {
   const msg=document.getElementById('gerandoMsg');
   msg.style.display='block'; msg.innerHTML='<span class="spinner"></span> Gerando documento...';
   try {
-    const registrosData=state.registros.map(r=>({ambiente:r.ambiente,defeito:r.defeito,fotos:r.fotos.map(f=>({base64:f.base64,mediaType:f.mediaType,aiDesc:f.aiDesc||''}))}));
-    const payload={dados:state.dados,tipoVistoria:state.tipoVistoria,obsGeral:state.obsGeral,registros:registrosData,formato:tipo,plantaBase64:state.plantaBase64,plantaMediaType:state.plantaMediaType,mapaBase64:state.mapaBase64,mapaMediaType:state.mapaMediaType};
+    const registrosData=state.registros.map(r=>({ambiente:r.ambiente,defeito:r.defeito,fotos:r.fotos.map(f=>({base64:f.base64,mediaType:f.mediaType}))}));
+    const payload={dados:state.dados,tipoVistoria:state.tipoVistoria,obsGeral:state.obsGeral,registros:registrosData,formato:tipo,plantaBase64:state.plantaBase64,plantaMediaType:state.plantaMediaType,mapaBase64:state.mapaBase64,mapaMediaType:state.mapaMediaType,conclusaoIA:state.conclusaoIA||''};
     const res=await fetch('/gerar-laudo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if(!res.ok) throw new Error('Erro no servidor');
     const blob=await res.blob();
@@ -509,7 +502,7 @@ async function gerarDocumento(tipo) {
 }
 
 function novaVistoria() {
-  Object.assign(state,{dados:{},tipoVistoria:'',registros:[],ambienteAtual:'',fotosAtuais:[],defeitoAtual:'',obsGeral:'',plantaBase64:null,plantaMediaType:null,mapaBase64:null,mapaMediaType:null});
+  Object.assign(state,{dados:{},tipoVistoria:'',registros:[],ambienteAtual:'',fotosAtuais:[],defeitoAtual:'',obsGeral:'',plantaBase64:null,plantaMediaType:null,mapaBase64:null,mapaMediaType:null,conclusaoIA:''});
   ['nomeCliente','cpf','telefone','empreendimento','endereco','bloco','apto','cep','cidade','metragem','comodos','obsGeral'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('dataVistoria').value=new Date().toISOString().split('T')[0];
   
