@@ -118,6 +118,8 @@
   <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:10%"></div></div>
 </div>
 
+<div id="filaBanner" style="display:none;align-items:center;justify-content:center;gap:8px;background:var(--accent);color:#fff;font-size:12px;font-weight:700;padding:8px 16px;text-align:center;position:sticky;top:0;z-index:99"></div>
+
 <div style="max-width:520px;margin:0 auto;padding:12px 16px 0">
   <div class="nav-tabs">
     <button class="nav-tab active" id="tab-vistoria" onclick="switchTab('vistoria')"><i class="ti ti-clipboard-check"></i> Vistoria</button>
@@ -331,14 +333,19 @@ let todosLaudos = [];
 // SALVAMENTO AUTOMÁTICO (IndexedDB) — pra vistoria nunca se perder
 // ══════════════════════════════════════════════════════════════
 const DB_NOME = 'vistoria_db';
-const DB_VERSAO = 1;
+const DB_VERSAO = 2;
 const LOJA = 'rascunho';
+const LOJA_FILA = 'fila_envio';
 const CHAVE_RASCUNHO = 'vistoria_em_andamento';
 
 function abrirDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NOME, DB_VERSAO);
-    req.onupgradeneeded = () => { req.result.createObjectStore(LOJA); };
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(LOJA)) db.createObjectStore(LOJA);
+      if (!db.objectStoreNames.contains(LOJA_FILA)) db.createObjectStore(LOJA_FILA, { keyPath: 'id' });
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
@@ -371,6 +378,111 @@ async function limparRascunho() {
     const tx = db.transaction(LOJA, 'readwrite');
     tx.objectStore(LOJA).delete(CHAVE_RASCUNHO);
   } catch (e) { console.error('Falha ao limpar rascunho local:', e); }
+}
+
+// ══════════════════════════════════════════════════════════════
+// FILA DE REENVIO AUTOMÁTICO — se o envio do laudo falhar (sem
+// internet, sinal fraco, servidor fora do ar por um instante), o
+// laudo fica guardado aqui e o app continua tentando reenviar
+// sozinho, em segundo plano, até dar certo.
+// ══════════════════════════════════════════════════════════════
+
+async function salvarNaFila(payload, tipo) {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA_FILA, 'readwrite');
+    const item = {
+      id: 'fila_' + Date.now() + Math.random().toString(36).slice(2),
+      payload, tipo,
+      nome: (payload.dados && payload.dados.nome) || 'Cliente',
+      criadoEm: Date.now(),
+      tentativas: 0
+    };
+    tx.objectStore(LOJA_FILA).put(item);
+    return new Promise(res => { tx.oncomplete = () => res(item.id); tx.onerror = () => res(null); });
+  } catch (e) { console.error('Falha ao salvar na fila de reenvio:', e); return null; }
+}
+
+async function listarFila() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA_FILA, 'readonly');
+    return new Promise(res => {
+      const req = tx.objectStore(LOJA_FILA).getAll();
+      req.onsuccess = () => res(req.result || []);
+      req.onerror = () => res([]);
+    });
+  } catch (e) { return []; }
+}
+
+async function removerDaFila(id) {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA_FILA, 'readwrite');
+    tx.objectStore(LOJA_FILA).delete(id);
+    return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+  } catch (e) { console.error('Falha ao remover item da fila:', e); }
+}
+
+async function marcarTentativaFila(id) {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA_FILA, 'readwrite');
+    const store = tx.objectStore(LOJA_FILA);
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const item = getReq.result;
+      if (item) { item.tentativas = (item.tentativas || 0) + 1; store.put(item); }
+    };
+    return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+  } catch (e) { /* ignora */ }
+}
+
+// Mostra/atualiza o aviso fixo no topo do app com o que ainda está pendente de envio
+async function atualizarBannerFila() {
+  const fila = await listarFila();
+  const banner = document.getElementById('filaBanner');
+  if (!banner) return;
+  if (fila.length === 0) { banner.style.display = 'none'; return; }
+  const nomes = fila.map(f => f.nome).join(', ');
+  banner.style.display = 'flex';
+  banner.innerHTML = `<span class="sp2" style="border-color:rgba(255,255,255,.4);border-top-color:#fff"></span> Reenviando laudo pendente (${fila.length}): ${nomes}`;
+}
+
+// Tenta reenviar tudo que estiver na fila. Chamado ao abrir o app, periodicamente,
+// e sempre que o celular voltar a ter internet.
+let reenviandoFila = false;
+async function tentarReenviarFila() {
+  if (reenviandoFila) return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  reenviandoFila = true;
+  try {
+    const fila = await listarFila();
+    await atualizarBannerFila();
+    for (const item of fila) {
+      try {
+        const res = await fetch('/gerar-laudo', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(item.payload)
+        });
+        if (!res.ok) throw new Error('Servidor respondeu erro ao reenviar');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Laudo_${(item.payload.dados.nome || 'cliente').split(' ')[0]}_${item.payload.dados.data || 'vistoria'}.${item.tipo}`;
+        a.click();
+        URL.revokeObjectURL(url);
+        await removerDaFila(item.id);
+      } catch (e) {
+        console.error('Reenvio ainda falhou, vai tentar de novo depois:', e.message);
+        await marcarTentativaFila(item.id);
+      }
+    }
+    await atualizarBannerFila();
+  } finally {
+    reenviandoFila = false;
+  }
 }
 
 // Verifica, ao abrir o app, se existe uma vistoria salva e não finalizada
@@ -834,9 +946,9 @@ async function processarLaudo() {
 async function gerarDocumento(tipo) {
   const msg=document.getElementById('gerandoMsg');
   msg.style.display='block'; msg.innerHTML='<span class="spinner"></span> Gerando documento...';
+  const registrosData=state.registros.map(r=>({ambiente:r.ambiente,defeito:r.defeito,fotos:r.fotos.map(f=>({base64:f.base64,mediaType:f.mediaType}))}));
+  const payload={dados:state.dados,tipoVistoria:state.tipoVistoria,obsGeral:state.obsGeral,registros:registrosData,formato:tipo,plantaBase64:state.plantaBase64,plantaMediaType:state.plantaMediaType,mapaBase64:state.mapaBase64,mapaMediaType:state.mapaMediaType,conclusaoIA:state.conclusaoIA||''};
   try {
-    const registrosData=state.registros.map(r=>({ambiente:r.ambiente,defeito:r.defeito,fotos:r.fotos.map(f=>({base64:f.base64,mediaType:f.mediaType}))}));
-    const payload={dados:state.dados,tipoVistoria:state.tipoVistoria,obsGeral:state.obsGeral,registros:registrosData,formato:tipo,plantaBase64:state.plantaBase64,plantaMediaType:state.plantaMediaType,mapaBase64:state.mapaBase64,mapaMediaType:state.mapaMediaType,conclusaoIA:state.conclusaoIA||''};
     const res=await fetch('/gerar-laudo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if(!res.ok) throw new Error('Erro no servidor');
     const blob=await res.blob();
@@ -845,7 +957,15 @@ async function gerarDocumento(tipo) {
     a.href=url; a.download=`Laudo_${(state.dados.nome||'cliente').split(' ')[0]}_${state.dados.data||'vistoria'}.${tipo}`; a.click();
     URL.revokeObjectURL(url); msg.textContent='✓ Download iniciado!';
     await limparRascunho(); // laudo gerado com sucesso, não precisa mais do rascunho salvo
-  } catch(e) { msg.textContent='⚠ Erro ao gerar. Tente novamente.'; console.error(e); }
+  } catch(e) {
+    console.error(e);
+    // Sem internet, sinal fraco ou servidor fora do ar por um instante: guarda o laudo
+    // completo na fila local e o app continua tentando reenviar sozinho, em segundo plano.
+    await salvarNaFila(payload, tipo);
+    await atualizarBannerFila();
+    msg.innerHTML = '⚠ Sem conexão ou erro no envio agora. O laudo foi salvo no celular e será reenviado automaticamente assim que possível — acompanhe o aviso no topo da tela.';
+    await limparRascunho(); // já está garantido na fila, não precisa mais do rascunho separado
+  }
 }
 
 function novaVistoria() {
@@ -896,6 +1016,13 @@ function renderHistorico(lista) {
 // Ao abrir o app, verifica se existe uma vistoria em andamento salva localmente
 carregarCorConfig();
 verificarRascunhoAoAbrir();
+
+// Fila de reenvio automático: verifica ao abrir, tenta reenviar de novo a cada 30s,
+// e também assim que o celular recuperar a conexão com a internet.
+atualizarBannerFila();
+tentarReenviarFila();
+setInterval(tentarReenviarFila, 30000);
+window.addEventListener('online', tentarReenviarFila);
 
 </script>
 </body>
