@@ -216,10 +216,13 @@
   </div>
 
   <div class="card">
-    <div class="card-title"><i class="ti ti-map-pin"></i> Localização (Google Maps)</div>
+    <div class="card-title"><i class="ti ti-map-pin"></i> Localização</div>
+    <button type="button" id="btnMapaAutomatico" onclick="buscarMapaAtual()" style="width:100%;background:var(--brand2);color:#fff;border:none;border-radius:10px;padding:13px;font-family:var(--font);font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:10px">
+      <i class="ti ti-current-location"></i> Usar minha localização atual
+    </button>
     <div class="upload-zone" onclick="document.getElementById('mapaInput').click()">
       <i class="ti ti-map-2"></i>
-      <p>Envie o <strong>print do Google Maps</strong> do endereço</p>
+      <p>Ou envie o <strong>print do Google Maps</strong> do endereço</p>
     </div>
     <input type="file" id="mapaInput" accept="image/*" style="display:none" />
     <div id="mapaPreview"></div>
@@ -598,6 +601,34 @@ function removerUpload(previewId, stateKey, stateMediaKey, inputId) {
   state[stateKey] = null; state[stateMediaKey] = null;
   document.getElementById(previewId).innerHTML = '';
   document.getElementById(inputId).value = '';
+}
+
+// Busca a imagem do mapa automaticamente, pela localização atual do GPS,
+// sem precisar tirar print do Google Maps manualmente.
+async function buscarMapaAtual() {
+  const btn = document.getElementById('btnMapaAutomatico');
+  const textoOriginal = btn.innerHTML;
+  btn.disabled = true;
+  btn.style.opacity = '.7';
+  btn.innerHTML = '<span class="spinner"></span> Buscando localização...';
+  try {
+    const loc = await obterLocalizacaoAtual();
+    if (!loc) throw new Error('Não foi possível obter a localização do GPS. Verifique se a permissão de localização está ativada.');
+    const res = await fetch(`/obter-mapa?lat=${loc.lat}&lon=${loc.lon}`);
+    const data = await res.json();
+    if (data.erro || !data.base64) throw new Error(data.erro || 'Serviço de mapa indisponível.');
+    state.mapaBase64 = data.base64;
+    state.mapaMediaType = data.mediaType;
+    document.getElementById('mapaPreview').innerHTML = `<div class="single-thumb"><img src="data:${data.mediaType};base64,${data.base64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>`;
+    await salvarRascunho();
+  } catch (e) {
+    console.error('Falha ao buscar mapa automático:', e.message);
+    alert('Não foi possível buscar o mapa automaticamente agora.\n\nVocê pode enviar o print do Google Maps manualmente logo abaixo.');
+  } finally {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.innerHTML = textoOriginal;
+  }
 }
 
 function switchTab(tab) {
