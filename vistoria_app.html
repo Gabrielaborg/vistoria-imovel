@@ -648,7 +648,7 @@ async function buscarMapaAtual() {
     await salvarRascunho();
   } catch (e) {
     console.error('Falha ao buscar mapa automático:', e.message);
-    alert('Não foi possível buscar o mapa automaticamente agora.\n\nVocê pode enviar o print do Google Maps manualmente logo abaixo.');
+    alert(`Não foi possível buscar o mapa automaticamente agora.\n\nMotivo: ${e.message}\n\nVocê pode enviar o print do Google Maps manualmente logo abaixo.`);
   } finally {
     btn.disabled = false;
     btn.style.opacity = '1';
