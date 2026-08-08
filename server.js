@@ -119,10 +119,17 @@ async function gerarDocx(payload) {
       children: [B(ambiente, 20)], indent, spacing: { before: 200, after: 100 }
     }));
     for (const item of items) {
-      for (const foto of item.fotos) {
-        const desc = item.defeito;
+      // Texto completo do defeito aparece UMA VEZ por registro (não repete por foto)
+      registrosParagraphs.push(new Paragraph({
+        children: [N(item.defeito, 20)], indent, spacing: { after: 80 }, alignment: AlignmentType.JUSTIFIED
+      }));
+      const totalFotos = item.fotos.length;
+      for (let i = 0; i < totalFotos; i++) {
+        const foto = item.fotos[i];
+        // Fotos ganham só um rótulo curto: "Imagem N" (ou "Imagem N (1 de 3)" se houver mais de uma no mesmo registro)
+        const rotulo = totalFotos > 1 ? `Imagem ${imgCounter} (${i+1} de ${totalFotos})` : `Imagem ${imgCounter}`;
         registrosParagraphs.push(new Paragraph({
-          children: [N(`Imagem ${imgCounter} - ${desc}`, 20)], indent, spacing: { after: 80 }
+          children: [N(rotulo, 20)], indent, spacing: { after: 60 }
         }));
         try {
           const imgBuf = Buffer.from(foto.base64, 'base64');
