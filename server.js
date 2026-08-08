@@ -356,6 +356,30 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'image/png' });
     return res.end(fs.readFileSync(path.join(__dirname, req.url.slice(1))));
   }
+  if (req.method === 'GET' && req.url.startsWith('/obter-mapa')) {
+    try {
+      const urlObj = new URL(req.url, `http://${req.headers.host}`);
+      const lat = parseFloat(urlObj.searchParams.get('lat'));
+      const lon = parseFloat(urlObj.searchParams.get('lon'));
+      if (isNaN(lat) || isNaN(lon)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ erro: 'Coordenadas inválidas.' }));
+      }
+      // Serviço gratuito de mapas estáticos baseado no OpenStreetMap, sem necessidade de chave de API
+      const mapaUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lon}&zoom=17&size=640x400&maptype=mapnik&markers=${lat},${lon},ol-marker`;
+      const mapaRes = await fetch(mapaUrl);
+      if (!mapaRes.ok) throw new Error(`Serviço de mapa respondeu ${mapaRes.status}`);
+      const buf = Buffer.from(await mapaRes.arrayBuffer());
+      const base64 = buf.toString('base64');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ base64, mediaType: 'image/png' }));
+    } catch (e) {
+      console.error('Erro em /obter-mapa:', e.message);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ erro: 'Não foi possível buscar o mapa automaticamente.' }));
+    }
+  }
+
   if (req.method === 'GET' && req.url === '/historico') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(lerHistorico().reverse()));
