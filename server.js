@@ -343,6 +343,19 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'image/png' });
     return res.end(fs.readFileSync(LOGO_IMG));
   }
+  if (req.method === 'GET' && req.url === '/manifest.json') {
+    res.writeHead(200, { 'Content-Type': 'application/manifest+json' });
+    return res.end(fs.readFileSync(path.join(__dirname, 'manifest.json')));
+  }
+  if (req.method === 'GET' && req.url === '/service-worker.js') {
+    // Service-Worker-Allowed garante que o service worker consegue controlar todo o site (escopo "/")
+    res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Service-Worker-Allowed': '/' });
+    return res.end(fs.readFileSync(path.join(__dirname, 'service-worker.js')));
+  }
+  if (req.method === 'GET' && (req.url === '/icon-192.png' || req.url === '/icon-512.png')) {
+    res.writeHead(200, { 'Content-Type': 'image/png' });
+    return res.end(fs.readFileSync(path.join(__dirname, req.url.slice(1))));
+  }
   if (req.method === 'GET' && req.url === '/historico') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(lerHistorico().reverse()));
