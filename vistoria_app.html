@@ -638,7 +638,7 @@ async function buscarMapaAtual() {
   btn.innerHTML = '<span class="spinner"></span> Buscando localização...';
   try {
     const loc = await obterLocalizacaoAtual();
-    if (!loc) throw new Error('Não foi possível obter a localização do GPS. Verifique se a permissão de localização está ativada.');
+    if (!loc) throw new Error(ultimoErroLocalizacao || 'Não foi possível obter a localização do GPS.');
     const res = await fetch(`/obter-mapa?lat=${loc.lat}&lon=${loc.lon}`);
     const data = await res.json();
     if (data.erro || !data.base64) throw new Error(data.erro || 'Serviço de mapa indisponível.');
@@ -736,7 +736,8 @@ async function handleFiles(files) {
         let mediaType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
         if (carimboAtivo) {
           try {
-            dataUrl = await carimbarFoto(dataUrl);
+            const exifInfo = await lerExifDeArquivo(file); // tenta usar a data/local REAIS da foto (fotos antigas da galeria)
+            dataUrl = await carimbarFoto(dataUrl, exifInfo);
             mediaType = 'image/jpeg'; // o carimbo sempre gera uma nova imagem em jpeg
           } catch (e) { console.error('Falha ao aplicar carimbo, salvando foto original:', e); }
         }
@@ -867,14 +868,18 @@ function atualizarToggleCarimboUI() {
 // Pega a localização atual (GPS) e o endereço aproximado (rua/bairro/cidade).
 // Reaproveita a última localização se foi obtida há menos de 5 minutos, pra
 // não ficar pedindo GPS e endereço de novo a cada foto do mesmo ambiente.
+let ultimoErroLocalizacao = '';
 async function obterLocalizacaoAtual() {
   if (ultimaLocalizacao && (Date.now() - ultimaLocalizacao.timestamp) < 5 * 60 * 1000) {
     return ultimaLocalizacao;
   }
-  if (!('geolocation' in navigator)) return null;
+  if (!('geolocation' in navigator)) {
+    ultimoErroLocalizacao = 'Este navegador não suporta localização por GPS.';
+    return null;
+  }
   try {
     const pos = await new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
+      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
     });
     const lat = pos.coords.latitude, lon = pos.coords.longitude;
     let endereco = '';
@@ -888,17 +893,119 @@ async function obterLocalizacaoAtual() {
     ultimaLocalizacao = { lat, lon, endereco, timestamp: Date.now() };
     return ultimaLocalizacao;
   } catch (e) {
+    // Traduz o código de erro do GPS numa mensagem que a pessoa consiga agir a partir dela
+    const mensagens = {
+      1: 'Permissão de localização negada. No iPhone: Ajustes → Privacidade e Segurança → Serviços de Localização → Safari (ou o app EngCheck) → "Ao Usar o App". No Android: Ajustes do Chrome → Configurações do site → Localização.',
+      2: 'Não foi possível determinar sua localização agora (sinal de GPS fraco ou indisponível). Tente novamente em um local mais aberto, perto de uma janela.',
+      3: 'A busca por localização demorou demais e foi cancelada. Tente novamente — às vezes o GPS demora mais na primeira tentativa.'
+    };
+    ultimoErroLocalizacao = mensagens[e.code] || `Não foi possível obter a localização (${e.message}).`;
     console.error('Não foi possível obter a localização:', e.message);
+    return null;
+  }
+}
+
+// Lê a data/hora (e localização, se houver) gravada dentro do próprio arquivo da foto
+// (metadado EXIF, comum em fotos tiradas por celular). Essencial pra vistorias antigas:
+// fotos já tiradas há tempo ganham o carimbo com a data REAL da foto, não a de hoje.
+// Retorna null se o arquivo não tiver EXIF (ex: print de tela, PNG, foto editada).
+async function lerExifDeArquivo(file) {
+  try {
+    const buf = await file.slice(0, 128 * 1024).arrayBuffer(); // os primeiros 128KB já bastam pro EXIF
+    const view = new DataView(buf);
+    if (view.getUint16(0, false) !== 0xFFD8) return null; // não é JPEG, EXIF não se aplica
+
+    let offset = 2, tiffStart = null;
+    while (offset < view.byteLength - 4) {
+      const marker = view.getUint16(offset, false);
+      if ((marker & 0xFF00) !== 0xFF00) break;
+      const segLength = view.getUint16(offset + 2, false);
+      if (marker === 0xFFE1 && view.getUint32(offset + 4, false) === 0x45786966) {
+        tiffStart = offset + 10; // pula "Exif\0\0" e cai no cabeçalho TIFF
+        break;
+      }
+      offset += 2 + segLength;
+    }
+    if (tiffStart === null) return null;
+
+    const little = view.getUint16(tiffStart, false) === 0x4949; // 'II' = little-endian
+    const ifd0Offset = tiffStart + view.getUint32(tiffStart + 4, little);
+
+    const lerString = (off, len) => {
+      let s = '';
+      for (let i = 0; i < len; i++) { const c = view.getUint8(off + i); if (c === 0) break; s += String.fromCharCode(c); }
+      return s;
+    };
+    const lerTagsIFD = (ifdOffset) => {
+      const num = view.getUint16(ifdOffset, little);
+      const tags = {};
+      for (let i = 0; i < num; i++) {
+        const entry = ifdOffset + 2 + i * 12;
+        const tag = view.getUint16(entry, little);
+        const type = view.getUint16(entry + 2, little);
+        const count = view.getUint32(entry + 4, little);
+        const tamanhos = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 9: 4, 10: 8 };
+        const tamanho = (tamanhos[type] || 1) * count;
+        const valueOffset = entry + 8;
+        const dataOffset = tamanho > 4 ? tiffStart + view.getUint32(valueOffset, little) : valueOffset;
+        tags[tag] = { type, count, dataOffset };
+      }
+      return tags;
+    };
+
+    const ifd0Tags = lerTagsIFD(ifd0Offset);
+    let dataHora = null, lat = null, lon = null;
+
+    if (ifd0Tags[0x8769]) { // ponteiro pra sub-IFD Exif (tem DateTimeOriginal)
+      const exifTags = lerTagsIFD(tiffStart + view.getUint32(ifd0Tags[0x8769].dataOffset, little));
+      const t = exifTags[0x9003]; // DateTimeOriginal
+      if (t) {
+        const m = lerString(t.dataOffset, t.count).match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+        if (m) dataHora = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+      }
+    }
+    if (!dataHora && ifd0Tags[0x0132]) { // fallback: DateTime do IFD0
+      const t = ifd0Tags[0x0132];
+      const m = lerString(t.dataOffset, t.count).match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+      if (m) dataHora = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    }
+
+    if (ifd0Tags[0x8825]) { // ponteiro pra sub-IFD de GPS
+      const gpsTags = lerTagsIFD(tiffStart + view.getUint32(ifd0Tags[0x8825].dataOffset, little));
+      const lerRational = (off) => { const n = view.getUint32(off, little), d = view.getUint32(off + 4, little); return d === 0 ? 0 : n / d; };
+      const lerCoordenada = (t) => lerRational(t.dataOffset) + lerRational(t.dataOffset + 8) / 60 + lerRational(t.dataOffset + 16) / 3600;
+      if (gpsTags[1] && gpsTags[2]) { lat = lerCoordenada(gpsTags[2]); if (lerString(gpsTags[1].dataOffset, gpsTags[1].count) === 'S') lat = -lat; }
+      if (gpsTags[3] && gpsTags[4]) { lon = lerCoordenada(gpsTags[4]); if (lerString(gpsTags[3].dataOffset, gpsTags[3].count) === 'W') lon = -lon; }
+    }
+
+    if (!dataHora && lat === null) return null;
+    return { dataHora, lat, lon };
+  } catch (e) {
+    console.error('Falha ao ler EXIF da foto:', e);
     return null;
   }
 }
 
 // Desenha o carimbo (data, hora e endereço) direto na imagem, numa faixa
 // semitransparente no canto inferior esquerdo. Retorna a nova imagem em JPEG.
-async function carimbarFoto(dataUrl) {
+// Se a foto já tiver data/local gravados nela (EXIF), usa esses dados reais
+// em vez do momento e localização atuais — essencial pra fotos antigas da galeria.
+async function carimbarFoto(dataUrl, exifInfo) {
   return new Promise(async (resolve) => {
     try {
-      const loc = await obterLocalizacaoAtual();
+      let loc = null;
+      if (exifInfo && exifInfo.lat != null && exifInfo.lon != null) {
+        let endereco = '';
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${exifInfo.lat}&lon=${exifInfo.lon}&zoom=17&addressdetails=1`);
+          const data = await res.json();
+          const a = data.address || {};
+          endereco = [a.road, a.suburb || a.neighbourhood, a.city || a.town].filter(Boolean).join(', ');
+        } catch (e) { /* segue sem endereço textual */ }
+        loc = { lat: exifInfo.lat, lon: exifInfo.lon, endereco };
+      } else {
+        loc = await obterLocalizacaoAtual();
+      }
       const img = new Image();
       img.onload = () => {
         try {
@@ -907,8 +1014,8 @@ async function carimbarFoto(dataUrl) {
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0);
 
-          const agora = new Date();
-          const linha1 = `${agora.toLocaleDateString('pt-BR')} ${agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+          const momento = (exifInfo && exifInfo.dataHora) ? exifInfo.dataHora : new Date();
+          const linha1 = `${momento.toLocaleDateString('pt-BR')} ${momento.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
           const linha2 = (loc && loc.endereco) ? loc.endereco
             : (loc ? `${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}` : 'Localização indisponível');
 
