@@ -369,6 +369,15 @@
 
 <!-- HISTÓRICO -->
 <div id="historico-screen" style="display:none;max-width:520px;margin:0 auto;padding:0 16px 80px">
+  <div id="armazenamentoPainel" style="display:none;background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)"><i class="ti ti-server-2"></i> Espaço usado no servidor</span>
+      <span id="armazenamentoTexto" style="font-size:12px;font-weight:700;color:var(--brand)">—</span>
+    </div>
+    <div style="background:var(--light);border-radius:20px;height:8px;overflow:hidden">
+      <div id="armazenamentoBarra" style="background:var(--accent);height:100%;width:0%;transition:width .3s"></div>
+    </div>
+  </div>
   <div class="search-bar">
     <input type="text" id="searchInput" placeholder="Buscar por nome ou data..." oninput="filtrarHistorico()" />
     <button class="btn btn-primary" style="flex:0 0 auto;padding:10px 14px" onclick="carregarHistorico()"><i class="ti ti-refresh"></i></button>
@@ -1353,6 +1362,23 @@ async function carregarHistorico() {
   document.getElementById('historicoList').innerHTML='<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p>';
   try { const res=await fetch('/historico'); todosLaudos=await res.json(); renderHistorico(todosLaudos); }
   catch { document.getElementById('historicoList').innerHTML='<p style="color:var(--danger);font-size:13px;text-align:center;padding:20px">Erro ao carregar.</p>'; }
+  carregarArmazenamento();
+}
+
+async function carregarArmazenamento() {
+  const painel = document.getElementById('armazenamentoPainel');
+  try {
+    const res = await fetch('/armazenamento');
+    const data = await res.json();
+    if (data.erro || data.percentual == null) { painel.style.display = 'none'; return; }
+    painel.style.display = 'block';
+    document.getElementById('armazenamentoTexto').textContent = `${data.percentual}% (${data.usadoMB} MB de ${data.totalMB} MB)`;
+    const barra = document.getElementById('armazenamentoBarra');
+    barra.style.width = `${Math.min(data.percentual, 100)}%`;
+    barra.style.background = data.percentual >= 90 ? 'var(--danger)' : (data.percentual >= 70 ? 'var(--accent)' : 'var(--success)');
+  } catch (e) {
+    painel.style.display = 'none';
+  }
 }
 
 function filtrarHistorico() {
@@ -1365,7 +1391,7 @@ function renderHistorico(lista) {
   document.getElementById('historicoList').innerHTML=lista.map(l=>`
     <div class="hist-item">
       <i class="ti ti-file-text" style="font-size:26px;color:var(--brand)"></i>
-      <div class="info"><strong>${l.nome}${l.empreendimento?' - '+l.empreendimento:''}</strong><span>${l.data}</span></div>
+      <div class="info"><strong>${l.nome}${l.empreendimento?' - '+l.empreendimento:''}</strong>${l.compactado?' <i class="ti ti-box" style="font-size:12px;color:var(--muted)" title="Compactado (economiza espaço)"></i>':''}<span>${l.data}</span></div>
       <div style="display:flex;flex-direction:column;gap:5px">
         <button class="hist-btn" style="width:100%" onclick="baixarWordHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-word"></i> Word</button>
         <button class="hist-btn" style="background:#C0392B;width:100%" onclick="baixarPdfHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-type-pdf"></i> PDF</button>
