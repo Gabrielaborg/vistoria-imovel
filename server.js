@@ -11,14 +11,55 @@ const FOOTER_IMG = path.join(__dirname, 'footer_bar.jpeg');
 const LOGO_IMG = path.join(__dirname, 'logo.png');
 const HISTORICO_FILE = path.join(OUTPUT_DIR, 'historico.json');
 
+// Chave de API da Anthropic, lida de variável de ambiente (NUNCA fica no código nem no navegador).
+// Configure em Railway: Service > Variables > ANTHROPIC_API_KEY
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 function lerHistorico() { try { return JSON.parse(fs.readFileSync(HISTORICO_FILE, 'utf8')); } catch { return []; } }
 function salvarHistorico(h) { fs.writeFileSync(HISTORICO_FILE, JSON.stringify(h, null, 2)); }
 
+// ── Chamada central à API da Anthropic (roda só no servidor, chave nunca exposta) ──
+async function chamarClaude({ system, messages, maxTokens = 300 }) {
+  if (!ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY não configurada no servidor.');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-5',
+      max_tokens: maxTokens,
+      system,
+      messages
+    })
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Anthropic API respondeu ${res.status}: ${errText}`);
+  }
+  const data = await res.json();
+  return data.content?.[0]?.text || '';
+}
+
+// Lê o corpo (body) de uma requisição POST como JSON
+function lerCorpoJSON(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try { resolve(JSON.parse(body)); } catch (e) { reject(e); }
+    });
+    req.on('error', reject);
+  });
+}
+
 async function gerarDocx(payload) {
   const { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, Footer } = require('docx');
-  const { dados, tipoVistoria, obsGeral, registros, plantaBase64, plantaMediaType, mapaBase64, mapaMediaType } = payload;
+  const { dados, tipoVistoria, obsGeral, registros, plantaBase64, plantaMediaType, mapaBase64, mapaMediaType, conclusaoIA } = payload;
 
   const dataFmt = dados.data
     ? new Date(dados.data + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })
@@ -79,7 +120,7 @@ async function gerarDocx(payload) {
     }));
     for (const item of items) {
       for (const foto of item.fotos) {
-        const desc = foto.aiDesc || item.defeito;
+        const desc = item.defeito;
         registrosParagraphs.push(new Paragraph({
           children: [N(`Imagem ${imgCounter} - ${desc}`, 20)], indent, spacing: { after: 80 }
         }));
@@ -148,12 +189,17 @@ async function gerarDocx(payload) {
   const elaboracaoTexto5 = 'A unidade inspecionada apresenta diversas não conformidades visuais. Tais ocorrências indicam ausência de cuidados na execução final e comprometem o recebimento do imóvel em condições ideais de entrega.';
   const elaboracaoTexto6 = 'A recomendação técnica é que todas as anomalias listadas neste relatório sejam corrigidas antes da conclusão da entrega da unidade ao proprietário, garantindo o desempenho mínimo esperado e evitando prejuízos futuros.';
 
-  const conclusaoTexto = [
+  // Se o front-end mandou uma conclusão gerada por IA (baseada nos defeitos reais), usa ela.
+  // Caso contrário (IA falhou, ou não foi chamada), cai no texto fixo genérico de sempre.
+  const conclusaoTextoFixo = [
     'Com base na vistoria técnica realizada na unidade habitacional, constatou-se a presença de não conformidades construtivas, falhas de acabamento e inconformidades funcionais distribuídas nos ambientes inspecionados, conforme descrito e documentado ao longo deste relatório técnico. As manifestações observadas incluem irregularidades em revestimentos, falhas de rejuntamento, defeitos em pintura, problemas em esquadrias, portas, elementos hidráulicos, acabamentos e demais sistemas construtivos aparentes.',
     'Os defeitos identificados evidenciam deficiência nos processos executivos e no controle de qualidade durante as etapas de acabamento e entrega da unidade, não sendo compatíveis com o padrão esperado para um imóvel novo. Ainda que parte das inconformidades apresente caráter predominantemente estético, diversas manifestações podem comprometer a durabilidade dos materiais, o desempenho dos sistemas construtivos, a estanqueidade, a funcionalidade dos ambientes e a vida útil da edificação ao longo do tempo.',
     'Conforme os princípios estabelecidos pela ABNT NBR 15575, a edificação deve atender aos requisitos mínimos de desempenho relacionados à segurança, habitabilidade, funcionalidade e durabilidade. Da mesma forma, os serviços executivos e acabamentos devem seguir padrões adequados de qualidade e conformidade técnica, observando as boas práticas construtivas e as normas aplicáveis a cada sistema construtivo. As anomalias constatadas neste relatório demonstram inconformidades em relação a tais requisitos, tornando tecnicamente recomendável a correção integral dos itens apontados.',
     'Dessa forma, conclui-se que todas as não conformidades registradas neste documento devem ser devidamente corrigidas pela construtora/responsável técnico antes da aceitação definitiva do imóvel, garantindo o adequado desempenho dos sistemas, a preservação da vida útil dos materiais e o padrão de qualidade esperado para a edificação. Recomenda-se ainda que os reparos sejam executados com acompanhamento técnico e observância aos procedimentos normativos aplicáveis, a fim de evitar recorrência das falhas identificadas.'
   ];
+  const conclusaoTexto = (conclusaoIA && conclusaoIA.trim())
+    ? conclusaoIA.trim().split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
+    : conclusaoTextoFixo;
 
   const doc = new Document({
     sections: [
@@ -316,6 +362,27 @@ const server = http.createServer(async (req, res) => {
       return res.end(fs.readFileSync(filepath));
     }
     res.writeHead(404); return res.end('Not found');
+  }
+
+  if (req.method === 'POST' && req.url === '/gerar-conclusao') {
+    try {
+      const { registros, tipoVistoria, obsGeral } = await lerCorpoJSON(req);
+      const listaDefeitos = (registros || [])
+        .map(r => `- ${r.ambiente}: ${r.defeito}`)
+        .join('\n') || 'Nenhum defeito registrado.';
+      const outrosProblemas = (obsGeral || '').trim();
+      const texto = await chamarClaude({
+        maxTokens: 700,
+        system: 'Você é um(a) engenheiro(a) civil redigindo a seção de CONCLUSÃO de um laudo técnico de vistoria de imóvel, seguindo ABNT NBR 16747:2020, ABNT NBR 5674:2024 e conceitos do IBAPE Nacional. Escreva 3 a 4 parágrafos técnicos, objetivos e formais, em português, baseados nos defeitos e observações fornecidos, recomendando a correção antes da entrega/aceitação do imóvel. Retorne SOMENTE os parágrafos de texto, separados por uma linha em branco, sem títulos, sem markdown, sem numeração.',
+        messages: [{ role: 'user', content: `Tipo de vistoria: ${tipoVistoria || 'não informado'}\n\nDefeitos registrados (por legenda escolhida em cada foto):\n${listaDefeitos}\n\nOutros problemas observados:\n${outrosProblemas || 'Nenhum'}\n\nRedija a conclusão do laudo.` }]
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ conclusao: texto.trim() }));
+    } catch (e) {
+      console.error('Erro em /gerar-conclusao:', e.message);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ conclusao: '' })); // falha silenciosa: server usa o texto padrão fixo
+    }
   }
 
   if (req.method === 'POST' && req.url === '/gerar-laudo') {
