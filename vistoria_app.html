@@ -317,6 +317,88 @@
 const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', obsGeral:'', plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'' };
 let todosLaudos = [];
 
+// ══════════════════════════════════════════════════════════════
+// SALVAMENTO AUTOMÁTICO (IndexedDB) — pra vistoria nunca se perder
+// ══════════════════════════════════════════════════════════════
+const DB_NOME = 'vistoria_db';
+const DB_VERSAO = 1;
+const LOJA = 'rascunho';
+const CHAVE_RASCUNHO = 'vistoria_em_andamento';
+
+function abrirDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NOME, DB_VERSAO);
+    req.onupgradeneeded = () => { req.result.createObjectStore(LOJA); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function salvarRascunho() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA, 'readwrite');
+    tx.objectStore(LOJA).put(JSON.parse(JSON.stringify(state)), CHAVE_RASCUNHO);
+    return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+  } catch (e) { console.error('Falha ao salvar rascunho local:', e); }
+}
+
+async function lerRascunho() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA, 'readonly');
+    return new Promise(res => {
+      const req = tx.objectStore(LOJA).get(CHAVE_RASCUNHO);
+      req.onsuccess = () => res(req.result || null);
+      req.onerror = () => res(null);
+    });
+  } catch (e) { return null; }
+}
+
+async function limparRascunho() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA, 'readwrite');
+    tx.objectStore(LOJA).delete(CHAVE_RASCUNHO);
+  } catch (e) { console.error('Falha ao limpar rascunho local:', e); }
+}
+
+// Verifica, ao abrir o app, se existe uma vistoria salva e não finalizada
+async function verificarRascunhoAoAbrir() {
+  const salvo = await lerRascunho();
+  if (!salvo || (!salvo.dados?.nome && (!salvo.registros || salvo.registros.length===0))) return;
+
+  const nomeCliente = salvo.dados?.nome || 'sem nome';
+  const qtdRegistros = (salvo.registros || []).length;
+  const continuar = confirm(`Encontramos uma vistoria não finalizada de "${nomeCliente}" (${qtdRegistros} registro${qtdRegistros===1?'':'s'} salvos).\n\nDeseja continuar de onde parou?\n\nOK = Continuar\nCancelar = Começar vistoria nova (apaga o rascunho salvo)`);
+
+  if (!continuar) { await limparRascunho(); return; }
+
+  // Restaura o estado salvo
+  Object.assign(state, salvo);
+
+  // Restaura os campos do formulário de dados do cliente
+  const campos = { nomeCliente:'nome', cpf:'cpf', telefone:'telefone', empreendimento:'empreendimento', endereco:'endereco', bloco:'bloco', apto:'apto', cep:'cep', cidade:'cidade', metragem:'metragem', comodos:'comodos' };
+  Object.entries(campos).forEach(([idCampo, chaveState]) => {
+    const el = document.getElementById(idCampo);
+    if (el && state.dados[chaveState]) el.value = state.dados[chaveState];
+  });
+  if (state.dados.data) document.getElementById('dataVistoria').value = state.dados.data;
+
+  // Restaura pré-visualização da planta e do mapa, se houver
+  if (state.plantaBase64) {
+    document.getElementById('plantaPreview').innerHTML = `<div class="single-thumb"><img src="data:${state.plantaMediaType};base64,${state.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>`;
+  }
+  if (state.mapaBase64) {
+    document.getElementById('mapaPreview').innerHTML = `<div class="single-thumb"><img src="data:${state.mapaMediaType};base64,${state.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>`;
+  }
+
+  // Leva o usuário direto pra tela de ambientes, já com o resumo dos registros salvos
+  atualizarResumo();
+  mostrarScreen('screen-ambiente');
+}
+
+
 document.getElementById('dataVistoria').value = new Date().toISOString().split('T')[0];
 
 document.getElementById('cpf').addEventListener('input', function() {
@@ -334,6 +416,7 @@ function setupUpload(inputId, previewId, stateKey, stateMediaKey) {
       state[stateKey] = ev.target.result.split(',')[1];
       state[stateMediaKey] = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
       document.getElementById(previewId).innerHTML = `<div class="single-thumb"><img src="${ev.target.result}"><button class="remove-photo" onclick="removerUpload('${previewId}','${stateKey}','${stateMediaKey}','${inputId}')">✕</button></div>`;
+      salvarRascunho();
     };
     reader.readAsDataURL(file);
   });
@@ -385,6 +468,7 @@ function irParaAmbiente() {
   };
   if (!state.dados.nome) { alert('Informe o nome do cliente.'); return; }
   state.tipoVistoria = '';
+  salvarRascunho();
   mostrarScreen('screen-ambiente');
 }
 
@@ -420,7 +504,7 @@ function handleFiles(files) {
     reader.onload = ev => {
       const id = 'p'+Date.now()+Math.random().toString(36).slice(2);
       const entry = { id, src: ev.target.result, base64: ev.target.result.split(',')[1], mediaType: file.type==='image/png'?'image/png':'image/jpeg' };
-      state.fotosAtuais.push(entry); renderFotoPreview();
+      state.fotosAtuais.push(entry); renderFotoPreview(); salvarRascunho();
     };
     reader.readAsDataURL(file);
   });
@@ -433,7 +517,7 @@ function renderFotoPreview() {
     </div>`).join('');
 }
 
-function removerFoto(id) { state.fotosAtuais=state.fotosAtuais.filter(p=>p.id!==id); renderFotoPreview(); }
+function removerFoto(id) { state.fotosAtuais=state.fotosAtuais.filter(p=>p.id!==id); renderFotoPreview(); salvarRascunho(); }
 
 function irParaDefeito() {
   if (state.fotosAtuais.length===0) { alert('Envie ao menos uma foto.'); return; }
@@ -454,7 +538,7 @@ function salvarRegistro() {
   if (defeito==='Outro defeito') defeito=document.getElementById('outroDefeitoInput').value.trim()||'Outro defeito';
   if (!defeito) { alert('Selecione o tipo de defeito.'); return false; }
   state.registros.push({ ambiente:state.ambienteAtual, fotos:[...state.fotosAtuais], defeito });
-  state.fotosAtuais=[]; atualizarResumo(); return true;
+  state.fotosAtuais=[]; atualizarResumo(); salvarRascunho(); return true;
 }
 
 function salvarEProximoAmbiente() { if(!salvarRegistro()) return; document.getElementById('photoPreviewGrid').innerHTML=''; mostrarScreen('screen-ambiente'); }
@@ -468,6 +552,7 @@ function mostrarObs(sim) {
 
 async function processarLaudo() {
   state.obsGeral=document.getElementById('obsGeral').value.trim();
+  salvarRascunho();
   mostrarScreen('screen-sucesso');
   document.getElementById('btnBaixarDocx').onclick=()=>gerarDocumento('docx');
 
@@ -498,10 +583,12 @@ async function gerarDocumento(tipo) {
     const a=document.createElement('a');
     a.href=url; a.download=`Laudo_${(state.dados.nome||'cliente').split(' ')[0]}_${state.dados.data||'vistoria'}.${tipo}`; a.click();
     URL.revokeObjectURL(url); msg.textContent='✓ Download iniciado!';
+    await limparRascunho(); // laudo gerado com sucesso, não precisa mais do rascunho salvo
   } catch(e) { msg.textContent='⚠ Erro ao gerar. Tente novamente.'; console.error(e); }
 }
 
 function novaVistoria() {
+  limparRascunho();
   Object.assign(state,{dados:{},tipoVistoria:'',registros:[],ambienteAtual:'',fotosAtuais:[],defeitoAtual:'',obsGeral:'',plantaBase64:null,plantaMediaType:null,mapaBase64:null,mapaMediaType:null,conclusaoIA:''});
   ['nomeCliente','cpf','telefone','empreendimento','endereco','bloco','apto','cep','cidade','metragem','comodos','obsGeral'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('dataVistoria').value=new Date().toISOString().split('T')[0];
@@ -544,6 +631,11 @@ function renderHistorico(lista) {
       </div>
     </div>`).join('');
 }
+
+// Ao abrir o app, verifica se existe uma vistoria em andamento salva localmente
+verificarRascunhoAoAbrir();
+
 </script>
 </body>
 </html>
+
