@@ -3,7 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Vistoria de Imóvel · G&G Engenharia</title>
+<title>EngCheck · Vistoria de Imóvel</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1A3C5E">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="EngCheck">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -19,7 +26,8 @@
 
   .app-header { background: var(--brand); color: #fff; padding: 12px 20px; display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
   .app-header img { width: 32px; height: 32px; object-fit: contain; border-radius: 4px; background: #fff; padding: 2px; }
-  .app-header h1 { font-size: 15px; font-weight: 700; letter-spacing: .3px; }
+  .app-header h1 { font-size: 15px; font-weight: 700; letter-spacing: .3px; line-height: 1.2; }
+  .app-header .subtitulo { font-size: 9px; font-weight: 500; opacity: .75; letter-spacing: .2px; line-height: 1.2; }
   .app-header .badge { background: var(--accent); font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px; }
   .progress-track { background: rgba(255,255,255,.2); height: 3px; flex: 1; border-radius: 2px; max-width: 80px; }
   .progress-fill { background: var(--accent); height: 100%; border-radius: 2px; transition: width .3s; }
@@ -110,9 +118,22 @@
 </head>
 <body>
 
+<div id="splashWelcome" style="position:fixed;inset:0;background:var(--brand);color:#fff;z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px">
+  <img src="/logo.png" alt="EngCheck" style="width:88px;height:88px;object-fit:contain;background:#fff;border-radius:16px;padding:10px;margin-bottom:22px">
+  <div style="font-size:14px;font-weight:600;opacity:.85;margin-bottom:4px">Seja bem-vindo ao</div>
+  <div style="font-size:34px;font-weight:700;letter-spacing:.3px;margin-bottom:10px">EngCheck</div>
+  <div style="font-size:13px;font-weight:500;opacity:.75;margin-bottom:32px">Desenvolvido por G&G Engenharia</div>
+  <button onclick="fecharSplash()" style="background:var(--accent);color:#fff;border:none;border-radius:10px;padding:13px 32px;font-family:var(--font);font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px">
+    Começar <i class="ti ti-arrow-right"></i>
+  </button>
+</div>
+
 <div class="app-header">
   <img src="/logo.png" alt="G&G" style="width:40px;height:40px;object-fit:contain;background:#fff;border-radius:6px;padding:3px">
-  <h1>G&G Engenharia</h1>
+  <div>
+    <h1>EngCheck</h1>
+    <div class="subtitulo">Desenvolvido por G&G Engenharia</div>
+  </div>
   <span class="badge">IA</span>
   <div style="flex:1"></div>
   <label id="carimboToggleLabel" title="Carimbo de data/hora/local nas fotos" style="display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;cursor:pointer;user-select:none;margin-right:10px">
@@ -126,6 +147,14 @@
 </div>
 
 <div id="filaBanner" style="display:none;align-items:center;justify-content:center;gap:8px;background:var(--accent);color:#fff;font-size:12px;font-weight:700;padding:8px 16px;text-align:center;position:sticky;top:0;z-index:99"></div>
+
+<div id="instalarBanner" style="display:none;align-items:center;justify-content:space-between;gap:10px;background:var(--brand2);color:#fff;font-size:12px;font-weight:600;padding:10px 16px;position:sticky;top:0;z-index:98">
+  <span id="instalarBannerTexto">📲 Instale o app na tela inicial pra abrir mais rápido, em tela cheia.</span>
+  <div style="display:flex;gap:6px;flex-shrink:0">
+    <button id="instalarBtn" onclick="instalarApp()" style="display:none;background:#fff;color:var(--brand2);border:none;border-radius:7px;padding:6px 12px;font-size:11px;font-weight:700;font-family:var(--font);cursor:pointer">Instalar</button>
+    <button onclick="dispensarInstalarBanner()" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:7px;padding:6px 10px;font-size:11px;font-weight:700;font-family:var(--font);cursor:pointer">Agora não</button>
+  </div>
+</div>
 
 <div style="max-width:520px;margin:0 auto;padding:12px 16px 0">
   <div class="nav-tabs">
@@ -1155,7 +1184,14 @@ function renderHistorico(lista) {
 // Ao abrir o app, verifica se existe uma vistoria em andamento salva localmente
 carregarCorConfig();
 carregarCarimboConfig();
-verificarRascunhoAoAbrir();
+
+// A checagem do rascunho salvo só roda depois que a pessoa fecha a tela de
+// boas-vindas, pra não misturar o aviso de "vistoria em andamento" com a splash.
+function fecharSplash() {
+  const splash = document.getElementById('splashWelcome');
+  if (splash) splash.style.display = 'none';
+  verificarRascunhoAoAbrir();
+}
 
 // Fila de reenvio automático: verifica ao abrir, tenta reenviar de novo a cada 30s,
 // e também assim que o celular recuperar a conexão com a internet.
@@ -1163,6 +1199,66 @@ atualizarBannerFila();
 tentarReenviarFila();
 setInterval(tentarReenviarFila, 30000);
 window.addEventListener('online', tentarReenviarFila);
+
+// ══════════════════════════════════════════════════════════════
+// PWA — instalar o app na tela inicial do celular
+// ══════════════════════════════════════════════════════════════
+let deferredInstallPrompt = null;
+
+function estaEmModoStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
+function bannerFoiDispensadoRecentemente() {
+  try {
+    const ts = localStorage.getItem('instalarBannerDispensado');
+    if (!ts) return false;
+    return (Date.now() - parseInt(ts, 10)) < 7 * 24 * 60 * 60 * 1000; // não incomoda de novo por 7 dias
+  } catch (e) { return false; }
+}
+
+function dispensarInstalarBanner() {
+  document.getElementById('instalarBanner').style.display = 'none';
+  try { localStorage.setItem('instalarBannerDispensado', Date.now().toString()); } catch (e) {}
+}
+
+async function instalarApp() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  document.getElementById('instalarBanner').style.display = 'none';
+}
+
+// Chrome/Android: dispara esse evento quando o app pode ser instalado direto
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if (!estaEmModoStandalone() && !bannerFoiDispensadoRecentemente()) {
+    document.getElementById('instalarBanner').style.display = 'flex';
+    document.getElementById('instalarBtn').style.display = 'inline-block';
+  }
+});
+
+window.addEventListener('appinstalled', () => {
+  document.getElementById('instalarBanner').style.display = 'none';
+});
+
+// iPhone (Safari) não tem instalação automática — mostra o passo a passo manual
+function sugerirInstalacaoIOS() {
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (isIOS && !estaEmModoStandalone() && !bannerFoiDispensadoRecentemente()) {
+    document.getElementById('instalarBannerTexto').textContent = '📲 No iPhone: toque em Compartilhar e depois em "Adicionar à Tela de Início" pra instalar o app.';
+    document.getElementById('instalarBanner').style.display = 'flex';
+  }
+}
+sugerirInstalacaoIOS();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js').catch(e => console.error('Falha ao registrar service worker:', e));
+  });
+}
 
 </script>
 </body>
