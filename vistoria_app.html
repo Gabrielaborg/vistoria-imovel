@@ -988,24 +988,24 @@ async function lerExifDeArquivo(file) {
 
 // Desenha o carimbo (data, hora e endereço) direto na imagem, numa faixa
 // semitransparente no canto inferior esquerdo. Retorna a nova imagem em JPEG.
-// Se a foto já tiver data/local gravados nela (EXIF), usa esses dados reais
-// em vez do momento e localização atuais — essencial pra fotos antigas da galeria.
+// A data usa o EXIF da foto quando disponível (fotos antigas da galeria);
+// o endereço usa sempre os dados do imóvel preenchidos na tela inicial —
+// não faz sentido usar o GPS de onde a pessoa está ao subir a foto, já que
+// o endereço da vistoria é o do imóvel, não de quem está com o celular.
+function montarEnderecoParaCarimbo() {
+  const d = state.dados || {};
+  const partes = [];
+  if (d.endereco) partes.push(d.endereco);
+  if (d.bloco) partes.push(d.bloco);
+  if (d.apto) partes.push(`Apto ${d.apto}`);
+  if (d.cidade) partes.push(d.cidade);
+  return partes.join(', ');
+}
+
 async function carimbarFoto(dataUrl, exifInfo) {
   return new Promise(async (resolve) => {
     try {
-      let loc = null;
-      if (exifInfo && exifInfo.lat != null && exifInfo.lon != null) {
-        let endereco = '';
-        try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${exifInfo.lat}&lon=${exifInfo.lon}&zoom=17&addressdetails=1`);
-          const data = await res.json();
-          const a = data.address || {};
-          endereco = [a.road, a.suburb || a.neighbourhood, a.city || a.town].filter(Boolean).join(', ');
-        } catch (e) { /* segue sem endereço textual */ }
-        loc = { lat: exifInfo.lat, lon: exifInfo.lon, endereco };
-      } else {
-        loc = await obterLocalizacaoAtual();
-      }
+      const enderecoTexto = montarEnderecoParaCarimbo();
       const img = new Image();
       img.onload = () => {
         try {
@@ -1016,8 +1016,7 @@ async function carimbarFoto(dataUrl, exifInfo) {
 
           const momento = (exifInfo && exifInfo.dataHora) ? exifInfo.dataHora : new Date();
           const linha1 = `${momento.toLocaleDateString('pt-BR')} ${momento.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
-          const linha2 = (loc && loc.endereco) ? loc.endereco
-            : (loc ? `${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}` : 'Localização indisponível');
+          const linha2 = enderecoTexto || 'Endereço não informado';
 
           const fontSize = Math.max(14, Math.round(canvas.width * 0.028));
           ctx.font = `bold ${fontSize}px Arial`;
