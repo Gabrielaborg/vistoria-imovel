@@ -459,6 +459,24 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Espaço usado no Volume do Railway (onde os laudos ficam guardados) — pra acompanhar
+  // se está chegando perto do limite antes que o app pare de conseguir salvar coisa nova.
+  if (req.method === 'GET' && req.url === '/armazenamento') {
+    try {
+      const saida = execSync(`df -k "${OUTPUT_DIR}"`).toString();
+      const linhas = saida.trim().split('\n');
+      const partes = linhas[linhas.length - 1].trim().split(/\s+/);
+      const totalKB = parseInt(partes[1], 10);
+      const usadoKB = parseInt(partes[2], 10);
+      const percentual = (totalKB > 0) ? Math.round((usadoKB / totalKB) * 100) : null;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ usadoMB: Math.round(usadoKB / 1024), totalMB: Math.round(totalKB / 1024), percentual }));
+    } catch (e) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ erro: e.message }));
+    }
+  }
+
   if (req.method === 'GET' && req.url === '/historico') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(lerHistorico().reverse()));
