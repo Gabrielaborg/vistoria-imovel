@@ -115,6 +115,13 @@
   <h1>G&G Engenharia</h1>
   <span class="badge">IA</span>
   <div style="flex:1"></div>
+  <label id="carimboToggleLabel" title="Carimbo de data/hora/local nas fotos" style="display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;cursor:pointer;user-select:none;margin-right:10px">
+    <i class="ti ti-map-pin-filled" style="font-size:14px"></i>
+    <input type="checkbox" id="carimboToggle" checked onchange="toggleCarimbo(this.checked)" style="display:none">
+    <span id="carimboToggleTrack" style="width:32px;height:18px;background:var(--accent);border-radius:20px;position:relative;transition:background .15s;flex-shrink:0">
+      <span id="carimboToggleDot" style="position:absolute;top:2px;left:16px;width:14px;height:14px;background:#fff;border-radius:50%;transition:left .15s"></span>
+    </span>
+  </label>
   <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:10%"></div></div>
 </div>
 
@@ -239,7 +246,7 @@
       <input type="file" id="fileInputPhoto" accept="image/*" multiple capture="environment" style="display:none" />
       <input type="file" id="fileInputGallery" accept="image/*" multiple style="display:none" />
       <div class="photo-preview" id="photoPreviewGrid"></div>
-      
+      <p id="carimboStatusMsg" style="display:none;font-size:11px;color:var(--muted);text-align:center;margin-top:10px"><span class="sp2"></span> Aplicando carimbo de data/hora/local...</p>
     </div>
   </div>
   <div class="bottom-bar">
@@ -620,16 +627,31 @@ function atualizarResumo() {
 const fileInput = document.getElementById('fileInputPhoto');
 fileInput.addEventListener('change', e => { handleFiles(e.target.files); fileInput.value=''; });
 
-function handleFiles(files) {
-  Array.from(files).slice(0,8).forEach(file => {
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const id = 'p'+Date.now()+Math.random().toString(36).slice(2);
-      const entry = { id, src: ev.target.result, base64: ev.target.result.split(',')[1], mediaType: file.type==='image/png'?'image/png':'image/jpeg' };
-      state.fotosAtuais.push(entry); renderFotoPreview(); salvarRascunho();
-    };
-    reader.readAsDataURL(file);
-  });
+async function handleFiles(files) {
+  const arquivos = Array.from(files).slice(0,8);
+  const statusMsg = document.getElementById('carimboStatusMsg');
+  if (carimboAtivo && statusMsg) statusMsg.style.display = 'block';
+  for (const file of arquivos) {
+    await new Promise(resolveArquivo => {
+      const reader = new FileReader();
+      reader.onload = async ev => {
+        let dataUrl = ev.target.result;
+        let mediaType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        if (carimboAtivo) {
+          try {
+            dataUrl = await carimbarFoto(dataUrl);
+            mediaType = 'image/jpeg'; // o carimbo sempre gera uma nova imagem em jpeg
+          } catch (e) { console.error('Falha ao aplicar carimbo, salvando foto original:', e); }
+        }
+        const id = 'p'+Date.now()+Math.random().toString(36).slice(2);
+        const entry = { id, src: dataUrl, base64: dataUrl.split(',')[1], mediaType };
+        state.fotosAtuais.push(entry); renderFotoPreview(); salvarRascunho();
+        resolveArquivo();
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  if (statusMsg) statusMsg.style.display = 'none';
 }
 
 function renderFotoPreview() {
@@ -696,6 +718,123 @@ async function carregarCorConfig() {
     });
     if (salvo) Object.assign(corConfig, salvo);
   } catch (e) { /* mantém padrão se der erro */ }
+}
+
+// ══════════════════════════════════════════════════════════════
+// CARIMBO DE DATA/HORA/LOCAL NAS FOTOS — liga/desliga no topo do app.
+// Quando ligado, cada foto tirada/enviada ganha um carimbo com data,
+// hora e endereço aproximado (via GPS + geocodificação reversa),
+// desenhado direto na imagem antes de ser salva no registro.
+// ══════════════════════════════════════════════════════════════
+let carimboAtivo = true; // ligado por padrão
+let ultimaLocalizacao = null; // cache: { lat, lon, endereco, timestamp }
+
+async function salvarCarimboConfig() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA, 'readwrite');
+    tx.objectStore(LOJA).put(carimboAtivo, 'config_carimbo');
+  } catch (e) { console.error('Falha ao salvar configuração do carimbo:', e); }
+}
+
+async function carregarCarimboConfig() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA, 'readonly');
+    const salvo = await new Promise(res => {
+      const req = tx.objectStore(LOJA).get('config_carimbo');
+      req.onsuccess = () => res(req.result);
+      req.onerror = () => res(undefined);
+    });
+    if (salvo === true || salvo === false) carimboAtivo = salvo;
+  } catch (e) { /* mantém padrão (ligado) se der erro */ }
+  atualizarToggleCarimboUI();
+}
+
+function toggleCarimbo(ligado) {
+  carimboAtivo = ligado;
+  atualizarToggleCarimboUI();
+  salvarCarimboConfig();
+}
+
+function atualizarToggleCarimboUI() {
+  const track = document.getElementById('carimboToggleTrack');
+  const dot = document.getElementById('carimboToggleDot');
+  const checkbox = document.getElementById('carimboToggle');
+  if (!track || !dot || !checkbox) return;
+  checkbox.checked = carimboAtivo;
+  track.style.background = carimboAtivo ? 'var(--accent)' : 'rgba(255,255,255,.25)';
+  dot.style.left = carimboAtivo ? '16px' : '2px';
+}
+
+// Pega a localização atual (GPS) e o endereço aproximado (rua/bairro/cidade).
+// Reaproveita a última localização se foi obtida há menos de 5 minutos, pra
+// não ficar pedindo GPS e endereço de novo a cada foto do mesmo ambiente.
+async function obterLocalizacaoAtual() {
+  if (ultimaLocalizacao && (Date.now() - ultimaLocalizacao.timestamp) < 5 * 60 * 1000) {
+    return ultimaLocalizacao;
+  }
+  if (!('geolocation' in navigator)) return null;
+  try {
+    const pos = await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
+    });
+    const lat = pos.coords.latitude, lon = pos.coords.longitude;
+    let endereco = '';
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=17&addressdetails=1`);
+      const data = await res.json();
+      const a = data.address || {};
+      const partes = [a.road, a.suburb || a.neighbourhood, a.city || a.town].filter(Boolean);
+      endereco = partes.join(', ');
+    } catch (e) { /* segue sem endereço textual, usa só as coordenadas */ }
+    ultimaLocalizacao = { lat, lon, endereco, timestamp: Date.now() };
+    return ultimaLocalizacao;
+  } catch (e) {
+    console.error('Não foi possível obter a localização:', e.message);
+    return null;
+  }
+}
+
+// Desenha o carimbo (data, hora e endereço) direto na imagem, numa faixa
+// semitransparente no canto inferior esquerdo. Retorna a nova imagem em JPEG.
+async function carimbarFoto(dataUrl) {
+  return new Promise(async (resolve) => {
+    try {
+      const loc = await obterLocalizacaoAtual();
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width; canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+
+          const agora = new Date();
+          const linha1 = `${agora.toLocaleDateString('pt-BR')} ${agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+          const linha2 = (loc && loc.endereco) ? loc.endereco
+            : (loc ? `${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}` : 'Localização indisponível');
+
+          const fontSize = Math.max(14, Math.round(canvas.width * 0.028));
+          ctx.font = `bold ${fontSize}px Arial`;
+          const padding = fontSize * 0.6;
+          const textWidth = Math.min(canvas.width, Math.max(ctx.measureText(linha1).width, ctx.measureText(linha2).width) + padding * 2);
+          const boxHeight = fontSize * 2.6 + padding;
+
+          ctx.fillStyle = 'rgba(0,0,0,0.55)';
+          ctx.fillRect(0, canvas.height - boxHeight, textWidth, boxHeight);
+          ctx.fillStyle = '#fff';
+          ctx.textBaseline = 'top';
+          ctx.fillText(linha1, padding, canvas.height - boxHeight + padding * 0.5);
+          ctx.fillText(linha2, padding, canvas.height - boxHeight + padding * 0.5 + fontSize * 1.3);
+
+          resolve(canvas.toDataURL('image/jpeg', 0.9));
+        } catch (e) { console.error('Falha ao desenhar carimbo:', e); resolve(dataUrl); }
+      };
+      img.onerror = () => resolve(dataUrl); // se a imagem falhar ao carregar, usa a original sem carimbo
+      img.src = dataUrl;
+    } catch (e) { resolve(dataUrl); }
+  });
 }
 
 function renderFitaColorida() {
@@ -1015,6 +1154,7 @@ function renderHistorico(lista) {
 
 // Ao abrir o app, verifica se existe uma vistoria em andamento salva localmente
 carregarCorConfig();
+carregarCarimboConfig();
 verificarRascunhoAoAbrir();
 
 // Fila de reenvio automático: verifica ao abrir, tenta reenviar de novo a cada 30s,
