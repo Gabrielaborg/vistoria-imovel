@@ -2,6 +2,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { execSync } = require('child_process');
 
 const PORT = 3000;
@@ -20,10 +21,64 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 // Como conseguir de graça: https://www.geoapify.com/ → Sign Up → cria um projeto → copia a API Key.
 const GEOAPIFY_API_KEY = process.env.GEOAPIFY_API_KEY || '';
 
+const SEIS_MESES_MS = 6 * 30 * 24 * 60 * 60 * 1000; // aproximação de 6 meses, usada pra decidir o que é "antigo"
+
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 function lerHistorico() { try { return JSON.parse(fs.readFileSync(HISTORICO_FILE, 'utf8')); } catch { return []; } }
 function salvarHistorico(h) { fs.writeFileSync(HISTORICO_FILE, JSON.stringify(h, null, 2)); }
+
+// ── Compactação de laudos antigos (economiza espaço no Volume do Railway) ──
+
+// Compacta um arquivo com gzip (reduz bastante o tamanho, principalmente do .docx,
+// que já é um zip por dentro mas ainda tem folga) e apaga o original.
+function compactarArquivo(caminhoOriginal) {
+  const dados = fs.readFileSync(caminhoOriginal);
+  const comprimido = zlib.gzipSync(dados, { level: 9 });
+  fs.writeFileSync(caminhoOriginal + '.gz', comprimido);
+  fs.unlinkSync(caminhoOriginal);
+}
+
+// Descompacta de volta pra memória na hora do download, sem precisar guardar
+// uma cópia solta do arquivo original no disco.
+function lerArquivoTalvezCompactado(caminhoOriginal) {
+  if (fs.existsSync(caminhoOriginal)) return fs.readFileSync(caminhoOriginal);
+  if (fs.existsSync(caminhoOriginal + '.gz')) return zlib.gunzipSync(fs.readFileSync(caminhoOriginal + '.gz'));
+  return null;
+}
+function arquivoExisteOuCompactado(caminhoOriginal) {
+  return fs.existsSync(caminhoOriginal) || fs.existsSync(caminhoOriginal + '.gz');
+}
+
+// Roda periodicamente: procura laudos com mais de 6 meses no histórico e compacta
+// o Word/PDF deles (ficam bem menores, mas continuam disponíveis pra download normal
+// no app — só demoram uma fração de segundo a mais, pela descompactação na hora).
+function compactarLaudosAntigos() {
+  const hist = lerHistorico();
+  let mudou = false;
+  for (const item of hist) {
+    if (item.compactado) continue;
+    if (!item.ts || (Date.now() - item.ts) < SEIS_MESES_MS) continue;
+    try {
+      const docxPath = path.join(OUTPUT_DIR, item.arquivo);
+      const pdfPath = docxPath.replace('.docx', '.pdf');
+      let compactouAlgo = false;
+      if (fs.existsSync(docxPath)) { compactarArquivo(docxPath); compactouAlgo = true; }
+      if (fs.existsSync(pdfPath)) { compactarArquivo(pdfPath); compactouAlgo = true; }
+      if (compactouAlgo) {
+        item.compactado = true;
+        mudou = true;
+        console.log(`✓ Laudo compactado (economia de espaço): ${item.arquivo}`);
+      }
+    } catch (e) {
+      console.error(`Falha ao compactar "${item.arquivo}", tenta de novo na próxima rodada:`, e.message);
+    }
+  }
+  if (mudou) salvarHistorico(hist);
+}
+
+setTimeout(() => { try { compactarLaudosAntigos(); } catch (e) { console.error('Erro na rotina de compactação:', e.message); } }, 30 * 1000);
+setInterval(() => { try { compactarLaudosAntigos(); } catch (e) { console.error('Erro na rotina de compactação:', e.message); } }, 24 * 60 * 60 * 1000);
 
 // ── Chamada central à API da Anthropic (roda só no servidor, chave nunca exposta) ──
 async function chamarClaude({ system, messages, maxTokens = 300 }) {
@@ -375,7 +430,7 @@ const server = http.createServer(async (req, res) => {
         return res.end(JSON.stringify({ erro: 'Chave do serviço de mapas (GEOAPIFY_API_KEY) não configurada no servidor.' }));
       }
       // Geoapify Static Maps: serviço confiável baseado no OpenStreetMap, com tier gratuito
-      const mapaUrl = `https://maps.geoapify.com/v1/staticmap?style=osm-bright&width=640&height=400&center=lonlat:${lon},${lat}&zoom=15&marker=lonlat:${lon},${lat};type:awesome;color:orange;size:large&apiKey=${GEOAPIFY_API_KEY}`;
+      const mapaUrl = `https://maps.geoapify.com/v1/staticmap?style=osm-bright&width=640&height=400&center=lonlat:${lon},${lat}&zoom=13&marker=lonlat:${lon},${lat};type:awesome;color:orange;size:large&apiKey=${GEOAPIFY_API_KEY}`;
       const mapaRes = await fetch(mapaUrl);
       if (!mapaRes.ok) {
         const corpoErro = await mapaRes.text().catch(() => '');
@@ -392,6 +447,18 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Dispara a compactação na hora, sem esperar a rotina automática diária — útil pra testar.
+  if (req.method === 'GET' && req.url === '/compactar-agora') {
+    try {
+      compactarLaudosAntigos();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true }));
+    } catch (e) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: false, erro: e.message }));
+    }
+  }
+
   if (req.method === 'GET' && req.url === '/historico') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(lerHistorico().reverse()));
@@ -400,24 +467,27 @@ const server = http.createServer(async (req, res) => {
     const filename = decodeURIComponent(req.url.replace('/download-pdf/', ''));
     const docxPath = path.join(OUTPUT_DIR, filename);
     const pdfPath = docxPath.replace('.docx', '.pdf');
-    if (fs.existsSync(pdfPath)) {
+    const pdfBuf = lerArquivoTalvezCompactado(pdfPath);
+    if (pdfBuf) {
       res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${filename.replace('.docx','.pdf')}"` });
-      return res.end(fs.readFileSync(pdfPath));
+      return res.end(pdfBuf);
     }
-    // Try to generate PDF from docx
-    if (fs.existsSync(docxPath)) {
+    // Tenta gerar o PDF a partir do docx (se o docx existir, mesmo que compactado)
+    const docxBuf = lerArquivoTalvezCompactado(docxPath);
+    if (docxBuf) {
       try {
+        if (!fs.existsSync(docxPath)) fs.writeFileSync(docxPath, docxBuf); // descompacta temporariamente pro LibreOffice conseguir ler
         const paths = ['C:\\Program Files\\LibreOffice\\program\\soffice.exe','C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe','soffice'];
         let soffice = 'soffice';
         for (const p of paths) { if (fs.existsSync(p)) { soffice = p; break; } }
         execSync(`"${soffice}" --headless --convert-to pdf "${docxPath}" --outdir "${OUTPUT_DIR}"`, { timeout: 60000 });
-        const pdfBuf = fs.readFileSync(pdfPath);
+        const pdfBufGerado = fs.readFileSync(pdfPath);
         res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${filename.replace('.docx','.pdf')}"` });
-        return res.end(pdfBuf);
+        return res.end(pdfBufGerado);
       } catch(e) {
-        // fallback: send docx
+        // fallback: manda o docx mesmo
         res.writeHead(200, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'Content-Disposition': `attachment; filename="${filename}"` });
-        return res.end(fs.readFileSync(docxPath));
+        return res.end(docxBuf);
       }
     }
     res.writeHead(404); return res.end('Not found');
@@ -426,9 +496,10 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url.startsWith('/download/')) {
     const filename = decodeURIComponent(req.url.replace('/download/', ''));
     const filepath = path.join(OUTPUT_DIR, filename);
-    if (fs.existsSync(filepath)) {
+    const buf = lerArquivoTalvezCompactado(filepath);
+    if (buf) {
       res.writeHead(200, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'Content-Disposition': `attachment; filename="${filename}"` });
-      return res.end(fs.readFileSync(filepath));
+      return res.end(buf);
     }
     res.writeHead(404); return res.end('Not found');
   }
