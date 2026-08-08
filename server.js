@@ -142,7 +142,7 @@ async function gerarDocx(payload) {
       for (let i = 0; i < totalFotos; i++) {
         const foto = fotosDoGrupo[i];
         registrosParagraphs.push(new Paragraph({
-          children: [N(`Imagem ${imgCounter}`, 20)], indent, spacing: { after: 60 }
+          children: [N(`Imagem ${imgCounter}`, 20)], alignment: AlignmentType.CENTER, spacing: { after: 60 }
         }));
         try {
           const imgBuf = Buffer.from(foto.base64, 'base64');
