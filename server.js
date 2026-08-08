@@ -15,6 +15,11 @@ const HISTORICO_FILE = path.join(OUTPUT_DIR, 'historico.json');
 // Configure em Railway: Service > Variables > ANTHROPIC_API_KEY
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
+// Chave de API do Geoapify (gratuita), usada para buscar a imagem do mapa pela localização atual.
+// Configure em Railway: Service > Variables > GEOAPIFY_API_KEY
+// Como conseguir de graça: https://www.geoapify.com/ → Sign Up → cria um projeto → copia a API Key.
+const GEOAPIFY_API_KEY = process.env.GEOAPIFY_API_KEY || '';
+
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 function lerHistorico() { try { return JSON.parse(fs.readFileSync(HISTORICO_FILE, 'utf8')); } catch { return []; } }
@@ -365,10 +370,17 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ erro: 'Coordenadas inválidas.' }));
       }
-      // Serviço gratuito de mapas estáticos baseado no OpenStreetMap, sem necessidade de chave de API
-      const mapaUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lon}&zoom=17&size=640x400&maptype=mapnik&markers=${lat},${lon},ol-marker`;
+      if (!GEOAPIFY_API_KEY) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ erro: 'Chave do serviço de mapas (GEOAPIFY_API_KEY) não configurada no servidor.' }));
+      }
+      // Geoapify Static Maps: serviço confiável baseado no OpenStreetMap, com tier gratuito
+      const mapaUrl = `https://maps.geoapify.com/v1/staticmap?style=osm-bright&width=640&height=400&center=lonlat:${lon},${lat}&zoom=17&marker=lonlat:${lon},${lat};type:awesome;color:%23D4762A;size:large&apiKey=${GEOAPIFY_API_KEY}`;
       const mapaRes = await fetch(mapaUrl);
-      if (!mapaRes.ok) throw new Error(`Serviço de mapa respondeu ${mapaRes.status}`);
+      if (!mapaRes.ok) {
+        const corpoErro = await mapaRes.text().catch(() => '');
+        throw new Error(`Geoapify respondeu ${mapaRes.status}: ${corpoErro.slice(0, 200)}`);
+      }
       const buf = Buffer.from(await mapaRes.arrayBuffer());
       const base64 = buf.toString('base64');
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -376,7 +388,7 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       console.error('Erro em /obter-mapa:', e.message);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ erro: 'Não foi possível buscar o mapa automaticamente.' }));
+      return res.end(JSON.stringify({ erro: `Não foi possível buscar o mapa automaticamente. Detalhe: ${e.message}` }));
     }
   }
 
