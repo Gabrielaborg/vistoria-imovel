@@ -195,6 +195,12 @@
       </div>
     </div>
     <div class="field"><label>Nome completo</label><input type="text" id="nomeCliente" placeholder="Maria Souza da Silva" /></div>
+    <div id="painelVistoriaAnterior" style="display:none;margin-bottom:14px">
+      <button type="button" onclick="buscarVistoriaAnterior()" style="width:100%;background:#F3E9DD;border:1.5px dashed #7B4FA0;color:#7B4FA0;border-radius:9px;padding:10px;font-family:var(--font);font-size:12.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <i class="ti ti-history"></i> Ver defeitos da vistoria anterior
+      </button>
+      <div id="resultadoVistoriaAnterior"></div>
+    </div>
     <div class="grid2">
       <div class="field"><label>CPF</label><input type="text" id="cpf" placeholder="000.000.000-00" maxlength="14" /></div>
       <div class="field"><label>Telefone</label><input type="text" id="telefone" placeholder="(34) 99999-0000" /></div>
@@ -812,6 +818,43 @@ function selecionarTipoAgendamento(tipo) {
   document.getElementById('tipoAgendamento').value = tipo;
   document.getElementById('btnTipoVistoria').classList.toggle('selected', tipo === 'Vistoria');
   document.getElementById('btnTipoRevistoria').classList.toggle('selected', tipo === 'Revistoria');
+  const painel = document.getElementById('painelVistoriaAnterior');
+  painel.style.display = tipo === 'Revistoria' ? 'block' : 'none';
+  if (tipo !== 'Revistoria') document.getElementById('resultadoVistoriaAnterior').innerHTML = '';
+}
+
+// Busca a vistoria mais recente já feita pra esse mesmo cliente (pelo nome) e mostra
+// os defeitos registrados nela — pra conferir rápido o que já foi corrigido na revistoria.
+async function buscarVistoriaAnterior() {
+  const nome = document.getElementById('nomeCliente').value.trim().toLowerCase();
+  const resultado = document.getElementById('resultadoVistoriaAnterior');
+  if (!nome) {
+    resultado.innerHTML = '<p style="color:var(--danger);font-size:12px;padding:8px 4px 0">Digite o nome do cliente primeiro.</p>';
+    return;
+  }
+  resultado.innerHTML = '<p style="color:var(--muted);font-size:12px;padding:8px 4px 0"><span class="sp2"></span> Buscando...</p>';
+  try {
+    const res = await fetch('/historico');
+    const lista = await res.json();
+    const encontrados = lista.filter(l => (l.nome || '').toLowerCase().includes(nome)).sort((a, b) => b.ts - a.ts);
+    if (encontrados.length === 0) {
+      resultado.innerHTML = '<p style="color:var(--muted);font-size:12px;padding:8px 4px 0">Nenhuma vistoria anterior encontrada com esse nome.</p>';
+      return;
+    }
+    const anterior = encontrados[0];
+    const registros = anterior.registros || [];
+    resultado.innerHTML = `
+      <div style="background:#F3E9DD;border-radius:10px;padding:12px;margin-top:8px">
+        <div style="font-size:11px;font-weight:700;color:#7B4FA0;margin-bottom:8px">
+          ${badgeTipo(anterior.tipo)} em ${anterior.data && anterior.data !== '—' ? anterior.data.split('-').reverse().join('/') : 'data não informada'} · ${anterior.empreendimento || 'Sem empreendimento'}
+        </div>
+        ${registros.length === 0
+          ? '<p style="font-size:12px;color:var(--muted)">Esse laudo foi gerado antes dessa função existir, sem detalhes de defeitos salvos.</p>'
+          : registros.map(r => `<div style="font-size:12px;padding:5px 0;border-bottom:1px solid rgba(0,0,0,.08)"><strong>${r.ambiente}:</strong> ${r.defeito}</div>`).join('')}
+      </div>`;
+  } catch (e) {
+    resultado.innerHTML = '<p style="color:var(--danger);font-size:12px;padding:8px 4px 0">Erro ao buscar. Tente de novo.</p>';
+  }
 }
 
 function irParaAmbiente() {
@@ -1917,6 +1960,7 @@ async function iniciarVistoriaDoAgendamento(id) {
   resetarBotaoDados();
   dadosContexto = 'novo';
   atualizarBotaoCancelarDados();
+  if (item.dados.tipo === 'Revistoria') buscarVistoriaAnterior();
   try { await fetch(`/agenda?id=${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (e) { /* segue mesmo assim, não trava a vistoria */ }
   switchTab('vistoria');
   irParaAmbiente();
