@@ -886,6 +886,7 @@ function renderResultadosVistoriaAnterior() {
           ${(l.registros && l.registros.length)
             ? l.registros.map(r => `<div style="font-size:12px;padding:5px 0;border-bottom:1px solid rgba(0,0,0,.08)"><strong>${r.ambiente}:</strong> ${r.defeito}</div>`).join('')
             : '<p style="font-size:12px;color:var(--muted)">Esse laudo foi gerado antes dessa função existir, sem detalhes de defeitos salvos.</p>'}
+          <button onclick="baixarPdfHistorico('${encodeURIComponent(l.arquivo)}')" style="width:100%;margin-top:10px;background:#C0392B;color:#fff;border:none;border-radius:8px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer"><i class="ti ti-file-type-pdf"></i> Ver PDF do laudo</button>
         </div>
       </div>`).join('')}
   `;
@@ -2045,7 +2046,8 @@ async function abrirConsultaRevistoria(agendamentoId) {
           ${(l.registros && l.registros.length)
             ? l.registros.map(r => `<div style="font-size:12px;padding:5px 0;border-bottom:1px solid rgba(0,0,0,.08)"><strong>${r.ambiente}:</strong> ${r.defeito}</div>`).join('')
             : '<p style="font-size:12px;color:var(--muted)">Sem detalhes de defeitos salvos pra esse laudo.</p>'}
-          <button onclick="iniciarRevistoriaComDefeitos(${i})" style="width:100%;margin-top:10px;background:#7B4FA0;color:#fff;border:none;border-radius:8px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer"><i class="ti ti-player-play"></i> Iniciar revistoria com estes defeitos</button>
+          <button onclick="baixarPdfHistorico('${encodeURIComponent(l.arquivo)}')" style="width:100%;margin-top:10px;background:#C0392B;color:#fff;border:none;border-radius:8px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer"><i class="ti ti-file-type-pdf"></i> Ver PDF do laudo</button>
+          <button onclick="iniciarRevistoriaComDefeitos(${i})" style="width:100%;margin-top:8px;background:#7B4FA0;color:#fff;border:none;border-radius:8px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer"><i class="ti ti-player-play"></i> Iniciar revistoria com estes defeitos</button>
         </div>
       </div>`).join('');
   } catch (e) {
