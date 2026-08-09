@@ -112,7 +112,7 @@
   .search-bar input { flex: 1; padding: 10px 13px; border: 1.5px solid var(--border); border-radius: 8px; font-family: var(--font); font-size: 13px; outline: none; }
   .search-bar input:focus { border-color: var(--brand); }
   .nav-tabs { display: flex; gap: 4px; margin-bottom: 16px; background: var(--light); padding: 4px; border-radius: 10px; }
-  .nav-tab { flex: 1; padding: 9px; text-align: center; font-size: 12px; font-weight: 700; border-radius: 7px; cursor: pointer; border: none; background: transparent; color: var(--muted); font-family: var(--font); transition: all .15s; }
+  .nav-tab { flex: 1; padding: 8px 3px; text-align: center; font-size: 10.5px; font-weight: 700; border-radius: 7px; cursor: pointer; border: none; background: transparent; color: var(--muted); font-family: var(--font); transition: all .15s; white-space: nowrap; }
   .nav-tab.active { background: #fff; color: var(--brand); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
   .view-toggle-btn { flex: 1; padding: 8px; text-align: center; font-size: 12px; font-weight: 700; border-radius: 6px; cursor: pointer; border: none; background: transparent; color: var(--muted); font-family: var(--font); transition: all .15s; }
   .view-toggle-btn.active-view { background: var(--brand); color: #fff; }
@@ -157,6 +157,7 @@
       <span id="carimboToggleDot" style="position:absolute;top:2px;left:16px;width:14px;height:14px;background:#fff;border-radius:50%;transition:left .15s"></span>
     </span>
   </label>
+  <a href="/logout" title="Sair" style="color:#fff;opacity:.75;font-size:15px;margin-right:8px;display:flex;align-items:center" onclick="return confirm('Sair do EngCheck? Vai precisar da senha pra entrar de novo.')"><i class="ti ti-logout"></i></a>
   <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:10%"></div></div>
 </div>
 
@@ -174,6 +175,7 @@
   <div class="nav-tabs">
     <button class="nav-tab active" id="tab-vistoria" onclick="switchTab('vistoria')"><i class="ti ti-clipboard-check"></i> Vistoria</button>
     <button class="nav-tab" id="tab-agenda" onclick="switchTab('agenda')"><i class="ti ti-calendar"></i> Agenda</button>
+    <button class="nav-tab" id="tab-financeiro" onclick="switchTab('financeiro')"><i class="ti ti-report-money"></i> Financeiro</button>
     <button class="nav-tab" id="tab-historico" onclick="switchTab('historico')"><i class="ti ti-history"></i> Histórico</button>
   </div>
 </div>
@@ -214,6 +216,21 @@
     <div class="grid2">
       <div class="field"><label>Data da vistoria</label><input type="date" id="dataVistoria" /></div>
       <div class="field"><label>Horário (opcional)</label><input type="time" id="horaVistoria" /></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Valor da vistoria (R$)</label><input type="number" id="valorVistoria" step="0.01" min="0" placeholder="0,00" /></div>
+      <div class="field"><label>Forma de pagamento</label>
+        <select id="formaPagamento" style="width:100%;padding:10px 13px;border:1.5px solid var(--border);border-radius:8px;font-family:var(--font);font-size:13px;outline:none;background:#fff">
+          <option value="">Selecione</option>
+          <option value="Pix">Pix</option>
+          <option value="Dinheiro">Dinheiro</option>
+          <option value="Cartão de crédito">Cartão de crédito</option>
+          <option value="Cartão de débito">Cartão de débito</option>
+          <option value="Transferência">Transferência</option>
+          <option value="Boleto">Boleto</option>
+          <option value="Outro">Outro</option>
+        </select>
+      </div>
     </div>
   </div>
 
@@ -435,6 +452,39 @@
   <div id="agendaList"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p></div>
 </div>
 
+<div id="financeiro-screen" style="display:none;max-width:520px;margin:0 auto;padding:0 16px 80px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <button onclick="navegarFinanceiro(-1)" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--brand);padding:4px"><i class="ti ti-chevron-left"></i></button>
+    <span id="financeiroMesTitulo" style="font-weight:700;color:var(--brand);font-size:15px"></span>
+    <button onclick="navegarFinanceiro(1)" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--brand);padding:4px"><i class="ti ti-chevron-right"></i></button>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+    <div style="background:var(--brand);border-radius:12px;padding:16px;color:#fff">
+      <div style="font-size:10px;font-weight:700;opacity:.75;text-transform:uppercase;letter-spacing:.4px">Total recebido</div>
+      <div id="financeiroTotalValor" style="font-size:22px;font-weight:800;margin-top:4px">R$ 0,00</div>
+    </div>
+    <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px">
+      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Vistorias no mês</div>
+      <div id="financeiroTotalQtd" style="font-size:22px;font-weight:800;color:var(--brand);margin-top:4px">0</div>
+      <div id="financeiroTotalQtdDetalhe" style="font-size:10.5px;color:var(--muted);margin-top:2px"></div>
+    </div>
+  </div>
+
+  <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">
+    <div class="section-label" style="margin-bottom:10px">Por forma de pagamento</div>
+    <div id="financeiroPorForma"><p style="color:var(--muted);font-size:12px;text-align:center;padding:10px 0">Sem dados nesse mês.</p></div>
+  </div>
+
+  <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">
+    <div class="section-label" style="margin-bottom:10px">Últimos 6 meses</div>
+    <div id="financeiroGraficoMensal"></div>
+  </div>
+
+  <div class="section-label" style="margin-bottom:8px">Vistorias do mês</div>
+  <div id="financeiroLista"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p></div>
+</div>
+
 <div id="modalRegistro" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:150;align-items:flex-end;justify-content:center">
   <div style="background:#fff;border-radius:16px 16px 0 0;max-width:520px;width:100%;max-height:85vh;display:flex;flex-direction:column">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px 10px">
@@ -649,7 +699,7 @@ async function verificarRascunhoAoAbrir() {
   Object.assign(state, salvo);
 
   // Restaura os campos do formulário de dados do cliente
-  const campos = { nomeCliente:'nome', cpf:'cpf', telefone:'telefone', empreendimento:'empreendimento', construtora:'construtora', endereco:'endereco', bloco:'bloco', apto:'apto', cep:'cep', cidade:'cidade', metragem:'metragem', comodos:'comodos' };
+  const campos = { nomeCliente:'nome', cpf:'cpf', telefone:'telefone', empreendimento:'empreendimento', construtora:'construtora', endereco:'endereco', bloco:'bloco', apto:'apto', cep:'cep', cidade:'cidade', metragem:'metragem', comodos:'comodos', valorVistoria:'valor', formaPagamento:'formaPagamento' };
   Object.entries(campos).forEach(([idCampo, chaveState]) => {
     const el = document.getElementById(idCampo);
     if (el && state.dados[chaveState]) el.value = state.dados[chaveState];
@@ -734,12 +784,15 @@ async function buscarMapaAtual() {
 function switchTab(tab) {
   document.getElementById('tab-vistoria').classList.toggle('active', tab==='vistoria');
   document.getElementById('tab-agenda').classList.toggle('active', tab==='agenda');
+  document.getElementById('tab-financeiro').classList.toggle('active', tab==='financeiro');
   document.getElementById('tab-historico').classList.toggle('active', tab==='historico');
   document.getElementById('vistoria-screens').style.display = tab==='vistoria' ? 'block' : 'none';
   document.getElementById('agenda-screen').style.display = tab==='agenda' ? 'block' : 'none';
+  document.getElementById('financeiro-screen').style.display = tab==='financeiro' ? 'block' : 'none';
   document.getElementById('historico-screen').style.display = tab==='historico' ? 'block' : 'none';
   if (tab==='historico') carregarHistorico();
   if (tab==='agenda') carregarAgenda();
+  if (tab==='financeiro') carregarFinanceiro();
 }
 
 function mostrarScreen(id) {
@@ -769,6 +822,8 @@ function irParaAmbiente() {
     telefone: document.getElementById('telefone').value.trim(),
     empreendimento: document.getElementById('empreendimento').value.trim(),
     construtora: document.getElementById('construtora').value.trim(),
+    valor: document.getElementById('valorVistoria').value,
+    formaPagamento: document.getElementById('formaPagamento').value,
     endereco: document.getElementById('endereco').value.trim(),
     bloco: document.getElementById('bloco').value.trim(),
     apto: document.getElementById('apto').value.trim(),
@@ -1580,6 +1635,8 @@ function preencherFormularioDados(d) {
   document.getElementById('telefone').value = d.telefone || '';
   document.getElementById('empreendimento').value = d.empreendimento || '';
   document.getElementById('construtora').value = d.construtora || '';
+  document.getElementById('valorVistoria').value = d.valor || '';
+  document.getElementById('formaPagamento').value = d.formaPagamento || '';
   document.getElementById('endereco').value = d.endereco || '';
   document.getElementById('bloco').value = d.bloco || '';
   document.getElementById('apto').value = d.apto || '';
@@ -1600,9 +1657,10 @@ function resetarBotaoDados() {
 // Abre a tela de Dados do cliente em "modo agenda": preenchendo com calma agora,
 // vira um agendamento salvo, não uma vistoria em andamento.
 function novoAgendamento() {
-  ['nomeCliente','cpf','telefone','empreendimento','construtora','endereco','bloco','apto','cep','cidade','metragem','comodos'].forEach(id => { document.getElementById(id).value = ''; });
+  ['nomeCliente','cpf','telefone','empreendimento','construtora','endereco','bloco','apto','cep','cidade','metragem','comodos','valorVistoria'].forEach(id => { document.getElementById(id).value = ''; });
   document.getElementById('dataVistoria').value = '';
   document.getElementById('horaVistoria').value = '';
+  document.getElementById('formaPagamento').value = '';
   selecionarTipoAgendamento('Vistoria');
   state.plantaBase64 = null; state.plantaMediaType = null;
   state.mapaBase64 = null; state.mapaMediaType = null;
@@ -1626,6 +1684,8 @@ async function salvarAgendamento() {
     telefone: document.getElementById('telefone').value.trim(),
     empreendimento: document.getElementById('empreendimento').value.trim(),
     construtora: document.getElementById('construtora').value.trim(),
+    valor: document.getElementById('valorVistoria').value,
+    formaPagamento: document.getElementById('formaPagamento').value,
     endereco: document.getElementById('endereco').value.trim(),
     bloco: document.getElementById('bloco').value.trim(),
     apto: document.getElementById('apto').value.trim(),
@@ -1830,7 +1890,11 @@ function renderCalDia() {
   return cabecalho + `<div style="display:flex;flex-direction:column;gap:8px">${itens.map(a => `
     <div class="hist-item">
       <div style="width:46px;flex-shrink:0;text-align:center;font-size:12px;font-weight:700;color:var(--brand)">${a.dados.hora || '--:--'}</div>
-      <div class="info"><strong>${a.dados.nome}${a.dados.empreendimento ? ' - ' + a.dados.empreendimento : ''}${badgeTipo(a.dados.tipo)}</strong><span>${a.dados.endereco || 'Endereço não informado'}</span></div>
+      <div class="info">
+        <strong>${a.dados.nome}${badgeTipo(a.dados.tipo)}</strong>
+        <span style="display:block">${a.dados.empreendimento || 'Empreendimento não informado'}${a.dados.construtora ? ' · ' + a.dados.construtora : ''}</span>
+        <span style="display:block">${a.dados.data ? a.dados.data.split('-').reverse().join('/') : 'Sem data'}${a.dados.hora ? ' às ' + a.dados.hora : ''} · ${a.dados.metragem ? a.dados.metragem + ' m²' : 'Metragem não informada'}</span>
+      </div>
       <div style="display:flex;flex-direction:column;gap:5px">
         <button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>
         <button class="hist-btn" style="background:var(--brand2);width:100%" onclick="editarAgendamento('${a.id}')"><i class="ti ti-edit"></i> Editar</button>
@@ -1898,6 +1962,8 @@ async function salvarEdicaoAgendamento(id) {
     telefone: document.getElementById('telefone').value.trim(),
     empreendimento: document.getElementById('empreendimento').value.trim(),
     construtora: document.getElementById('construtora').value.trim(),
+    valor: document.getElementById('valorVistoria').value,
+    formaPagamento: document.getElementById('formaPagamento').value,
     endereco: document.getElementById('endereco').value.trim(),
     bloco: document.getElementById('bloco').value.trim(),
     apto: document.getElementById('apto').value.trim(),
@@ -1931,9 +1997,10 @@ function novaVistoria() {
   resetarBotaoDados();
   dadosContexto = 'novo';
   atualizarBotaoCancelarDados();
-  ['nomeCliente','cpf','telefone','empreendimento','construtora','endereco','bloco','apto','cep','cidade','metragem','comodos','obsGeral'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['nomeCliente','cpf','telefone','empreendimento','construtora','endereco','bloco','apto','cep','cidade','metragem','comodos','obsGeral','valorVistoria'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('dataVistoria').value=new Date().toISOString().split('T')[0];
   document.getElementById('horaVistoria').value='';
+  document.getElementById('formaPagamento').value='';
   selecionarTipoAgendamento('Vistoria');
   document.getElementById('btnSimObs').classList.remove('selected');
   document.getElementById('btnNaoObs').classList.remove('selected');
@@ -1969,6 +2036,109 @@ async function baixarWordHistorico(arquivo) {
     console.error('Falha ao baixar Word do histórico:', e);
     alert('Não foi possível baixar o Word agora. Tente novamente.');
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// FINANCEIRO — total ganho e quantidade de vistorias por mês.
+// ══════════════════════════════════════════════════════════════
+let financeiroDataRef = new Date();
+let laudosFinanceiro = [];
+
+function formatarBRL(valor) {
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function parseValorBR(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  const n = parseFloat(String(v).replace(',', '.'));
+  return isNaN(n) ? 0 : n;
+}
+
+async function carregarFinanceiro() {
+  document.getElementById('financeiroLista').innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p>';
+  try {
+    const res = await fetch('/historico');
+    laudosFinanceiro = await res.json();
+    renderFinanceiro();
+  } catch (e) {
+    document.getElementById('financeiroLista').innerHTML = '<p style="color:var(--danger);font-size:13px;text-align:center;padding:20px">Erro ao carregar.</p>';
+  }
+}
+
+function navegarFinanceiro(delta) {
+  financeiroDataRef.setMonth(financeiroDataRef.getMonth() + delta);
+  renderFinanceiro();
+}
+
+function laudosDoMes(ano, mes) {
+  return laudosFinanceiro.filter(l => {
+    const d = new Date(l.ts);
+    return d.getFullYear() === ano && d.getMonth() === mes;
+  });
+}
+
+function renderFinanceiro() {
+  const ano = financeiroDataRef.getFullYear(), mes = financeiroDataRef.getMonth();
+  document.getElementById('financeiroMesTitulo').textContent = `${NOMES_MES[mes]} de ${ano}`;
+
+  const doMes = laudosDoMes(ano, mes);
+  const total = doMes.reduce((soma, l) => soma + parseValorBR(l.valor), 0);
+  const qtdVistoria = doMes.filter(l => l.tipo !== 'Revistoria').length;
+  const qtdRevistoria = doMes.filter(l => l.tipo === 'Revistoria').length;
+
+  document.getElementById('financeiroTotalValor').textContent = formatarBRL(total);
+  document.getElementById('financeiroTotalQtd').textContent = doMes.length;
+  document.getElementById('financeiroTotalQtdDetalhe').textContent = `${qtdVistoria} vistoria${qtdVistoria === 1 ? '' : 's'} · ${qtdRevistoria} revistoria${qtdRevistoria === 1 ? '' : 's'}`;
+
+  // Por forma de pagamento
+  const porForma = {};
+  doMes.forEach(l => {
+    const f = l.formaPagamento || 'Não informado';
+    porForma[f] = (porForma[f] || 0) + parseValorBR(l.valor);
+  });
+  const formaEntries = Object.entries(porForma).sort((a, b) => b[1] - a[1]);
+  const contFormas = document.getElementById('financeiroPorForma');
+  contFormas.innerHTML = formaEntries.length === 0
+    ? '<p style="color:var(--muted);font-size:12px;text-align:center;padding:10px 0">Sem dados nesse mês.</p>'
+    : formaEntries.map(([forma, valor]) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--light);font-size:12.5px">
+        <span style="font-weight:600">${forma}</span>
+        <span style="font-weight:700;color:var(--brand)">${formatarBRL(valor)}</span>
+      </div>`).join('');
+
+  // Gráfico simples dos últimos 6 meses
+  const meses = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(ano, mes - i, 1);
+    const itens = laudosDoMes(d.getFullYear(), d.getMonth());
+    meses.push({ label: NOMES_MES[d.getMonth()].slice(0, 3), totalMes: itens.reduce((s, l) => s + parseValorBR(l.valor), 0) });
+  }
+  const maxValor = Math.max(...meses.map(m => m.totalMes), 1);
+  document.getElementById('financeiroGraficoMensal').innerHTML = meses.map(m => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="width:32px;font-size:10.5px;font-weight:700;color:var(--muted);flex-shrink:0">${m.label}</span>
+      <div style="flex:1;background:var(--light);border-radius:5px;height:16px;overflow:hidden">
+        <div style="background:var(--accent);height:100%;width:${(m.totalMes / maxValor * 100).toFixed(0)}%;border-radius:5px"></div>
+      </div>
+      <span style="width:78px;text-align:right;font-size:10.5px;font-weight:700;color:var(--text);flex-shrink:0">${formatarBRL(m.totalMes)}</span>
+    </div>`).join('');
+
+  // Lista das vistorias desse mês
+  const lista = document.getElementById('financeiroLista');
+  if (doMes.length === 0) {
+    lista.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nenhuma vistoria nesse mês.</p>';
+    return;
+  }
+  lista.innerHTML = doMes.sort((a, b) => b.ts - a.ts).map(l => `
+    <div class="hist-item">
+      <i class="ti ti-file-text" style="font-size:24px;color:var(--brand)"></i>
+      <div class="info">
+        <strong>${l.nome}${badgeTipo(l.tipo)}</strong>
+        <span style="display:block">${l.empreendimento || 'Sem empreendimento'} · ${l.data ? l.data.split('-').reverse().join('/') : ''}</span>
+        <span style="display:block">${l.formaPagamento || 'Forma não informada'}</span>
+      </div>
+      <div style="font-weight:800;color:var(--brand);font-size:14px;flex-shrink:0">${formatarBRL(parseValorBR(l.valor))}</div>
+    </div>`).join('');
 }
 
 async function carregarHistorico() {
