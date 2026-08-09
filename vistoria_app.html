@@ -197,7 +197,10 @@
       <div class="field"><label>CPF</label><input type="text" id="cpf" placeholder="000.000.000-00" maxlength="14" /></div>
       <div class="field"><label>Telefone</label><input type="text" id="telefone" placeholder="(34) 99999-0000" /></div>
     </div>
-    <div class="field"><label>Empreendimento</label><input type="text" id="empreendimento" placeholder="Nome do condomínio / residencial" /></div>
+    <div class="grid2">
+      <div class="field"><label>Empreendimento</label><input type="text" id="empreendimento" placeholder="Nome do condomínio / residencial" /></div>
+      <div class="field"><label>Construtora</label><input type="text" id="construtora" placeholder="Nome da construtora" /></div>
+    </div>
     <div class="field"><label>Endereço</label><input type="text" id="endereco" placeholder="Rua das Flores, 123" /></div>
     <div class="grid3">
       <div class="field"><label>Bloco</label><input type="text" id="bloco" placeholder="Bloco A" /></div>
@@ -425,7 +428,10 @@
     <button onclick="irParaHoje()" style="width:100%;margin-top:10px;background:none;border:none;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">Ir para hoje</button>
   </div>
 
-  <div class="section-label" style="margin-bottom:8px">Todos os agendamentos</div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+    <div class="section-label">Todos os agendamentos</div>
+    <div id="agendaTotais" style="display:flex;gap:6px;font-size:10.5px;font-weight:700"></div>
+  </div>
   <div id="agendaList"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p></div>
 </div>
 
@@ -643,7 +649,7 @@ async function verificarRascunhoAoAbrir() {
   Object.assign(state, salvo);
 
   // Restaura os campos do formulário de dados do cliente
-  const campos = { nomeCliente:'nome', cpf:'cpf', telefone:'telefone', empreendimento:'empreendimento', endereco:'endereco', bloco:'bloco', apto:'apto', cep:'cep', cidade:'cidade', metragem:'metragem', comodos:'comodos' };
+  const campos = { nomeCliente:'nome', cpf:'cpf', telefone:'telefone', empreendimento:'empreendimento', construtora:'construtora', endereco:'endereco', bloco:'bloco', apto:'apto', cep:'cep', cidade:'cidade', metragem:'metragem', comodos:'comodos' };
   Object.entries(campos).forEach(([idCampo, chaveState]) => {
     const el = document.getElementById(idCampo);
     if (el && state.dados[chaveState]) el.value = state.dados[chaveState];
@@ -762,6 +768,7 @@ function irParaAmbiente() {
     cpf: document.getElementById('cpf').value.trim(),
     telefone: document.getElementById('telefone').value.trim(),
     empreendimento: document.getElementById('empreendimento').value.trim(),
+    construtora: document.getElementById('construtora').value.trim(),
     endereco: document.getElementById('endereco').value.trim(),
     bloco: document.getElementById('bloco').value.trim(),
     apto: document.getElementById('apto').value.trim(),
@@ -1572,6 +1579,7 @@ function preencherFormularioDados(d) {
   document.getElementById('cpf').value = d.cpf || '';
   document.getElementById('telefone').value = d.telefone || '';
   document.getElementById('empreendimento').value = d.empreendimento || '';
+  document.getElementById('construtora').value = d.construtora || '';
   document.getElementById('endereco').value = d.endereco || '';
   document.getElementById('bloco').value = d.bloco || '';
   document.getElementById('apto').value = d.apto || '';
@@ -1592,7 +1600,7 @@ function resetarBotaoDados() {
 // Abre a tela de Dados do cliente em "modo agenda": preenchendo com calma agora,
 // vira um agendamento salvo, não uma vistoria em andamento.
 function novoAgendamento() {
-  ['nomeCliente','cpf','telefone','empreendimento','endereco','bloco','apto','cep','cidade','metragem','comodos'].forEach(id => { document.getElementById(id).value = ''; });
+  ['nomeCliente','cpf','telefone','empreendimento','construtora','endereco','bloco','apto','cep','cidade','metragem','comodos'].forEach(id => { document.getElementById(id).value = ''; });
   document.getElementById('dataVistoria').value = '';
   document.getElementById('horaVistoria').value = '';
   selecionarTipoAgendamento('Vistoria');
@@ -1617,6 +1625,7 @@ async function salvarAgendamento() {
     cpf: document.getElementById('cpf').value.trim(),
     telefone: document.getElementById('telefone').value.trim(),
     empreendimento: document.getElementById('empreendimento').value.trim(),
+    construtora: document.getElementById('construtora').value.trim(),
     endereco: document.getElementById('endereco').value.trim(),
     bloco: document.getElementById('bloco').value.trim(),
     apto: document.getElementById('apto').value.trim(),
@@ -1663,17 +1672,33 @@ function badgeTipo(tipo) {
 
 function renderAgenda() {
   const lista = document.getElementById('agendaList');
+  renderAgendaTotais();
   if (!agendaCache.length) { lista.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nenhuma vistoria agendada ainda.</p>'; return; }
   lista.innerHTML = agendaCache.map(a => `
     <div class="hist-item">
       <i class="ti ti-calendar-event" style="font-size:26px;color:var(--brand)"></i>
-      <div class="info"><strong>${a.dados.nome}${a.dados.empreendimento ? ' - ' + a.dados.empreendimento : ''}${badgeTipo(a.dados.tipo)}</strong><span>${a.dados.endereco || 'Endereço não informado'}${a.dados.data ? ' · ' + a.dados.data.split('-').reverse().join('/') : ''}${a.dados.hora ? ' às ' + a.dados.hora : ''}</span></div>
+      <div class="info">
+        <strong>${a.dados.nome}${badgeTipo(a.dados.tipo)}</strong>
+        <span style="display:block">${a.dados.empreendimento || 'Empreendimento não informado'}${a.dados.construtora ? ' · ' + a.dados.construtora : ''}</span>
+        <span style="display:block">${a.dados.data ? a.dados.data.split('-').reverse().join('/') : 'Sem data'}${a.dados.hora ? ' às ' + a.dados.hora : ''} · ${a.dados.metragem ? a.dados.metragem + ' m²' : 'Metragem não informada'}</span>
+      </div>
       <div style="display:flex;flex-direction:column;gap:5px">
         <button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>
         <button class="hist-btn" style="background:var(--brand2);width:100%" onclick="editarAgendamento('${a.id}')"><i class="ti ti-edit"></i> Editar</button>
         <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirAgendamento('${a.id}')"><i class="ti ti-trash"></i> Excluir</button>
       </div>
     </div>`).join('');
+}
+
+function renderAgendaTotais() {
+  const total = agendaCache.length;
+  const totalVistoria = agendaCache.filter(a => a.dados.tipo !== 'Revistoria').length;
+  const totalRevistoria = agendaCache.filter(a => a.dados.tipo === 'Revistoria').length;
+  document.getElementById('agendaTotais').innerHTML = `
+    <span style="background:var(--light);color:var(--text);padding:3px 8px;border-radius:20px">${total} agendado${total === 1 ? '' : 's'}</span>
+    <span style="background:#DCEAF7;color:var(--brand2);padding:3px 8px;border-radius:20px">${totalVistoria} vistoria${totalVistoria === 1 ? '' : 's'}</span>
+    <span style="background:#EDE3F5;color:#7B4FA0;padding:3px 8px;border-radius:20px">${totalRevistoria} revistoria${totalRevistoria === 1 ? '' : 's'}</span>
+  `;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1872,6 +1897,7 @@ async function salvarEdicaoAgendamento(id) {
     cpf: document.getElementById('cpf').value.trim(),
     telefone: document.getElementById('telefone').value.trim(),
     empreendimento: document.getElementById('empreendimento').value.trim(),
+    construtora: document.getElementById('construtora').value.trim(),
     endereco: document.getElementById('endereco').value.trim(),
     bloco: document.getElementById('bloco').value.trim(),
     apto: document.getElementById('apto').value.trim(),
@@ -1905,7 +1931,7 @@ function novaVistoria() {
   resetarBotaoDados();
   dadosContexto = 'novo';
   atualizarBotaoCancelarDados();
-  ['nomeCliente','cpf','telefone','empreendimento','endereco','bloco','apto','cep','cidade','metragem','comodos','obsGeral'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['nomeCliente','cpf','telefone','empreendimento','construtora','endereco','bloco','apto','cep','cidade','metragem','comodos','obsGeral'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('dataVistoria').value=new Date().toISOString().split('T')[0];
   document.getElementById('horaVistoria').value='';
   selecionarTipoAgendamento('Vistoria');
