@@ -22,6 +22,11 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 // Como conseguir de graça: https://www.geoapify.com/ → Sign Up → cria um projeto → copia a API Key.
 const GEOAPIFY_API_KEY = process.env.GEOAPIFY_API_KEY || '';
 
+// Senha de acesso ao app inteiro (protege dados de clientes: CPF, endereço, etc).
+// Configure em Railway: Service > Variables > APP_PASSWORD
+// Se não configurada, o app fica sem senha (comportamento de antes, sem travar nada).
+const APP_PASSWORD = process.env.APP_PASSWORD || '';
+
 const SEIS_MESES_MS = 6 * 30 * 24 * 60 * 60 * 1000; // aproximação de 6 meses, usada pra decidir o que é "antigo"
 
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -394,9 +399,100 @@ async function gerarDocx(payload) {
   return Packer.toBuffer(doc);
 }
 
+// ── Login por senha única (protege dados de clientes) ──────
+function parseCookies(cabecalho) {
+  const cookies = {};
+  (cabecalho || '').split(';').forEach(par => {
+    const i = par.indexOf('=');
+    if (i === -1) return;
+    cookies[par.slice(0, i).trim()] = decodeURIComponent(par.slice(i + 1).trim());
+  });
+  return cookies;
+}
+
+function estaAutenticado(req) {
+  if (!APP_PASSWORD) return true; // sem senha configurada, não bloqueia (comportamento de antes)
+  const cookies = parseCookies(req.headers.cookie);
+  return cookies['engcheck_auth'] === APP_PASSWORD;
+}
+
+function paginaLogin(erro) {
+  return `<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EngCheck · Login</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Montserrat',sans-serif;background:#1A3C5E;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.card{background:#fff;border-radius:16px;padding:32px 28px;max-width:340px;width:100%;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+img{width:64px;height:64px;object-fit:contain;background:#fff;border-radius:12px;padding:6px;border:1px solid #eee;margin-bottom:16px}
+h1{font-size:22px;font-weight:800;color:#1A3C5E;margin-bottom:4px}
+p.sub{font-size:12px;color:#888;margin-bottom:22px}
+input{width:100%;padding:13px 14px;border:1.5px solid #ddd;border-radius:9px;font-size:15px;font-family:inherit;margin-bottom:14px;outline:none}
+input:focus{border-color:#D4762A}
+button{width:100%;background:#D4762A;color:#fff;border:none;border-radius:9px;padding:13px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer}
+.erro{background:#FDECEA;color:#C0392B;font-size:12px;font-weight:600;padding:9px;border-radius:8px;margin-bottom:14px}
+</style></head>
+<body>
+  <form class="card" method="POST" action="/login">
+    <img src="/logo.png" alt="EngCheck">
+    <h1>EngCheck</h1>
+    <p class="sub">Digite a senha de acesso</p>
+    ${erro ? '<div class="erro">Senha incorreta. Tente de novo.</div>' : ''}
+    <input type="password" name="senha" placeholder="Senha" autofocus required>
+    <button type="submit">Entrar</button>
+  </form>
+</body></html>`;
+}
+
+
 // ── HTTP SERVER ──────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  const caminho = req.url.split('?')[0];
+
+  // Login: mostra o formulário, ou confere a senha enviada
+  if (caminho === '/login') {
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(paginaLogin(false));
+    }
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        const params = new URLSearchParams(body);
+        const senha = params.get('senha') || '';
+        if (APP_PASSWORD && senha === APP_PASSWORD) {
+          res.writeHead(302, {
+            'Set-Cookie': `engcheck_auth=${encodeURIComponent(senha)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=31536000`,
+            Location: '/'
+          });
+          return res.end();
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end(paginaLogin(true));
+      });
+      return;
+    }
+  }
+
+  if (caminho === '/logout') {
+    res.writeHead(302, { 'Set-Cookie': 'engcheck_auth=; Path=/; HttpOnly; Max-Age=0', Location: '/login' });
+    return res.end();
+  }
+
+  // Bloqueia todo o resto do app se a senha estiver configurada e a pessoa não tiver logado
+  // (ícones/manifest do PWA ficam liberados, senão a própria tela de login não carrega o logo)
+  const PUBLICO = ['/logo.png', '/icon-192.png', '/icon-512.png', '/manifest.json', '/service-worker.js'];
+  if (!PUBLICO.includes(caminho) && !estaAutenticado(req)) {
+    if (req.method === 'GET' && (req.headers.accept || '').includes('text/html')) {
+      res.writeHead(302, { Location: '/login' });
+      return res.end();
+    }
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ erro: 'Não autorizado. Faça login novamente.' }));
+  }
 
   if (req.method === 'GET' && req.url === '/') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -528,6 +624,36 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify({ ok: true }));
   }
 
+  if (req.method === 'PUT' && req.url.startsWith('/agenda')) {
+    const urlObj = new URL(req.url, `http://${req.headers.host}`);
+    const id = urlObj.searchParams.get('id');
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body);
+        const agenda = lerAgenda();
+        const item = agenda.find(a => a.id === id);
+        if (!item) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ erro: 'Agendamento não encontrado.' }));
+        }
+        item.dados = payload.dados;
+        item.plantaBase64 = payload.plantaBase64 || null;
+        item.plantaMediaType = payload.plantaMediaType || null;
+        item.mapaBase64 = payload.mapaBase64 || null;
+        item.mapaMediaType = payload.mapaMediaType || null;
+        salvarAgenda(agenda);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ erro: e.message }));
+      }
+    });
+    return;
+  }
+
   if (req.method === 'GET' && req.url === '/historico') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(lerHistorico().reverse()));
@@ -607,7 +733,7 @@ const server = http.createServer(async (req, res) => {
         fs.writeFileSync(docxPath, docxBuffer);
 
         const hist = lerHistorico();
-        hist.push({ nome: payload.dados.nome||'Cliente', empreendimento: payload.dados.empreendimento||'', data: payload.dados.data||'—', tipo: payload.tipoVistoria||'—', arquivo: nomeArquivo, ts });
+        hist.push({ nome: payload.dados.nome||'Cliente', empreendimento: payload.dados.empreendimento||'', data: payload.dados.data||'—', tipo: payload.tipoVistoria||'—', valor: payload.dados.valor || null, formaPagamento: payload.dados.formaPagamento || null, arquivo: nomeArquivo, ts });
         salvarHistorico(hist);
 
         if (payload.formato === 'docx') {
