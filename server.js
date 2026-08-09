@@ -658,6 +658,32 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(lerHistorico().reverse()));
   }
+
+  // Apaga TODOS os laudos do histórico — inclui apagar os arquivos de verdade
+  // do servidor (Word/PDF, compactados ou não), não só a lista. Ação irreversível.
+  if (req.method === 'DELETE' && req.url.startsWith('/historico')) {
+    try {
+      const urlObj = new URL(req.url, `http://${req.headers.host}`);
+      const arquivoAlvo = urlObj.searchParams.get('arquivo'); // se vier, apaga só esse; senão, apaga tudo
+      const hist = lerHistorico();
+      const alvos = arquivoAlvo ? hist.filter(h => h.arquivo === arquivoAlvo) : hist;
+      for (const item of alvos) {
+        const docxPath = path.join(OUTPUT_DIR, item.arquivo);
+        const pdfPath = docxPath.replace('.docx', '.pdf');
+        [docxPath, docxPath + '.gz', pdfPath, pdfPath + '.gz'].forEach(p => {
+          try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e) { /* segue mesmo se algum arquivo já não existir */ }
+        });
+      }
+      const restante = arquivoAlvo ? hist.filter(h => h.arquivo !== arquivoAlvo) : [];
+      salvarHistorico(restante);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, removidos: alvos.length }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ erro: e.message }));
+    }
+  }
+
   if (req.method === 'GET' && req.url.startsWith('/download-pdf/')) {
     const filename = decodeURIComponent(req.url.replace('/download-pdf/', ''));
     const docxPath = path.join(OUTPUT_DIR, filename);
