@@ -270,7 +270,8 @@
 
   <div class="bottom-bar">
     <button class="btn btn-outline" id="btnCancelarDados" onclick="cancelarTelaDados()" style="display:none;flex:0 0 auto;padding:0 16px"><i class="ti ti-x"></i></button>
-    <button class="btn btn-primary" id="btnAcaoDados" onclick="irParaAmbiente()"><i class="ti ti-arrow-right"></i> Iniciar vistoria</button>
+    <button class="btn btn-outline" id="btnSalvarAgendaAlt" onclick="salvarAgendamento()" style="flex:1"><i class="ti ti-calendar-plus"></i> Salvar agendamento</button>
+    <button class="btn btn-primary" id="btnAcaoDados" onclick="irParaAmbiente()" style="flex:1"><i class="ti ti-arrow-right"></i> Iniciar vistoria</button>
   </div>
 </div>
 
@@ -931,6 +932,7 @@ let dadosContexto = 'novo'; // 'novo' | 'agenda' | 'agenda-edicao' | 'edicao'
 
 function atualizarBotaoCancelarDados() {
   document.getElementById('btnCancelarDados').style.display = (dadosContexto === 'novo') ? 'none' : 'inline-flex';
+  document.getElementById('btnSalvarAgendaAlt').style.display = (dadosContexto === 'novo') ? 'inline-flex' : 'none';
 }
 
 function cancelarTelaDados() {
@@ -2401,6 +2403,7 @@ function renderHistorico(lista) {
 // Ao abrir o app, verifica se existe uma vistoria em andamento salva localmente
 carregarCorConfig();
 carregarCarimboConfig();
+atualizarBotaoCancelarDados();
 
 // A checagem do rascunho salvo só roda depois que a pessoa fecha a tela de
 // boas-vindas, pra não misturar o aviso de "vistoria em andamento" com a splash.
