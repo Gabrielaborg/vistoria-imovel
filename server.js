@@ -733,7 +733,8 @@ const server = http.createServer(async (req, res) => {
         fs.writeFileSync(docxPath, docxBuffer);
 
         const hist = lerHistorico();
-        hist.push({ nome: payload.dados.nome||'Cliente', empreendimento: payload.dados.empreendimento||'', data: payload.dados.data||'—', tipo: payload.tipoVistoria||'—', valor: payload.dados.valor || null, formaPagamento: payload.dados.formaPagamento || null, arquivo: nomeArquivo, ts });
+        const registrosResumo = (payload.registros || []).map(r => ({ ambiente: r.ambiente, defeito: r.defeito }));
+        hist.push({ nome: payload.dados.nome||'Cliente', empreendimento: payload.dados.empreendimento||'', endereco: payload.dados.endereco||'', data: payload.dados.data||'—', tipo: payload.tipoVistoria||'—', valor: payload.dados.valor || null, formaPagamento: payload.dados.formaPagamento || null, registros: registrosResumo, arquivo: nomeArquivo, ts });
         salvarHistorico(hist);
 
         if (payload.formato === 'docx') {
