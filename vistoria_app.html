@@ -444,6 +444,10 @@
     <input type="text" id="searchInput" placeholder="Buscar por nome ou data..." oninput="filtrarHistorico()" />
     <button class="btn btn-primary" style="flex:0 0 auto;padding:10px 14px" onclick="carregarHistorico()"><i class="ti ti-refresh"></i></button>
   </div>
+  <button type="button" onclick="limparHistorico()" style="width:100%;background:#fff;border:1.5px solid #f0c4c0;color:var(--danger);border-radius:9px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:14px">
+    <i class="ti ti-trash"></i> Limpar histórico
+  </button>
+  <p style="font-size:10.5px;color:var(--muted);text-align:center;margin-bottom:12px"><i class="ti ti-share-2"></i> Toque em Word ou PDF pra baixar ou compartilhar direto por WhatsApp/E-mail</p>
   <div id="historicoList"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p></div>
 </div>
 
@@ -649,16 +653,13 @@ async function atualizarBannerFila() {
   banner.innerHTML = `<span class="sp2" style="border-color:rgba(255,255,255,.4);border-top-color:#fff"></span> Reenviando laudo pendente (${fila.length}): ${nomes}`;
 }
 
-// Baixa um arquivo pro usuário de um jeito seguro em qualquer plataforma.
-// No iPhone com o app instalado (modo "tela cheia"/standalone), o download
-// tradicional abre uma pré-visualização de tela cheia SEM botão de voltar,
-// obrigando a pessoa a fechar e reabrir o app. Nesse caso específico, usamos
-// o menu de compartilhar nativo do iOS, que sempre pode ser fechado normalmente.
+// Baixa/compartilha um arquivo pro usuário. Sempre que o navegador permitir
+// (Android, iPhone, e até alguns navegadores de computador), abre o menu nativo
+// de compartilhar — com WhatsApp, E-mail, Salvar em Arquivos, etc — em vez de só
+// baixar direto. Se o navegador não suportar isso, cai automaticamente pro
+// download tradicional, sem travar nada.
 async function baixarArquivo(blob, filename, mimeType) {
-  const emModoStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-
-  if (emModoStandalone && isIOS && navigator.canShare) {
+  if (navigator.canShare) {
     try {
       const file = new File([blob], filename, { type: mimeType });
       if (navigator.canShare({ files: [file] })) {
@@ -2438,6 +2439,35 @@ function renderFinanceiro() {
     </div>`).join('');
 }
 
+// Apaga TODOS os laudos do histórico de uma vez — inclui os arquivos de verdade
+// no servidor (libera espaço), não só a lista. Ação irreversível, por isso a
+// confirmação é bem explícita.
+async function limparHistorico() {
+  const qtd = todosLaudos.length;
+  if (qtd === 0) { alert('O histórico já está vazio.'); return; }
+  const confirmado = confirm(`Isso vai apagar TODOS os ${qtd} laudo${qtd === 1 ? '' : 's'} do histórico, incluindo os arquivos Word/PDF guardados no servidor.\n\nEssa ação NÃO PODE ser desfeita — os laudos que você já baixou no celular continuam salvos, mas os que estão só no servidor serão perdidos.\n\nTem certeza que quer continuar?`);
+  if (!confirmado) return;
+  try {
+    await fetch('/historico', { method: 'DELETE' });
+    carregarHistorico();
+  } catch (e) {
+    alert('Não foi possível limpar o histórico agora. Verifique sua internet e tente de novo.');
+  }
+}
+
+// Apaga só UM laudo específico do histórico (e o arquivo dele no servidor),
+// mantendo todo o resto intacto.
+async function excluirLaudoHistorico(arquivo, nome) {
+  const confirmado = confirm(`Excluir o laudo de "${nome || 'cliente'}"?\n\nIsso apaga o arquivo do servidor. Se você já baixou esse laudo no celular, a cópia baixada continua salva — só não vai mais aparecer aqui no Histórico.\n\nEssa ação não pode ser desfeita.`);
+  if (!confirmado) return;
+  try {
+    await fetch(`/historico?arquivo=${arquivo}`, { method: 'DELETE' });
+    carregarHistorico();
+  } catch (e) {
+    alert('Não foi possível excluir agora. Verifique sua internet e tente de novo.');
+  }
+}
+
 async function carregarHistorico() {
   document.getElementById('historicoList').innerHTML='<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p>';
   try { const res=await fetch('/historico'); todosLaudos=await res.json(); renderHistorico(todosLaudos); }
@@ -2475,6 +2505,7 @@ function renderHistorico(lista) {
       <div style="display:flex;flex-direction:column;gap:5px">
         <button class="hist-btn" style="width:100%" onclick="baixarWordHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-word"></i> Word</button>
         <button class="hist-btn" style="background:#C0392B;width:100%" onclick="baixarPdfHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-type-pdf"></i> PDF</button>
+        <button class="hist-btn" style="background:#fff;border:1px solid #f0c4c0;color:var(--danger);width:100%" onclick="excluirLaudoHistorico('${encodeURIComponent(l.arquivo)}','${(l.nome||'').replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i> Excluir</button>
       </div>
     </div>`).join('');
 }
