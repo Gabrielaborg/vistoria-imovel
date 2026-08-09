@@ -11,6 +11,7 @@ const COVER_IMG = path.join(__dirname, 'cover_page.png');
 const FOOTER_IMG = path.join(__dirname, 'footer_bar.jpeg');
 const LOGO_IMG = path.join(__dirname, 'logo.png');
 const HISTORICO_FILE = path.join(OUTPUT_DIR, 'historico.json');
+const AGENDA_FILE = path.join(OUTPUT_DIR, 'agendamentos.json');
 
 // Chave de API da Anthropic, lida de variável de ambiente (NUNCA fica no código nem no navegador).
 // Configure em Railway: Service > Variables > ANTHROPIC_API_KEY
@@ -27,6 +28,8 @@ if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 function lerHistorico() { try { return JSON.parse(fs.readFileSync(HISTORICO_FILE, 'utf8')); } catch { return []; } }
 function salvarHistorico(h) { fs.writeFileSync(HISTORICO_FILE, JSON.stringify(h, null, 2)); }
+function lerAgenda() { try { return JSON.parse(fs.readFileSync(AGENDA_FILE, 'utf8')); } catch { return []; } }
+function salvarAgenda(a) { fs.writeFileSync(AGENDA_FILE, JSON.stringify(a, null, 2)); }
 
 // ── Compactação de laudos antigos (economiza espaço no Volume do Railway) ──
 
@@ -475,6 +478,54 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ erro: e.message }));
     }
+  }
+
+  // ── Agenda: pré-cadastro dos dados do cliente/imóvel antes da vistoria ──
+  if (req.method === 'GET' && req.url === '/agenda') {
+    const lista = lerAgenda().sort((a, b) => (a.dados.data || '9999').localeCompare(b.dados.data || '9999'));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(lista));
+  }
+
+  if (req.method === 'POST' && req.url === '/agenda') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body);
+        if (!payload.dados || !payload.dados.nome) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ erro: 'Nome do cliente é obrigatório.' }));
+        }
+        const agenda = lerAgenda();
+        const item = {
+          id: 'ag_' + Date.now() + Math.random().toString(36).slice(2),
+          dados: payload.dados,
+          plantaBase64: payload.plantaBase64 || null,
+          plantaMediaType: payload.plantaMediaType || null,
+          mapaBase64: payload.mapaBase64 || null,
+          mapaMediaType: payload.mapaMediaType || null,
+          criadoEm: Date.now()
+        };
+        agenda.push(item);
+        salvarAgenda(agenda);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ ok: true, id: item.id }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ erro: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'DELETE' && req.url.startsWith('/agenda')) {
+    const urlObj = new URL(req.url, `http://${req.headers.host}`);
+    const id = urlObj.searchParams.get('id');
+    const agenda = lerAgenda().filter(a => a.id !== id);
+    salvarAgenda(agenda);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ ok: true }));
   }
 
   if (req.method === 'GET' && req.url === '/historico') {
