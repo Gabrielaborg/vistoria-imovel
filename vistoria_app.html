@@ -114,6 +114,8 @@
   .nav-tabs { display: flex; gap: 4px; margin-bottom: 16px; background: var(--light); padding: 4px; border-radius: 10px; }
   .nav-tab { flex: 1; padding: 9px; text-align: center; font-size: 12px; font-weight: 700; border-radius: 7px; cursor: pointer; border: none; background: transparent; color: var(--muted); font-family: var(--font); transition: all .15s; }
   .nav-tab.active { background: #fff; color: var(--brand); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .view-toggle-btn { flex: 1; padding: 8px; text-align: center; font-size: 12px; font-weight: 700; border-radius: 6px; cursor: pointer; border: none; background: transparent; color: var(--muted); font-family: var(--font); transition: all .15s; }
+  .view-toggle-btn.active-view { background: var(--brand); color: #fff; }
 </style>
 </head>
 <body>
@@ -182,6 +184,14 @@
 <div class="screen active" id="screen-dados">
   <div class="card">
     <div class="card-title"><i class="ti ti-user-check"></i> Dados do cliente</div>
+    <div class="field">
+      <label>Tipo de serviço</label>
+      <input type="hidden" id="tipoAgendamento" value="Vistoria">
+      <div class="option-grid" style="grid-template-columns:1fr 1fr">
+        <button type="button" class="opt-btn selected" id="btnTipoVistoria" onclick="selecionarTipoAgendamento('Vistoria')"><i class="ti ti-search"></i> Vistoria</button>
+        <button type="button" class="opt-btn" id="btnTipoRevistoria" onclick="selecionarTipoAgendamento('Revistoria')"><i class="ti ti-repeat"></i> Revistoria</button>
+      </div>
+    </div>
     <div class="field"><label>Nome completo</label><input type="text" id="nomeCliente" placeholder="Maria Souza da Silva" /></div>
     <div class="grid2">
       <div class="field"><label>CPF</label><input type="text" id="cpf" placeholder="000.000.000-00" maxlength="14" /></div>
@@ -198,7 +208,10 @@
       <div class="field"><label>Cidade / UF</label><input type="text" id="cidade" placeholder="Uberlândia - MG" /></div>
       <div class="field"><label>Metragem (m²)</label><input type="text" id="metragem" placeholder="59,00" /></div>
     </div>
-    <div class="field"><label>Data da vistoria</label><input type="date" id="dataVistoria" /></div>
+    <div class="grid2">
+      <div class="field"><label>Data da vistoria</label><input type="date" id="dataVistoria" /></div>
+      <div class="field"><label>Horário (opcional)</label><input type="time" id="horaVistoria" /></div>
+    </div>
   </div>
 
   <div class="card">
@@ -230,6 +243,7 @@
   </div>
 
   <div class="bottom-bar">
+    <button class="btn btn-outline" id="btnCancelarDados" onclick="cancelarTelaDados()" style="display:none;flex:0 0 auto;padding:0 16px"><i class="ti ti-x"></i></button>
     <button class="btn btn-primary" id="btnAcaoDados" onclick="irParaAmbiente()"><i class="ti ti-arrow-right"></i> Iniciar vistoria</button>
   </div>
 </div>
@@ -400,6 +414,18 @@
 
 <div id="agenda-screen" style="display:none;max-width:520px;margin:0 auto;padding:0 16px 80px">
   <button class="btn btn-primary" style="width:100%;margin-bottom:14px" onclick="novoAgendamento()"><i class="ti ti-calendar-plus"></i> Nova vistoria agendada</button>
+
+  <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">
+    <div style="display:flex;gap:4px;margin-bottom:14px;background:var(--light);padding:3px;border-radius:9px">
+      <button class="view-toggle-btn" id="viewBtn_mes" onclick="mudarViewAgenda('mes')">Mês</button>
+      <button class="view-toggle-btn" id="viewBtn_semana" onclick="mudarViewAgenda('semana')">Semana</button>
+      <button class="view-toggle-btn" id="viewBtn_dia" onclick="mudarViewAgenda('dia')">Dia</button>
+    </div>
+    <div id="calendarioContainer"></div>
+    <button onclick="irParaHoje()" style="width:100%;margin-top:10px;background:none;border:none;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">Ir para hoje</button>
+  </div>
+
+  <div class="section-label" style="margin-bottom:8px">Todos os agendamentos</div>
   <div id="agendaList"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p></div>
 </div>
 
@@ -623,6 +649,8 @@ async function verificarRascunhoAoAbrir() {
     if (el && state.dados[chaveState]) el.value = state.dados[chaveState];
   });
   if (state.dados.data) document.getElementById('dataVistoria').value = state.dados.data;
+  if (state.dados.hora) document.getElementById('horaVistoria').value = state.dados.hora;
+  selecionarTipoAgendamento(state.dados.tipo === 'Revistoria' ? 'Revistoria' : 'Vistoria');
 
   // Restaura pré-visualização da planta e do mapa, se houver
   if (state.plantaBase64) {
@@ -721,8 +749,15 @@ function selectTipo(el, val) {
   el.classList.add('selected'); state.tipoVistoria = val;
 }
 
+function selecionarTipoAgendamento(tipo) {
+  document.getElementById('tipoAgendamento').value = tipo;
+  document.getElementById('btnTipoVistoria').classList.toggle('selected', tipo === 'Vistoria');
+  document.getElementById('btnTipoRevistoria').classList.toggle('selected', tipo === 'Revistoria');
+}
+
 function irParaAmbiente() {
   state.dados = {
+    tipo: document.getElementById('tipoAgendamento').value,
     nome: document.getElementById('nomeCliente').value.trim(),
     cpf: document.getElementById('cpf').value.trim(),
     telefone: document.getElementById('telefone').value.trim(),
@@ -734,12 +769,37 @@ function irParaAmbiente() {
     cidade: document.getElementById('cidade').value.trim(),
     metragem: document.getElementById('metragem').value.trim(),
     data: document.getElementById('dataVistoria').value,
+    hora: document.getElementById('horaVistoria').value,
     comodos: document.getElementById('comodos').value.trim()
   };
   if (!state.dados.nome) { alert('Informe o nome do cliente.'); return; }
-  state.tipoVistoria = '';
+  state.tipoVistoria = state.dados.tipo || 'Vistoria';
   salvarRascunho();
   mostrarScreen('screen-ambiente');
+}
+
+// Controla o botão "✕" que aparece no rodapé da tela de Dados quando ela foi aberta
+// a partir da Agenda ou pra editar dados no meio de uma vistoria — permite voltar
+// sem salvar/alterar nada, em vez de ficar preso na tela.
+let dadosContexto = 'novo'; // 'novo' | 'agenda' | 'agenda-edicao' | 'edicao'
+
+function atualizarBotaoCancelarDados() {
+  document.getElementById('btnCancelarDados').style.display = (dadosContexto === 'novo') ? 'none' : 'inline-flex';
+}
+
+function cancelarTelaDados() {
+  if (dadosContexto === 'agenda' || dadosContexto === 'agenda-edicao') {
+    dadosContexto = 'novo';
+    state.modoAgenda = false;
+    resetarBotaoDados();
+    atualizarBotaoCancelarDados();
+    switchTab('agenda');
+  } else if (dadosContexto === 'edicao') {
+    dadosContexto = 'novo';
+    resetarBotaoDados();
+    atualizarBotaoCancelarDados();
+    mostrarScreen('screen-ambiente'); // volta sem aplicar as alterações digitadas
+  }
 }
 
 // Permite voltar pra tela de Dados do cliente no meio da vistoria (ex: corrigir um
@@ -751,12 +811,16 @@ function editarDadosIniciais() {
   const btn = document.getElementById('btnAcaoDados');
   btn.innerHTML = '<i class="ti ti-device-floppy"></i> Salvar alterações';
   btn.onclick = salvarEdicaoDados;
+  dadosContexto = 'edicao';
+  atualizarBotaoCancelarDados();
   mostrarScreen('screen-dados');
 }
 
 function salvarEdicaoDados() {
   irParaAmbiente(); // relê os campos do formulário, atualiza state.dados e volta pra tela de ambiente
   resetarBotaoDados(); // devolve o botão ao texto padrão, pra próxima vez que abrir uma vistoria nova
+  dadosContexto = 'novo';
+  atualizarBotaoCancelarDados();
 }
 
 // Descarta a vistoria em andamento (ambientes, fotos e defeitos já registrados)
@@ -1503,6 +1567,7 @@ async function gerarDocumento(tipo) {
 let agendaCache = [];
 
 function preencherFormularioDados(d) {
+  selecionarTipoAgendamento(d.tipo === 'Revistoria' ? 'Revistoria' : 'Vistoria');
   document.getElementById('nomeCliente').value = d.nome || '';
   document.getElementById('cpf').value = d.cpf || '';
   document.getElementById('telefone').value = d.telefone || '';
@@ -1514,6 +1579,7 @@ function preencherFormularioDados(d) {
   document.getElementById('cidade').value = d.cidade || '';
   document.getElementById('metragem').value = d.metragem || '';
   document.getElementById('dataVistoria').value = d.data || '';
+  document.getElementById('horaVistoria').value = d.hora || '';
   document.getElementById('comodos').value = d.comodos || '';
 }
 
@@ -1528,6 +1594,8 @@ function resetarBotaoDados() {
 function novoAgendamento() {
   ['nomeCliente','cpf','telefone','empreendimento','endereco','bloco','apto','cep','cidade','metragem','comodos'].forEach(id => { document.getElementById(id).value = ''; });
   document.getElementById('dataVistoria').value = '';
+  document.getElementById('horaVistoria').value = '';
+  selecionarTipoAgendamento('Vistoria');
   state.plantaBase64 = null; state.plantaMediaType = null;
   state.mapaBase64 = null; state.mapaMediaType = null;
   document.getElementById('plantaPreview').innerHTML = '';
@@ -1536,12 +1604,15 @@ function novoAgendamento() {
   const btn = document.getElementById('btnAcaoDados');
   btn.innerHTML = '<i class="ti ti-calendar-check"></i> Salvar agendamento';
   btn.onclick = salvarAgendamento;
+  dadosContexto = 'agenda';
+  atualizarBotaoCancelarDados();
   switchTab('vistoria');
   mostrarScreen('screen-dados');
 }
 
 async function salvarAgendamento() {
   const dados = {
+    tipo: document.getElementById('tipoAgendamento').value,
     nome: document.getElementById('nomeCliente').value.trim(),
     cpf: document.getElementById('cpf').value.trim(),
     telefone: document.getElementById('telefone').value.trim(),
@@ -1553,6 +1624,7 @@ async function salvarAgendamento() {
     cidade: document.getElementById('cidade').value.trim(),
     metragem: document.getElementById('metragem').value.trim(),
     data: document.getElementById('dataVistoria').value,
+    hora: document.getElementById('horaVistoria').value,
     comodos: document.getElementById('comodos').value.trim()
   };
   if (!dados.nome) { alert('Informe pelo menos o nome do cliente.'); return; }
@@ -1563,6 +1635,8 @@ async function salvarAgendamento() {
     });
     state.modoAgenda = false;
     resetarBotaoDados();
+    dadosContexto = 'novo';
+    atualizarBotaoCancelarDados();
     switchTab('agenda');
   } catch (e) {
     console.error('Falha ao salvar agendamento:', e);
@@ -1576,9 +1650,15 @@ async function carregarAgenda() {
     const res = await fetch('/agenda');
     agendaCache = await res.json();
     renderAgenda();
+    renderCalendarioAgenda();
   } catch (e) {
     document.getElementById('agendaList').innerHTML = '<p style="color:var(--danger);font-size:13px;text-align:center;padding:20px">Erro ao carregar.</p>';
   }
+}
+
+function badgeTipo(tipo) {
+  const ehRevistoria = tipo === 'Revistoria';
+  return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:${ehRevistoria ? '#EDE3F5' : '#DCEAF7'};color:${ehRevistoria ? '#7B4FA0' : 'var(--brand2)'};margin-left:6px;vertical-align:middle">${ehRevistoria ? 'REVISTORIA' : 'VISTORIA'}</span>`;
 }
 
 function renderAgenda() {
@@ -1587,12 +1667,151 @@ function renderAgenda() {
   lista.innerHTML = agendaCache.map(a => `
     <div class="hist-item">
       <i class="ti ti-calendar-event" style="font-size:26px;color:var(--brand)"></i>
-      <div class="info"><strong>${a.dados.nome}${a.dados.empreendimento ? ' - ' + a.dados.empreendimento : ''}</strong><span>${a.dados.endereco || 'Endereço não informado'}${a.dados.data ? ' · ' + a.dados.data.split('-').reverse().join('/') : ''}</span></div>
+      <div class="info"><strong>${a.dados.nome}${a.dados.empreendimento ? ' - ' + a.dados.empreendimento : ''}${badgeTipo(a.dados.tipo)}</strong><span>${a.dados.endereco || 'Endereço não informado'}${a.dados.data ? ' · ' + a.dados.data.split('-').reverse().join('/') : ''}${a.dados.hora ? ' às ' + a.dados.hora : ''}</span></div>
       <div style="display:flex;flex-direction:column;gap:5px">
         <button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>
+        <button class="hist-btn" style="background:var(--brand2);width:100%" onclick="editarAgendamento('${a.id}')"><i class="ti ti-edit"></i> Editar</button>
         <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirAgendamento('${a.id}')"><i class="ti ti-trash"></i> Excluir</button>
       </div>
     </div>`).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+// CALENDÁRIO DA AGENDA — visualização por Mês, Semana e Dia,
+// pra ter uma noção visual real de como está a semana de vistorias.
+// ══════════════════════════════════════════════════════════════
+let agendaView = 'mes'; // 'mes' | 'semana' | 'dia'
+let agendaDataRef = new Date();
+const NOMES_MES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const NOMES_DIA_CURTO = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+const NOMES_DIA_LONGO = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
+
+function formatarDataISO(d) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dia = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dia}`;
+}
+
+function agendamentosDoDia(dataISO) {
+  return agendaCache.filter(a => a.dados.data === dataISO).sort((a, b) => (a.dados.hora || '99:99').localeCompare(b.dados.hora || '99:99'));
+}
+
+function mudarViewAgenda(view) {
+  agendaView = view;
+  renderCalendarioAgenda();
+}
+
+function navegarAgenda(delta) {
+  const d = new Date(agendaDataRef);
+  if (agendaView === 'mes') d.setMonth(d.getMonth() + delta);
+  else if (agendaView === 'semana') d.setDate(d.getDate() + delta * 7);
+  else d.setDate(d.getDate() + delta);
+  agendaDataRef = d;
+  renderCalendarioAgenda();
+}
+
+function irParaHoje() {
+  agendaDataRef = new Date();
+  renderCalendarioAgenda();
+}
+
+function abrirDiaAgenda(dataISO) {
+  const [y, m, d] = dataISO.split('-').map(Number);
+  agendaDataRef = new Date(y, m - 1, d);
+  agendaView = 'dia';
+  renderCalendarioAgenda();
+}
+
+function renderCalendarioAgenda() {
+  ['mes', 'semana', 'dia'].forEach(v => {
+    const btn = document.getElementById('viewBtn_' + v);
+    if (btn) btn.classList.toggle('active-view', agendaView === v);
+  });
+  const container = document.getElementById('calendarioContainer');
+  if (!container) return;
+  if (agendaView === 'mes') container.innerHTML = renderCalMes();
+  else if (agendaView === 'semana') container.innerHTML = renderCalSemana();
+  else container.innerHTML = renderCalDia();
+}
+
+function renderCalCabecalho(titulo) {
+  return `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <button onclick="navegarAgenda(-1)" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--brand);padding:4px"><i class="ti ti-chevron-left"></i></button>
+    ${titulo}
+    <button onclick="navegarAgenda(1)" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--brand);padding:4px"><i class="ti ti-chevron-right"></i></button>
+  </div>`;
+}
+
+function renderCalMes() {
+  const ano = agendaDataRef.getFullYear(), mes = agendaDataRef.getMonth();
+  const primeiroDia = new Date(ano, mes, 1);
+  const diasNoMes = new Date(ano, mes + 1, 0).getDate();
+  const inicioGrid = new Date(primeiroDia);
+  inicioGrid.setDate(inicioGrid.getDate() - primeiroDia.getDay());
+  const totalCelulas = Math.ceil((primeiroDia.getDay() + diasNoMes) / 7) * 7;
+  const hojeISO = formatarDataISO(new Date());
+
+  let celulas = '';
+  const cursor = new Date(inicioGrid);
+  for (let i = 0; i < totalCelulas; i++) {
+    const dataISO = formatarDataISO(cursor);
+    const foraDoMes = cursor.getMonth() !== mes;
+    const qtd = agendamentosDoDia(dataISO).length;
+    const ehHoje = dataISO === hojeISO;
+    celulas += `<div onclick="abrirDiaAgenda('${dataISO}')" style="aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:8px;cursor:pointer;opacity:${foraDoMes ? '.35' : '1'};background:${ehHoje ? 'var(--brand)' : 'transparent'}">
+      <span style="font-size:12px;font-weight:${ehHoje ? '700' : '500'};color:${ehHoje ? '#fff' : 'var(--text)'}">${cursor.getDate()}</span>
+      ${qtd > 0 ? `<span style="width:5px;height:5px;border-radius:50%;background:${ehHoje ? '#fff' : 'var(--accent)'};margin-top:2px"></span>` : '<span style="width:5px;height:5px;margin-top:2px"></span>'}
+    </div>`;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  const titulo = `<span style="font-weight:700;color:var(--brand);font-size:14px">${NOMES_MES[mes]} de ${ano}</span>`;
+  return renderCalCabecalho(titulo) + `
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:10px;color:var(--muted);font-weight:700;text-align:center;margin-bottom:4px">
+      ${NOMES_DIA_CURTO.map(n => `<div>${n[0]}</div>`).join('')}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">${celulas}</div>`;
+}
+
+function renderCalSemana() {
+  const inicioSemana = new Date(agendaDataRef);
+  inicioSemana.setDate(inicioSemana.getDate() - inicioSemana.getDay());
+  const hojeISO = formatarDataISO(new Date());
+  let colunas = '';
+  const cursor = new Date(inicioSemana);
+  for (let i = 0; i < 7; i++) {
+    const dataISO = formatarDataISO(cursor);
+    const itens = agendamentosDoDia(dataISO);
+    const ehHoje = dataISO === hojeISO;
+    colunas += `<div onclick="abrirDiaAgenda('${dataISO}')" style="flex:1;min-width:0;border:1px solid var(--border);border-radius:8px;padding:6px 3px;cursor:pointer;background:${ehHoje ? '#F3E9DD' : '#fff'}">
+      <div style="text-align:center;font-size:9px;font-weight:700;color:${ehHoje ? 'var(--accent)' : 'var(--muted)'}">${NOMES_DIA_CURTO[i]}</div>
+      <div style="text-align:center;font-size:13px;font-weight:700;color:${ehHoje ? 'var(--accent)' : 'var(--text)'};margin-bottom:4px">${cursor.getDate()}</div>
+      ${itens.slice(0, 3).map(a => `<div style="font-size:8.5px;background:var(--light);border-radius:4px;padding:2px 3px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${a.dados.tipo === 'Revistoria' ? '#7B4FA0' : 'var(--brand2)'};margin-right:3px"></span>${a.dados.hora ? a.dados.hora + ' ' : ''}${(a.dados.nome || '').split(' ')[0]}</div>`).join('')}
+      ${itens.length > 3 ? `<div style="font-size:8.5px;color:var(--muted);text-align:center">+${itens.length - 3}</div>` : ''}
+    </div>`;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  const titulo = `<span style="font-weight:700;color:var(--brand);font-size:13px">${NOMES_MES[inicioSemana.getMonth()]} de ${inicioSemana.getFullYear()}</span>`;
+  return renderCalCabecalho(titulo) + `<div style="display:flex;gap:4px">${colunas}</div>`;
+}
+
+function renderCalDia() {
+  const dataISO = formatarDataISO(agendaDataRef);
+  const itens = agendamentosDoDia(dataISO);
+  const titulo = `<div style="text-align:center"><div style="font-weight:700;color:var(--brand);font-size:14px">${NOMES_DIA_LONGO[agendaDataRef.getDay()]}</div><div style="font-size:12px;color:var(--muted)">${agendaDataRef.getDate()} de ${NOMES_MES[agendaDataRef.getMonth()]}</div></div>`;
+  const cabecalho = renderCalCabecalho(titulo);
+  if (itens.length === 0) {
+    return cabecalho + `<p style="color:var(--muted);font-size:13px;text-align:center;padding:16px 0 4px">Nenhuma vistoria agendada pra esse dia.</p>`;
+  }
+  return cabecalho + `<div style="display:flex;flex-direction:column;gap:8px">${itens.map(a => `
+    <div class="hist-item">
+      <div style="width:46px;flex-shrink:0;text-align:center;font-size:12px;font-weight:700;color:var(--brand)">${a.dados.hora || '--:--'}</div>
+      <div class="info"><strong>${a.dados.nome}${a.dados.empreendimento ? ' - ' + a.dados.empreendimento : ''}${badgeTipo(a.dados.tipo)}</strong><span>${a.dados.endereco || 'Endereço não informado'}</span></div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>
+        <button class="hist-btn" style="background:var(--brand2);width:100%" onclick="editarAgendamento('${a.id}')"><i class="ti ti-edit"></i> Editar</button>
+        <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirAgendamento('${a.id}')"><i class="ti ti-trash"></i> Excluir</button>
+      </div>
+    </div>`).join('')}</div>`;
 }
 
 async function iniciarVistoriaDoAgendamento(id) {
@@ -1607,6 +1826,8 @@ async function iniciarVistoriaDoAgendamento(id) {
   document.getElementById('mapaPreview').innerHTML = state.mapaBase64 ? `<div class="single-thumb"><img src="data:${state.mapaMediaType};base64,${state.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>` : '';
   state.modoAgenda = false;
   resetarBotaoDados();
+  dadosContexto = 'novo';
+  atualizarBotaoCancelarDados();
   try { await fetch(`/agenda?id=${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (e) { /* segue mesmo assim, não trava a vistoria */ }
   switchTab('vistoria');
   irParaAmbiente();
@@ -1622,12 +1843,72 @@ async function excluirAgendamento(id) {
   }
 }
 
+// Abre o formulário de Dados pra completar ou corrigir um agendamento já salvo
+// (ex: você só tinha nome/endereço/data e agora quer preencher o resto com calma,
+// ou o cliente mudou a data/horário da vistoria).
+function editarAgendamento(id) {
+  const item = agendaCache.find(a => a.id === id);
+  if (!item) return;
+  preencherFormularioDados(item.dados);
+  document.getElementById('plantaPreview').innerHTML = item.plantaBase64 ? `<div class="single-thumb"><img src="data:${item.plantaMediaType};base64,${item.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>` : '';
+  document.getElementById('mapaPreview').innerHTML = item.mapaBase64 ? `<div class="single-thumb"><img src="data:${item.mapaMediaType};base64,${item.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>` : '';
+  state.plantaBase64 = item.plantaBase64 || null;
+  state.plantaMediaType = item.plantaMediaType || null;
+  state.mapaBase64 = item.mapaBase64 || null;
+  state.mapaMediaType = item.mapaMediaType || null;
+  const btn = document.getElementById('btnAcaoDados');
+  btn.innerHTML = '<i class="ti ti-device-floppy"></i> Salvar alterações';
+  btn.onclick = () => salvarEdicaoAgendamento(id);
+  dadosContexto = 'agenda-edicao';
+  atualizarBotaoCancelarDados();
+  switchTab('vistoria');
+  mostrarScreen('screen-dados');
+}
+
+async function salvarEdicaoAgendamento(id) {
+  const dados = {
+    tipo: document.getElementById('tipoAgendamento').value,
+    nome: document.getElementById('nomeCliente').value.trim(),
+    cpf: document.getElementById('cpf').value.trim(),
+    telefone: document.getElementById('telefone').value.trim(),
+    empreendimento: document.getElementById('empreendimento').value.trim(),
+    endereco: document.getElementById('endereco').value.trim(),
+    bloco: document.getElementById('bloco').value.trim(),
+    apto: document.getElementById('apto').value.trim(),
+    cep: document.getElementById('cep').value.trim(),
+    cidade: document.getElementById('cidade').value.trim(),
+    metragem: document.getElementById('metragem').value.trim(),
+    data: document.getElementById('dataVistoria').value,
+    hora: document.getElementById('horaVistoria').value,
+    comodos: document.getElementById('comodos').value.trim()
+  };
+  if (!dados.nome) { alert('Informe pelo menos o nome do cliente.'); return; }
+  try {
+    await fetch(`/agenda?id=${encodeURIComponent(id)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dados, plantaBase64: state.plantaBase64, plantaMediaType: state.plantaMediaType, mapaBase64: state.mapaBase64, mapaMediaType: state.mapaMediaType })
+    });
+    resetarBotaoDados();
+    dadosContexto = 'novo';
+    atualizarBotaoCancelarDados();
+    switchTab('agenda');
+  } catch (e) {
+    console.error('Falha ao salvar alterações do agendamento:', e);
+    alert('Não foi possível salvar agora. Verifique sua internet e tente de novo.');
+  }
+}
+
+
 function novaVistoria() {
   limparRascunho();
   Object.assign(state,{dados:{},tipoVistoria:'',registros:[],ambienteAtual:'',fotosAtuais:[],defeitoAtual:'',obsGeral:'',obsRapidas:[],plantaBase64:null,plantaMediaType:null,mapaBase64:null,mapaMediaType:null,conclusaoIA:'',modoAgenda:false});
   resetarBotaoDados();
+  dadosContexto = 'novo';
+  atualizarBotaoCancelarDados();
   ['nomeCliente','cpf','telefone','empreendimento','endereco','bloco','apto','cep','cidade','metragem','comodos','obsGeral'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('dataVistoria').value=new Date().toISOString().split('T')[0];
+  document.getElementById('horaVistoria').value='';
+  selecionarTipoAgendamento('Vistoria');
   document.getElementById('btnSimObs').classList.remove('selected');
   document.getElementById('btnNaoObs').classList.remove('selected');
   document.getElementById('obsField').style.display='none';
