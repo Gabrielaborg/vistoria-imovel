@@ -171,6 +171,7 @@
 <div style="max-width:520px;margin:0 auto;padding:12px 16px 0">
   <div class="nav-tabs">
     <button class="nav-tab active" id="tab-vistoria" onclick="switchTab('vistoria')"><i class="ti ti-clipboard-check"></i> Vistoria</button>
+    <button class="nav-tab" id="tab-agenda" onclick="switchTab('agenda')"><i class="ti ti-calendar"></i> Agenda</button>
     <button class="nav-tab" id="tab-historico" onclick="switchTab('historico')"><i class="ti ti-history"></i> Histórico</button>
   </div>
 </div>
@@ -229,13 +230,21 @@
   </div>
 
   <div class="bottom-bar">
-    <button class="btn btn-primary" onclick="irParaAmbiente()"><i class="ti ti-arrow-right"></i> Iniciar vistoria</button>
+    <button class="btn btn-primary" id="btnAcaoDados" onclick="irParaAmbiente()"><i class="ti ti-arrow-right"></i> Iniciar vistoria</button>
   </div>
 </div>
 
 <!-- TELA 2: AMBIENTE -->
 <div class="screen" id="screen-ambiente">
   <div style="margin-top:12px">
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button type="button" onclick="editarDadosIniciais()" style="flex:1;background:#fff;border:1.5px solid var(--border);color:var(--brand);border-radius:9px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px">
+        <i class="ti ti-edit"></i> Editar dados iniciais
+      </button>
+      <button type="button" onclick="descartarVistoria()" style="flex:1;background:#fff;border:1.5px solid #f0c4c0;color:var(--danger);border-radius:9px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px">
+        <i class="ti ti-trash"></i> Descartar vistoria
+      </button>
+    </div>
     <div class="card-title" style="padding:0 4px 10px;font-size:16px;font-weight:700;color:var(--brand)"><i class="ti ti-layout-grid"></i> Escolha o ambiente</div>
     <div class="option-grid">
       <button class="opt-btn" onclick="selecionarAmbiente('Sala')"><i class="ti ti-sofa"></i> Sala</button>
@@ -338,7 +347,11 @@
         <button class="opt-btn" id="btnNaoObs" onclick="mostrarObs(false)"><i class="ti ti-x"></i> Não precisa</button>
       </div>
       <div id="obsField" style="display:none">
-        <div class="field"><textarea id="obsGeral" placeholder="Ex: Apartamento sem energia no momento da vistoria..."></textarea></div>
+        <div class="field">
+          <label>Observações rápidas (toque para marcar, pode escolher mais de uma)</label>
+          <div id="obsRapidasGrid" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+        </div>
+        <div class="field"><label>Outra observação (opcional)</label><textarea id="obsGeral" placeholder="Ex: Apartamento sem energia no momento da vistoria..."></textarea></div>
       </div>
     </div>
   </div>
@@ -385,8 +398,27 @@
   <div id="historicoList"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p></div>
 </div>
 
+<div id="agenda-screen" style="display:none;max-width:520px;margin:0 auto;padding:0 16px 80px">
+  <button class="btn btn-primary" style="width:100%;margin-bottom:14px" onclick="novoAgendamento()"><i class="ti ti-calendar-plus"></i> Nova vistoria agendada</button>
+  <div id="agendaList"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p></div>
+</div>
+
+<div id="modalRegistro" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:150;align-items:flex-end;justify-content:center">
+  <div style="background:#fff;border-radius:16px 16px 0 0;max-width:520px;width:100%;max-height:85vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px 10px">
+      <div>
+        <div id="modalRegistroAmbiente" style="font-weight:700;color:var(--brand);font-size:15px"></div>
+        <div id="modalRegistroDefeito" style="font-size:12px;color:var(--muted);margin-top:2px"></div>
+      </div>
+      <button onclick="fecharRegistroModal()" style="background:var(--light);border:none;width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;flex-shrink:0">✕</button>
+    </div>
+    <div style="padding:0 18px 6px;font-size:11px;color:var(--muted)">Use as setinhas pra reorganizar a ordem das fotos, ou ✕ pra remover uma repetida.</div>
+    <div id="modalRegistroFotos" style="overflow-y:auto;padding:12px 18px 24px;display:flex;flex-direction:column;gap:10px"></div>
+  </div>
+</div>
+
 <script>
-const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', obsGeral:'', plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'' };
+const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', obsGeral:'', obsRapidas:[], plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'', modoAgenda:false };
 let todosLaudos = [];
 
 // ══════════════════════════════════════════════════════════════
@@ -667,10 +699,13 @@ async function buscarMapaAtual() {
 
 function switchTab(tab) {
   document.getElementById('tab-vistoria').classList.toggle('active', tab==='vistoria');
+  document.getElementById('tab-agenda').classList.toggle('active', tab==='agenda');
   document.getElementById('tab-historico').classList.toggle('active', tab==='historico');
   document.getElementById('vistoria-screens').style.display = tab==='vistoria' ? 'block' : 'none';
+  document.getElementById('agenda-screen').style.display = tab==='agenda' ? 'block' : 'none';
   document.getElementById('historico-screen').style.display = tab==='historico' ? 'block' : 'none';
   if (tab==='historico') carregarHistorico();
+  if (tab==='agenda') carregarAgenda();
 }
 
 function mostrarScreen(id) {
@@ -707,6 +742,30 @@ function irParaAmbiente() {
   mostrarScreen('screen-ambiente');
 }
 
+// Permite voltar pra tela de Dados do cliente no meio da vistoria (ex: corrigir um
+// nome digitado errado) sem perder os ambientes/fotos já registrados até agora.
+function editarDadosIniciais() {
+  preencherFormularioDados(state.dados);
+  document.getElementById('plantaPreview').innerHTML = state.plantaBase64 ? `<div class="single-thumb"><img src="data:${state.plantaMediaType};base64,${state.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>` : '';
+  document.getElementById('mapaPreview').innerHTML = state.mapaBase64 ? `<div class="single-thumb"><img src="data:${state.mapaMediaType};base64,${state.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>` : '';
+  const btn = document.getElementById('btnAcaoDados');
+  btn.innerHTML = '<i class="ti ti-device-floppy"></i> Salvar alterações';
+  btn.onclick = salvarEdicaoDados;
+  mostrarScreen('screen-dados');
+}
+
+function salvarEdicaoDados() {
+  irParaAmbiente(); // relê os campos do formulário, atualiza state.dados e volta pra tela de ambiente
+  resetarBotaoDados(); // devolve o botão ao texto padrão, pra próxima vez que abrir uma vistoria nova
+}
+
+// Descarta a vistoria em andamento (ambientes, fotos e defeitos já registrados)
+// e volta pra tela inicial em branco, sem precisar fechar e reabrir o app.
+function descartarVistoria() {
+  if (!confirm('Descartar essa vistoria? Todos os ambientes e fotos registrados até agora serão perdidos — essa ação não pode ser desfeita.')) return;
+  novaVistoria();
+}
+
 function selecionarAmbiente(nome) {
   state.ambienteAtual = nome; state.fotosAtuais = [];
   document.getElementById('ambienteFotoTitle').textContent = nome;
@@ -717,17 +776,109 @@ function selecionarAmbiente(nome) {
 function pedirOutroAmbiente() { document.getElementById('outroAmbienteField').style.display='block'; document.getElementById('outroAmbienteInput').focus(); }
 function confirmarOutroAmbiente() { const v=document.getElementById('outroAmbienteInput').value.trim(); if(!v) return; document.getElementById('outroAmbienteInput').value=''; selecionarAmbiente(v); }
 function voltarParaAmbiente() { state.fotosAtuais=[]; document.getElementById('photoPreviewGrid').innerHTML=''; mostrarScreen('screen-ambiente'); }
-function irParaObs() { mostrarScreen('screen-obs'); }
+// Observações finais rápidas — frases comuns que ela digitaria toda hora,
+// agora com um toque só. Pode marcar quantas fizerem sentido pra aquela vistoria.
+const OBS_RAPIDAS_PRESET = [
+  'Sem energia no imóvel no momento da vistoria.',
+  'Sem água no imóvel no momento da vistoria.',
+  'Sem energia e água no imóvel no momento da vistoria.',
+  'Imóvel muito sujo, o que pode ter feito com que algo passasse despercebido durante a vistoria.',
+  'Rejunte geral muito manchado e com falhas, recomenda-se atenção em todo o imóvel.'
+];
+
+function renderObsRapidas() {
+  if (!Array.isArray(state.obsRapidas)) state.obsRapidas = [];
+  const grid = document.getElementById('obsRapidasGrid');
+  grid.innerHTML = OBS_RAPIDAS_PRESET.map((texto, i) => {
+    const marcado = state.obsRapidas.includes(texto);
+    return `<button type="button" onclick="toggleObsRapida(${i})" style="text-align:left;display:flex;align-items:center;gap:10px;background:${marcado ? '#F3E9DD' : '#fff'};border:1.5px solid ${marcado ? 'var(--accent)' : 'var(--border)'};border-radius:9px;padding:10px 12px;font-family:var(--font);font-size:12.5px;font-weight:600;color:var(--text);cursor:pointer">
+      <i class="ti ${marcado ? 'ti-square-check-filled' : 'ti-square'}" style="font-size:19px;color:${marcado ? 'var(--accent)' : 'var(--muted)'};flex-shrink:0"></i>
+      ${texto}
+    </button>`;
+  }).join('');
+}
+
+function toggleObsRapida(i) {
+  const texto = OBS_RAPIDAS_PRESET[i];
+  const idx = state.obsRapidas.indexOf(texto);
+  if (idx === -1) state.obsRapidas.push(texto); else state.obsRapidas.splice(idx, 1);
+  renderObsRapidas();
+  salvarRascunho();
+}
+
+function irParaObs() { renderObsRapidas(); mostrarScreen('screen-obs'); }
 
 function atualizarResumo() {
   const div = document.getElementById('resumoRegistros');
   if (state.registros.length === 0) { div.style.display='none'; return; }
   div.style.display='block';
   document.getElementById('countBadge').textContent = state.registros.length;
-  document.getElementById('registroList').innerHTML = state.registros.map(r => {
+  document.getElementById('registroList').innerHTML = state.registros.map((r, idx) => {
     const thumb = r.fotos[0] ? `<img src="${r.fotos[0].src}">` : '<div style="width:50px;height:50px;background:var(--light);border-radius:6px;flex-shrink:0"></div>';
-    return `<div class="registro-item">${thumb}<div class="info"><span class="ambiente-tag">${r.ambiente}</span><span class="defeito-tag">${r.defeito}</span></div></div>`;
+    const qtdFotos = r.fotos.length;
+    return `<div class="registro-item" onclick="abrirRegistro(${idx})" style="cursor:pointer;position:relative">
+      ${thumb}
+      <div class="info"><span class="ambiente-tag">${r.ambiente}</span><span class="defeito-tag">${r.defeito}</span></div>
+      <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;color:var(--muted);font-size:11px;font-weight:700">
+        <i class="ti ti-photo"></i> ${qtdFotos} <i class="ti ti-chevron-right" style="font-size:14px"></i>
+      </div>
+    </div>`;
   }).join('');
+}
+
+// Modal pra revisar todas as fotos de um registro, reorganizar a ordem
+// (útil pra decidir qual aparece primeiro no laudo) e remover fotos repetidas.
+let registroAbertoIdx = null;
+
+function abrirRegistro(idx) {
+  registroAbertoIdx = idx;
+  renderModalRegistro();
+  document.getElementById('modalRegistro').style.display = 'flex';
+}
+
+function fecharRegistroModal() {
+  document.getElementById('modalRegistro').style.display = 'none';
+  registroAbertoIdx = null;
+  atualizarResumo();
+}
+
+function renderModalRegistro() {
+  const r = state.registros[registroAbertoIdx];
+  if (!r) { fecharRegistroModal(); return; }
+  document.getElementById('modalRegistroAmbiente').textContent = r.ambiente;
+  document.getElementById('modalRegistroDefeito').textContent = r.defeito;
+  document.getElementById('modalRegistroFotos').innerHTML = r.fotos.map((f, i) => `
+    <div style="display:flex;align-items:center;gap:10px;background:var(--light);border-radius:10px;padding:8px">
+      <img src="${f.src}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;flex-shrink:0">
+      <div style="flex:1;font-size:12px;font-weight:700;color:var(--muted)">Foto ${i + 1} de ${r.fotos.length}</div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <button onclick="moverFotoRegistro(${i},-1)" ${i === 0 ? 'disabled style="opacity:.3"' : ''} style="background:#fff;border:1px solid var(--border);border-radius:6px;width:28px;height:24px;cursor:pointer"><i class="ti ti-chevron-up"></i></button>
+        <button onclick="moverFotoRegistro(${i},1)" ${i === r.fotos.length - 1 ? 'disabled style="opacity:.3"' : ''} style="background:#fff;border:1px solid var(--border);border-radius:6px;width:28px;height:24px;cursor:pointer"><i class="ti ti-chevron-down"></i></button>
+      </div>
+      <button onclick="removerFotoRegistro(${i})" style="background:#fdecea;border:none;color:var(--danger);border-radius:6px;width:28px;height:52px;cursor:pointer"><i class="ti ti-trash"></i></button>
+    </div>`).join('');
+}
+
+function moverFotoRegistro(fotoIdx, direcao) {
+  const r = state.registros[registroAbertoIdx];
+  const novoIdx = fotoIdx + direcao;
+  if (novoIdx < 0 || novoIdx >= r.fotos.length) return;
+  [r.fotos[fotoIdx], r.fotos[novoIdx]] = [r.fotos[novoIdx], r.fotos[fotoIdx]];
+  salvarRascunho();
+  renderModalRegistro();
+}
+
+function removerFotoRegistro(fotoIdx) {
+  const r = state.registros[registroAbertoIdx];
+  r.fotos.splice(fotoIdx, 1);
+  if (r.fotos.length === 0) {
+    state.registros.splice(registroAbertoIdx, 1);
+    salvarRascunho();
+    fecharRegistroModal();
+    return;
+  }
+  salvarRascunho();
+  renderModalRegistro();
 }
 
 const fileInput = document.getElementById('fileInputPhoto');
@@ -1118,6 +1269,7 @@ const LEGENDAS = {
     {t:"Falha ao trancar", d:"O mecanismo de fechamento da porta não está operando corretamente, dificultando o travamento adequado."},
     {t:"Faltando dobradiça", d:"A ausência de dobradiça compromete a estabilidade e o correto funcionamento da porta, podendo impactar sua fixação e segurança."},
     {t:"Batente e alizar lascado", d:"Foram identificados danos no batente e alizar, resultando em falhas na integridade e estética do acabamento."},
+    {t:"Folha da porta lascada", d:"Foram identificados danos na folha da porta, resultando em falhas na integridade e estética do acabamento."},
     {t:"Ruído na abertura", d:"Ao movimentar a porta, foi constatada a emissão de ruído nas dobradiças, indicando possível aperto excessivo, falta de lubrificação ou desalinhamento. Recomenda-se verificação, ajuste e lubrificação."}
   ],
   "Porta de correr": [
@@ -1275,7 +1427,15 @@ function mostrarObs(sim) {
 }
 
 async function processarLaudo() {
-  state.obsGeral=document.getElementById('obsGeral').value.trim();
+  const incluirObs = document.getElementById('btnSimObs').classList.contains('selected');
+  let obsFinal = '';
+  if (incluirObs) {
+    const textoLivre = document.getElementById('obsGeral').value.trim();
+    const partes = [...state.obsRapidas];
+    if (textoLivre) partes.push(textoLivre);
+    obsFinal = partes.join('\n\n');
+  }
+  state.obsGeral = obsFinal;
   salvarRascunho();
   mostrarScreen('screen-sucesso');
   const btnDocx = document.getElementById('btnBaixarDocx');
@@ -1335,12 +1495,142 @@ async function gerarDocumento(tipo) {
   }
 }
 
+// ══════════════════════════════════════════════════════════════
+// AGENDA — pré-cadastro dos dados do cliente/imóvel com antecedência,
+// pra na hora da vistoria só abrir o agendamento e ir direto pras fotos,
+// sem digitar nada de novo em campo.
+// ══════════════════════════════════════════════════════════════
+let agendaCache = [];
+
+function preencherFormularioDados(d) {
+  document.getElementById('nomeCliente').value = d.nome || '';
+  document.getElementById('cpf').value = d.cpf || '';
+  document.getElementById('telefone').value = d.telefone || '';
+  document.getElementById('empreendimento').value = d.empreendimento || '';
+  document.getElementById('endereco').value = d.endereco || '';
+  document.getElementById('bloco').value = d.bloco || '';
+  document.getElementById('apto').value = d.apto || '';
+  document.getElementById('cep').value = d.cep || '';
+  document.getElementById('cidade').value = d.cidade || '';
+  document.getElementById('metragem').value = d.metragem || '';
+  document.getElementById('dataVistoria').value = d.data || '';
+  document.getElementById('comodos').value = d.comodos || '';
+}
+
+function resetarBotaoDados() {
+  const btn = document.getElementById('btnAcaoDados');
+  btn.innerHTML = '<i class="ti ti-arrow-right"></i> Iniciar vistoria';
+  btn.onclick = irParaAmbiente;
+}
+
+// Abre a tela de Dados do cliente em "modo agenda": preenchendo com calma agora,
+// vira um agendamento salvo, não uma vistoria em andamento.
+function novoAgendamento() {
+  ['nomeCliente','cpf','telefone','empreendimento','endereco','bloco','apto','cep','cidade','metragem','comodos'].forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('dataVistoria').value = '';
+  state.plantaBase64 = null; state.plantaMediaType = null;
+  state.mapaBase64 = null; state.mapaMediaType = null;
+  document.getElementById('plantaPreview').innerHTML = '';
+  document.getElementById('mapaPreview').innerHTML = '';
+  state.modoAgenda = true;
+  const btn = document.getElementById('btnAcaoDados');
+  btn.innerHTML = '<i class="ti ti-calendar-check"></i> Salvar agendamento';
+  btn.onclick = salvarAgendamento;
+  switchTab('vistoria');
+  mostrarScreen('screen-dados');
+}
+
+async function salvarAgendamento() {
+  const dados = {
+    nome: document.getElementById('nomeCliente').value.trim(),
+    cpf: document.getElementById('cpf').value.trim(),
+    telefone: document.getElementById('telefone').value.trim(),
+    empreendimento: document.getElementById('empreendimento').value.trim(),
+    endereco: document.getElementById('endereco').value.trim(),
+    bloco: document.getElementById('bloco').value.trim(),
+    apto: document.getElementById('apto').value.trim(),
+    cep: document.getElementById('cep').value.trim(),
+    cidade: document.getElementById('cidade').value.trim(),
+    metragem: document.getElementById('metragem').value.trim(),
+    data: document.getElementById('dataVistoria').value,
+    comodos: document.getElementById('comodos').value.trim()
+  };
+  if (!dados.nome) { alert('Informe pelo menos o nome do cliente.'); return; }
+  try {
+    await fetch('/agenda', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dados, plantaBase64: state.plantaBase64, plantaMediaType: state.plantaMediaType, mapaBase64: state.mapaBase64, mapaMediaType: state.mapaMediaType })
+    });
+    state.modoAgenda = false;
+    resetarBotaoDados();
+    switchTab('agenda');
+  } catch (e) {
+    console.error('Falha ao salvar agendamento:', e);
+    alert('Não foi possível salvar o agendamento agora. Verifique sua internet e tente de novo.');
+  }
+}
+
+async function carregarAgenda() {
+  document.getElementById('agendaList').innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p>';
+  try {
+    const res = await fetch('/agenda');
+    agendaCache = await res.json();
+    renderAgenda();
+  } catch (e) {
+    document.getElementById('agendaList').innerHTML = '<p style="color:var(--danger);font-size:13px;text-align:center;padding:20px">Erro ao carregar.</p>';
+  }
+}
+
+function renderAgenda() {
+  const lista = document.getElementById('agendaList');
+  if (!agendaCache.length) { lista.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nenhuma vistoria agendada ainda.</p>'; return; }
+  lista.innerHTML = agendaCache.map(a => `
+    <div class="hist-item">
+      <i class="ti ti-calendar-event" style="font-size:26px;color:var(--brand)"></i>
+      <div class="info"><strong>${a.dados.nome}${a.dados.empreendimento ? ' - ' + a.dados.empreendimento : ''}</strong><span>${a.dados.endereco || 'Endereço não informado'}${a.dados.data ? ' · ' + a.dados.data.split('-').reverse().join('/') : ''}</span></div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>
+        <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirAgendamento('${a.id}')"><i class="ti ti-trash"></i> Excluir</button>
+      </div>
+    </div>`).join('');
+}
+
+async function iniciarVistoriaDoAgendamento(id) {
+  const item = agendaCache.find(a => a.id === id);
+  if (!item) return;
+  preencherFormularioDados(item.dados);
+  state.plantaBase64 = item.plantaBase64 || null;
+  state.plantaMediaType = item.plantaMediaType || null;
+  state.mapaBase64 = item.mapaBase64 || null;
+  state.mapaMediaType = item.mapaMediaType || null;
+  document.getElementById('plantaPreview').innerHTML = state.plantaBase64 ? `<div class="single-thumb"><img src="data:${state.plantaMediaType};base64,${state.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>` : '';
+  document.getElementById('mapaPreview').innerHTML = state.mapaBase64 ? `<div class="single-thumb"><img src="data:${state.mapaMediaType};base64,${state.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>` : '';
+  state.modoAgenda = false;
+  resetarBotaoDados();
+  try { await fetch(`/agenda?id=${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (e) { /* segue mesmo assim, não trava a vistoria */ }
+  switchTab('vistoria');
+  irParaAmbiente();
+}
+
+async function excluirAgendamento(id) {
+  if (!confirm('Excluir esse agendamento?')) return;
+  try {
+    await fetch(`/agenda?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    carregarAgenda();
+  } catch (e) {
+    alert('Não foi possível excluir agora. Tente de novo.');
+  }
+}
+
 function novaVistoria() {
   limparRascunho();
-  Object.assign(state,{dados:{},tipoVistoria:'',registros:[],ambienteAtual:'',fotosAtuais:[],defeitoAtual:'',obsGeral:'',plantaBase64:null,plantaMediaType:null,mapaBase64:null,mapaMediaType:null,conclusaoIA:''});
+  Object.assign(state,{dados:{},tipoVistoria:'',registros:[],ambienteAtual:'',fotosAtuais:[],defeitoAtual:'',obsGeral:'',obsRapidas:[],plantaBase64:null,plantaMediaType:null,mapaBase64:null,mapaMediaType:null,conclusaoIA:'',modoAgenda:false});
+  resetarBotaoDados();
   ['nomeCliente','cpf','telefone','empreendimento','endereco','bloco','apto','cep','cidade','metragem','comodos','obsGeral'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('dataVistoria').value=new Date().toISOString().split('T')[0];
-  
+  document.getElementById('btnSimObs').classList.remove('selected');
+  document.getElementById('btnNaoObs').classList.remove('selected');
+  document.getElementById('obsField').style.display='none';
   document.getElementById('registroList').innerHTML='';
   document.getElementById('resumoRegistros').style.display='none';
   document.getElementById('plantaPreview').innerHTML='';
