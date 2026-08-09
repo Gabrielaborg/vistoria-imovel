@@ -285,6 +285,10 @@
         <i class="ti ti-trash"></i> Descartar vistoria
       </button>
     </div>
+    <div id="defeitosPendentesSecao" style="display:none;margin-bottom:16px">
+      <div class="section-label" style="display:flex;align-items:center;gap:6px;color:#7B4FA0"><i class="ti ti-list-check"></i> Defeitos da vistoria anterior a conferir</div>
+      <div id="defeitosPendentesLista"></div>
+    </div>
     <div class="card-title" style="padding:0 4px 10px;font-size:16px;font-weight:700;color:var(--brand)"><i class="ti ti-layout-grid"></i> Escolha o ambiente</div>
     <div class="option-grid">
       <button class="opt-btn" onclick="selecionarAmbiente('Sala')"><i class="ti ti-sofa"></i> Sala</button>
@@ -505,8 +509,19 @@
   </div>
 </div>
 
+<div id="modalConsultaRevistoria" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:150;align-items:flex-end;justify-content:center">
+  <div style="background:#fff;border-radius:16px 16px 0 0;max-width:520px;width:100%;max-height:88vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px 10px">
+      <div style="font-weight:700;color:var(--brand);font-size:15px"><i class="ti ti-file-search"></i> Consultar laudo anterior</div>
+      <button onclick="fecharConsultaRevistoria()" style="background:var(--light);border:none;width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;flex-shrink:0">✕</button>
+    </div>
+    <div style="padding:0 18px 10px;font-size:11px;color:var(--muted)">Escolha um laudo abaixo pra ver os defeitos, ou já iniciar a revistoria levando esses itens como checklist.</div>
+    <div id="modalConsultaConteudo" style="overflow-y:auto;padding:0 18px 24px"></div>
+  </div>
+</div>
+
 <script>
-const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', obsGeral:'', obsRapidas:[], plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'', modoAgenda:false };
+const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', obsGeral:'', obsRapidas:[], defeitosPendentes:[], plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'', modoAgenda:false };
 let todosLaudos = [];
 
 // ══════════════════════════════════════════════════════════════
@@ -825,6 +840,8 @@ function selecionarTipoAgendamento(tipo) {
 
 // Busca a vistoria mais recente já feita pra esse mesmo cliente (pelo nome) e mostra
 // os defeitos registrados nela — pra conferir rápido o que já foi corrigido na revistoria.
+let vistoriasAnterioresEncontradas = [];
+
 async function buscarVistoriaAnterior() {
   const nome = document.getElementById('nomeCliente').value.trim().toLowerCase();
   const resultado = document.getElementById('resultadoVistoriaAnterior');
@@ -836,25 +853,49 @@ async function buscarVistoriaAnterior() {
   try {
     const res = await fetch('/historico');
     const lista = await res.json();
-    const encontrados = lista.filter(l => (l.nome || '').toLowerCase().includes(nome)).sort((a, b) => b.ts - a.ts);
-    if (encontrados.length === 0) {
+    vistoriasAnterioresEncontradas = lista.filter(l => (l.nome || '').toLowerCase().includes(nome)).sort((a, b) => b.ts - a.ts);
+    if (vistoriasAnterioresEncontradas.length === 0) {
       resultado.innerHTML = '<p style="color:var(--muted);font-size:12px;padding:8px 4px 0">Nenhuma vistoria anterior encontrada com esse nome.</p>';
       return;
     }
-    const anterior = encontrados[0];
-    const registros = anterior.registros || [];
-    resultado.innerHTML = `
-      <div style="background:#F3E9DD;border-radius:10px;padding:12px;margin-top:8px">
-        <div style="font-size:11px;font-weight:700;color:#7B4FA0;margin-bottom:8px">
-          ${badgeTipo(anterior.tipo)} em ${anterior.data && anterior.data !== '—' ? anterior.data.split('-').reverse().join('/') : 'data não informada'} · ${anterior.empreendimento || 'Sem empreendimento'}
-        </div>
-        ${registros.length === 0
-          ? '<p style="font-size:12px;color:var(--muted)">Esse laudo foi gerado antes dessa função existir, sem detalhes de defeitos salvos.</p>'
-          : registros.map(r => `<div style="font-size:12px;padding:5px 0;border-bottom:1px solid rgba(0,0,0,.08)"><strong>${r.ambiente}:</strong> ${r.defeito}</div>`).join('')}
-      </div>`;
+    renderResultadosVistoriaAnterior();
   } catch (e) {
     resultado.innerHTML = '<p style="color:var(--danger);font-size:12px;padding:8px 4px 0">Erro ao buscar. Tente de novo.</p>';
   }
+}
+
+// Um mesmo cliente pode ter mais de um imóvel vistoriado — por isso mostra TODAS as
+// vistorias anteriores encontradas com esse nome, não só a mais recente. Cada uma
+// abre/fecha os defeitos dela individualmente, pra você escolher a certa.
+function renderResultadosVistoriaAnterior() {
+  const resultado = document.getElementById('resultadoVistoriaAnterior');
+  const qtd = vistoriasAnterioresEncontradas.length;
+  resultado.innerHTML = `
+    <p style="font-size:11px;color:var(--muted);margin:8px 4px 6px">${qtd} vistoria${qtd === 1 ? '' : 's'} anterior${qtd === 1 ? '' : 'es'} encontrada${qtd === 1 ? '' : 's'} com esse nome:</p>
+    ${vistoriasAnterioresEncontradas.map((l, i) => `
+      <div style="background:#F3E9DD;border-radius:10px;padding:12px;margin-bottom:8px">
+        <div onclick="toggleDefeitosAnteriores(${i})" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="font-size:11.5px;font-weight:700;color:#7B4FA0;line-height:1.5">
+            ${badgeTipo(l.tipo)} em ${l.data && l.data !== '—' ? l.data.split('-').reverse().join('/') : 'data não informada'}<br>
+            <span>${l.empreendimento || 'Sem empreendimento'}${l.endereco ? ' · ' + l.endereco : ''}</span>
+          </div>
+          <i class="ti ti-chevron-down" id="chevronAnterior${i}" style="color:#7B4FA0;flex-shrink:0;transition:transform .15s"></i>
+        </div>
+        <div id="defeitosAnteriores${i}" style="display:none;margin-top:10px">
+          ${(l.registros && l.registros.length)
+            ? l.registros.map(r => `<div style="font-size:12px;padding:5px 0;border-bottom:1px solid rgba(0,0,0,.08)"><strong>${r.ambiente}:</strong> ${r.defeito}</div>`).join('')
+            : '<p style="font-size:12px;color:var(--muted)">Esse laudo foi gerado antes dessa função existir, sem detalhes de defeitos salvos.</p>'}
+        </div>
+      </div>`).join('')}
+  `;
+}
+
+function toggleDefeitosAnteriores(i) {
+  const div = document.getElementById('defeitosAnteriores' + i);
+  const chevron = document.getElementById('chevronAnterior' + i);
+  const aberto = div.style.display === 'block';
+  div.style.display = aberto ? 'none' : 'block';
+  chevron.style.transform = aberto ? 'rotate(0deg)' : 'rotate(180deg)';
 }
 
 function irParaAmbiente() {
@@ -914,7 +955,7 @@ function editarDadosIniciais() {
   document.getElementById('plantaPreview').innerHTML = state.plantaBase64 ? `<div class="single-thumb"><img src="data:${state.plantaMediaType};base64,${state.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>` : '';
   document.getElementById('mapaPreview').innerHTML = state.mapaBase64 ? `<div class="single-thumb"><img src="data:${state.mapaMediaType};base64,${state.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>` : '';
   const btn = document.getElementById('btnAcaoDados');
-  btn.innerHTML = '<i class="ti ti-device-floppy"></i> Salvar alterações';
+  btn.innerHTML = '<i class="ti ti-device-floppy"></i> Salvar e continuar vistoria';
   btn.onclick = salvarEdicaoDados;
   dadosContexto = 'edicao';
   atualizarBotaoCancelarDados();
@@ -978,6 +1019,7 @@ function toggleObsRapida(i) {
 function irParaObs() { renderObsRapidas(); mostrarScreen('screen-obs'); }
 
 function atualizarResumo() {
+  renderDefeitosPendentes();
   const div = document.getElementById('resumoRegistros');
   if (state.registros.length === 0) { div.style.display='none'; return; }
   div.style.display='block';
@@ -1561,6 +1603,11 @@ function selecionarCategoria(cat) {
 
 function voltarCategorias() { categoriaAtual=''; renderCategorias(); }
 
+// Quando uma foto vem de um item pendente da revistoria (checklist da vistoria
+// anterior), pré-preenche o texto do defeito automaticamente nessa próxima tela.
+let defeitoPreSelecionado = null;
+let defeitoPendenteIdxAtual = null;
+
 function irParaDefeito() {
   if (state.fotosAtuais.length===0) { alert('Envie ao menos uma foto.'); return; }
   document.querySelectorAll('#screen-defeito .opt-btn').forEach(b=>b.classList.remove('selected'));
@@ -1569,6 +1616,12 @@ function irParaDefeito() {
   renderFitaColorida();
   renderCategorias();
   mostrarScreen('screen-defeito');
+  if (defeitoPreSelecionado) {
+    document.getElementById('outroDefeitoField').style.display = 'block';
+    document.getElementById('outroDefeitoInput').value = defeitoPreSelecionado;
+    state.defeitoAtual = 'Outro defeito';
+    defeitoPreSelecionado = null;
+  }
 }
 
 function selecionarDefeito(el, val) {
@@ -1583,6 +1636,10 @@ function salvarRegistro() {
   if (defeito==='Outro defeito') defeito=document.getElementById('outroDefeitoInput').value.trim()||'Outro defeito';
   if (!defeito) { alert('Selecione o tipo de defeito.'); return false; }
   state.registros.push({ ambiente:state.ambienteAtual, fotos:[...state.fotosAtuais], defeito });
+  if (defeitoPendenteIdxAtual !== null) {
+    state.defeitosPendentes.splice(defeitoPendenteIdxAtual, 1);
+    defeitoPendenteIdxAtual = null;
+  }
   state.fotosAtuais=[]; atualizarResumo(); salvarRascunho(); return true;
 }
 
@@ -1787,6 +1844,7 @@ function renderAgenda() {
       </div>
       <div style="display:flex;flex-direction:column;gap:5px">
         <button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>
+        ${a.dados.tipo === 'Revistoria' ? `<button class="hist-btn" style="background:#7B4FA0;width:100%" onclick="abrirConsultaRevistoria('${a.id}')"><i class="ti ti-file-search"></i> Consultar</button>` : ''}
         <button class="hist-btn" style="background:var(--brand2);width:100%" onclick="editarAgendamento('${a.id}')"><i class="ti ti-edit"></i> Editar</button>
         <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirAgendamento('${a.id}')"><i class="ti ti-trash"></i> Excluir</button>
       </div>
@@ -1940,10 +1998,124 @@ function renderCalDia() {
       </div>
       <div style="display:flex;flex-direction:column;gap:5px">
         <button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>
+        ${a.dados.tipo === 'Revistoria' ? `<button class="hist-btn" style="background:#7B4FA0;width:100%" onclick="abrirConsultaRevistoria('${a.id}')"><i class="ti ti-file-search"></i> Consultar</button>` : ''}
         <button class="hist-btn" style="background:var(--brand2);width:100%" onclick="editarAgendamento('${a.id}')"><i class="ti ti-edit"></i> Editar</button>
         <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirAgendamento('${a.id}')"><i class="ti ti-trash"></i> Excluir</button>
       </div>
     </div>`).join('')}</div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// CONSULTAR LAUDO ANTERIOR (a partir de um agendamento de Revistoria)
+// Permite ver os defeitos de qualquer vistoria anterior desse cliente, e, se
+// quiser, já iniciar a revistoria levando esses itens como um checklist —
+// evita ter que escolher tudo de novo do zero.
+// ══════════════════════════════════════════════════════════════
+let consultaAgendamentoId = null;
+let laudosConsultaRevistoria = [];
+
+async function abrirConsultaRevistoria(agendamentoId) {
+  consultaAgendamentoId = agendamentoId;
+  const item = agendaCache.find(a => a.id === agendamentoId);
+  if (!item) return;
+  const conteudo = document.getElementById('modalConsultaConteudo');
+  conteudo.innerHTML = '<p style="color:var(--muted);font-size:12px;text-align:center;padding:16px 0"><span class="sp2"></span> Buscando...</p>';
+  document.getElementById('modalConsultaRevistoria').style.display = 'flex';
+  try {
+    const nome = (item.dados.nome || '').trim().toLowerCase();
+    const res = await fetch('/historico');
+    const lista = await res.json();
+    laudosConsultaRevistoria = lista.filter(l => (l.nome || '').toLowerCase().includes(nome)).sort((a, b) => b.ts - a.ts);
+    if (laudosConsultaRevistoria.length === 0) {
+      conteudo.innerHTML = '<p style="color:var(--muted);font-size:12px;text-align:center;padding:16px 0">Nenhum laudo anterior encontrado com esse nome.</p>';
+      return;
+    }
+    conteudo.innerHTML = laudosConsultaRevistoria.map((l, i) => `
+      <div style="background:#F3E9DD;border-radius:10px;padding:12px;margin-bottom:10px">
+        <div onclick="toggleConsultaDefeitos(${i})" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="font-size:11.5px;font-weight:700;color:#7B4FA0;line-height:1.5">
+            ${badgeTipo(l.tipo)} em ${l.data && l.data !== '—' ? l.data.split('-').reverse().join('/') : 'data não informada'}<br>
+            <span>${l.empreendimento || 'Sem empreendimento'}${l.endereco ? ' · ' + l.endereco : ''}</span>
+          </div>
+          <i class="ti ti-chevron-down" id="chevronConsulta${i}" style="color:#7B4FA0;flex-shrink:0;transition:transform .15s"></i>
+        </div>
+        <div id="defeitosConsulta${i}" style="display:none;margin-top:10px">
+          ${(l.registros && l.registros.length)
+            ? l.registros.map(r => `<div style="font-size:12px;padding:5px 0;border-bottom:1px solid rgba(0,0,0,.08)"><strong>${r.ambiente}:</strong> ${r.defeito}</div>`).join('')
+            : '<p style="font-size:12px;color:var(--muted)">Sem detalhes de defeitos salvos pra esse laudo.</p>'}
+          <button onclick="iniciarRevistoriaComDefeitos(${i})" style="width:100%;margin-top:10px;background:#7B4FA0;color:#fff;border:none;border-radius:8px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer"><i class="ti ti-player-play"></i> Iniciar revistoria com estes defeitos</button>
+        </div>
+      </div>`).join('');
+  } catch (e) {
+    conteudo.innerHTML = '<p style="color:var(--danger);font-size:12px;text-align:center;padding:16px 0">Erro ao buscar. Tente de novo.</p>';
+  }
+}
+
+function toggleConsultaDefeitos(i) {
+  const div = document.getElementById('defeitosConsulta' + i);
+  const chevron = document.getElementById('chevronConsulta' + i);
+  const aberto = div.style.display === 'block';
+  div.style.display = aberto ? 'none' : 'block';
+  chevron.style.transform = aberto ? 'rotate(0deg)' : 'rotate(180deg)';
+}
+
+function fecharConsultaRevistoria() {
+  document.getElementById('modalConsultaRevistoria').style.display = 'none';
+  consultaAgendamentoId = null;
+}
+
+async function iniciarRevistoriaComDefeitos(laudoIdx) {
+  const item = agendaCache.find(a => a.id === consultaAgendamentoId);
+  const laudo = laudosConsultaRevistoria[laudoIdx];
+  if (!item || !laudo) return;
+  preencherFormularioDados(item.dados);
+  state.plantaBase64 = item.plantaBase64 || null;
+  state.plantaMediaType = item.plantaMediaType || null;
+  state.mapaBase64 = item.mapaBase64 || null;
+  state.mapaMediaType = item.mapaMediaType || null;
+  document.getElementById('plantaPreview').innerHTML = state.plantaBase64 ? `<div class="single-thumb"><img src="data:${state.plantaMediaType};base64,${state.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>` : '';
+  document.getElementById('mapaPreview').innerHTML = state.mapaBase64 ? `<div class="single-thumb"><img src="data:${state.mapaMediaType};base64,${state.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>` : '';
+  state.modoAgenda = false;
+  resetarBotaoDados();
+  dadosContexto = 'novo';
+  atualizarBotaoCancelarDados();
+  state.defeitosPendentes = (laudo.registros || []).map(r => ({ ambiente: r.ambiente, defeito: r.defeito }));
+  const idAgendamento = item.id;
+  fecharConsultaRevistoria();
+  try { await fetch(`/agenda?id=${encodeURIComponent(idAgendamento)}`, { method: 'DELETE' }); } catch (e) { /* segue mesmo assim */ }
+  switchTab('vistoria');
+  irParaAmbiente();
+}
+
+// Checklist de defeitos pendentes de conferência, visível na tela de ambientes
+// quando a revistoria foi iniciada a partir de um laudo anterior.
+function renderDefeitosPendentes() {
+  const secao = document.getElementById('defeitosPendentesSecao');
+  const lista = document.getElementById('defeitosPendentesLista');
+  if (!state.defeitosPendentes || state.defeitosPendentes.length === 0) { secao.style.display = 'none'; return; }
+  secao.style.display = 'block';
+  lista.innerHTML = state.defeitosPendentes.map((p, i) => `
+    <div style="background:#F3E9DD;border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+      <div style="flex:1;font-size:12px"><strong>${p.ambiente}:</strong> ${p.defeito}</div>
+      <button onclick="fotografarDefeitoPendente(${i})" style="background:#7B4FA0;color:#fff;border:none;border-radius:7px;padding:7px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"><i class="ti ti-camera"></i> Fotografar</button>
+      <button onclick="removerDefeitoPendente(${i})" style="background:#fff;border:1px solid #7B4FA0;color:#7B4FA0;border-radius:7px;padding:7px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">✓ Corrigido</button>
+    </div>`).join('');
+}
+
+function removerDefeitoPendente(i) {
+  state.defeitosPendentes.splice(i, 1);
+  renderDefeitosPendentes();
+  salvarRascunho();
+}
+
+// Leva direto pra tela de fotos daquele ambiente, já lembrando qual defeito
+// pré-preencher no próximo passo (economiza ter que digitar/escolher de novo).
+function fotografarDefeitoPendente(i) {
+  const pendente = state.defeitosPendentes[i];
+  if (!pendente) return;
+  defeitoPreSelecionado = pendente.defeito;
+  defeitoPendenteIdxAtual = i;
+  selecionarAmbiente(pendente.ambiente);
 }
 
 async function iniciarVistoriaDoAgendamento(id) {
@@ -1990,7 +2162,7 @@ function editarAgendamento(id) {
   state.mapaBase64 = item.mapaBase64 || null;
   state.mapaMediaType = item.mapaMediaType || null;
   const btn = document.getElementById('btnAcaoDados');
-  btn.innerHTML = '<i class="ti ti-device-floppy"></i> Salvar alterações';
+  btn.innerHTML = '<i class="ti ti-device-floppy"></i> Salvar no agendamento';
   btn.onclick = () => salvarEdicaoAgendamento(id);
   dadosContexto = 'agenda-edicao';
   atualizarBotaoCancelarDados();
@@ -2037,7 +2209,7 @@ async function salvarEdicaoAgendamento(id) {
 
 function novaVistoria() {
   limparRascunho();
-  Object.assign(state,{dados:{},tipoVistoria:'',registros:[],ambienteAtual:'',fotosAtuais:[],defeitoAtual:'',obsGeral:'',obsRapidas:[],plantaBase64:null,plantaMediaType:null,mapaBase64:null,mapaMediaType:null,conclusaoIA:'',modoAgenda:false});
+  Object.assign(state,{dados:{},tipoVistoria:'',registros:[],ambienteAtual:'',fotosAtuais:[],defeitoAtual:'',obsGeral:'',obsRapidas:[],defeitosPendentes:[],plantaBase64:null,plantaMediaType:null,mapaBase64:null,mapaMediaType:null,conclusaoIA:'',modoAgenda:false});
   resetarBotaoDados();
   dadosContexto = 'novo';
   atualizarBotaoCancelarDados();
