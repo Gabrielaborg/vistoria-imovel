@@ -720,6 +720,26 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Transforma uma descrição curta/informal de defeito (ex: "buraco na parede") no
+  // texto técnico formal que vai pro laudo, no mesmo estilo da biblioteca de legendas.
+  if (req.method === 'POST' && req.url === '/gerar-defeito-texto') {
+    try {
+      const { ambiente, textoCurto } = await lerCorpoJSON(req);
+      if (!textoCurto || !textoCurto.trim()) throw new Error('Texto do defeito vazio.');
+      const texto = await chamarClaude({
+        maxTokens: 200,
+        system: 'Você é um(a) engenheiro(a) civil redigindo a descrição técnica de UM defeito construtivo específico, pra entrar na seção de registros fotográficos de um laudo de vistoria de imóvel. Use o mesmo estilo formal e objetivo de normas ABNT e do IBAPE Nacional. Escreva de 1 a 2 frases apenas, descrevendo o defeito de forma técnica, e se fizer sentido, uma recomendação breve de correção. NÃO use saudações, títulos, aspas, markdown ou numeração — retorne SOMENTE o texto final, pronto pra ser colado no laudo, como neste exemplo de estilo: "Foram identificados danos na superfície da parede, comprometendo a integridade e o acabamento do revestimento. Recomenda-se reparo com massa adequada e repintura do trecho afetado."',
+        messages: [{ role: 'user', content: `Ambiente: ${ambiente || 'não informado'}\nDefeito descrito de forma resumida pelo usuário: "${textoCurto.trim()}"\n\nRedija a descrição técnica formal desse defeito, pronta pra entrar no laudo.` }]
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ texto: texto.trim() }));
+    } catch (e) {
+      console.error('Erro em /gerar-defeito-texto:', e.message);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ erro: e.message }));
+    }
+  }
+
   if (req.method === 'POST' && req.url === '/gerar-laudo') {
     let body = '';
     req.on('data', chunk => body += chunk);
