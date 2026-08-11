@@ -559,7 +559,10 @@ async function salvarRascunho() {
   try {
     const db = await abrirDB();
     const tx = db.transaction(LOJA, 'readwrite');
-    tx.objectStore(LOJA).put(JSON.parse(JSON.stringify(state)), CHAVE_RASCUNHO);
+    // IndexedDB já faz uma cópia interna sozinho (structured clone nativo, bem mais
+    // leve). Fazer JSON.stringify + JSON.parse aqui só duplicava tudo na memória do
+    // JavaScript à toa — com várias fotos acumuladas, isso pesava bastante.
+    tx.objectStore(LOJA).put(state, CHAVE_RASCUNHO);
     return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
   } catch (e) { console.error('Falha ao salvar rascunho local:', e); }
 }
@@ -1278,7 +1281,7 @@ async function handleFiles(files) {
     }
     const thumb = await comTimeout(gerarMiniatura(dataUrl), 8000, dataUrl);
     const id = 'p'+Date.now()+Math.random().toString(36).slice(2);
-    const entry = { id, src: dataUrl, thumb, base64: dataUrl.split(',')[1], mediaType };
+    const entry = { id, src: dataUrl, thumb, mediaType };
     state.fotosAtuais.push(entry); renderFotoPreview();
     await new Promise(r => setTimeout(r, 150)); // pequena pausa: dá tempo do celular liberar memória antes da próxima foto
   }
@@ -1910,7 +1913,7 @@ async function processarLaudo() {
 async function gerarDocumento(tipo) {
   const msg=document.getElementById('gerandoMsg');
   msg.style.display='block'; msg.innerHTML='<span class="spinner"></span> Gerando documento...';
-  const registrosData=state.registros.map(r=>({ambiente:r.ambiente,defeito:r.defeito,fotos:r.fotos.map(f=>({base64:f.base64,mediaType:f.mediaType}))}));
+  const registrosData=state.registros.map(r=>({ambiente:r.ambiente,defeito:r.defeito,fotos:r.fotos.map(f=>({base64:f.src.split(',')[1],mediaType:f.mediaType}))}));
   const payload={dados:state.dados,tipoVistoria:state.tipoVistoria,obsGeral:state.obsGeral,registros:registrosData,formato:tipo,plantaBase64:state.plantaBase64,plantaMediaType:state.plantaMediaType,mapaBase64:state.mapaBase64,mapaMediaType:state.mapaMediaType,conclusaoIA:state.conclusaoIA||''};
   try {
     const res=await fetch('/gerar-laudo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
