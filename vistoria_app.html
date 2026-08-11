@@ -1158,35 +1158,49 @@ function comTimeout(promessa, ms, valorPadrao) {
 }
 
 // Reduz o tamanho da imagem antes de guardar (fotos de iPhone/Android modernos
-// costumam vir enormes — vários MB, resolução de vários milhares de pixels).
-// Isso evita que o navegador fique sem memória e feche a aba sozinho quando
-// várias fotos grandes se acumulam numa mesma vistoria. 1600px já é mais que
-// suficiente pra qualidade boa num laudo em PDF/Word.
-// Redimensiona a foto ANTES de qualquer outra coisa, trabalhando direto a partir do
-// arquivo (createImageBitmap) em vez de primeiro transformar tudo em texto base64
-// gigante e só depois reduzir — isso evita um pico de memória enorme (a foto original
-// de um iPhone pode decodificar pra 40-50MB só de pixels), que era o motivo mais
-// provável do navegador fechar a aba sozinho com várias fotos seguidas.
+// costumam vir enormes — iPhones mais novos tiram fotos de até 48 megapixels,
+// bem mais do que qualquer laudo precisa). Isso evita que o navegador fique sem
+// memória e feche a aba sozinho quando várias fotos grandes se acumulam.
+//
+// IMPORTANTE: pra não precisar decodificar a foto em tamanho ORIGINAL (o que já
+// sozinho pode consumir 50MB+ de memória numa foto de 48MP) e só depois reduzir,
+// primeiro descobrimos as dimensões de um jeito leve (sem desenhar a imagem em
+// lugar nenhum), e só então pedimos ao navegador pra decodificar JÁ no tamanho
+// final — numa passada só, nunca segurando a versão gigante na memória.
+function obterDimensoesImagem(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { const d = { width: img.naturalWidth, height: img.naturalHeight }; URL.revokeObjectURL(url); resolve(d); };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+
 function redimensionarImagem(file, maxDim = 1280) {
   return new Promise(async (resolve) => {
-    // Caminho rápido e leve: decodifica e já redimensiona direto do arquivo
     if ('createImageBitmap' in window) {
       try {
-        const bitmapOriginal = await createImageBitmap(file);
-        let { width, height } = bitmapOriginal;
-        if (width > maxDim || height > maxDim) {
-          const escala = maxDim / Math.max(width, height);
-          width = Math.round(width * escala);
-          height = Math.round(height * escala);
+        const dims = await comTimeout(obterDimensoesImagem(file), 8000, null);
+        if (dims && dims.width && dims.height) {
+          let { width, height } = dims;
+          if (width > maxDim || height > maxDim) {
+            const escala = maxDim / Math.max(width, height);
+            width = Math.round(width * escala);
+            height = Math.round(height * escala);
+          }
+          // Decodifica já direto no tamanho final — o navegador nunca precisa
+          // materializar a foto em resolução original na memória.
+          const bitmap = await createImageBitmap(file, { resizeWidth: width, resizeHeight: height, resizeQuality: 'medium' });
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(bitmap, 0, 0);
+          bitmap.close();
+          resolve(canvas.toDataURL('image/jpeg', 0.78));
+          return;
         }
-        const canvas = document.createElement('canvas');
-        canvas.width = width; canvas.height = height;
-        canvas.getContext('2d').drawImage(bitmapOriginal, 0, 0, width, height);
-        bitmapOriginal.close(); // libera a versão em tamanho grande da memória imediatamente
-        resolve(canvas.toDataURL('image/jpeg', 0.78));
-        return;
       } catch (e) {
-        console.error('createImageBitmap falhou, tentando caminho alternativo:', e);
+        console.error('createImageBitmap (com redimensionamento direto) falhou, tentando caminho alternativo:', e);
       }
     }
     // Caminho alternativo, pra navegadores mais antigos sem suporte a createImageBitmap
@@ -1248,7 +1262,7 @@ function gerarMiniatura(dataUrl, maxDim = 320) {
 }
 
 async function handleFiles(files) {
-  const arquivos = Array.from(files).slice(0,8);
+  const arquivos = Array.from(files).slice(0,5); // limite menor por vez, pra não sobrecarregar a memória do celular
   const statusMsg = document.getElementById('carimboStatusMsg');
   if (statusMsg) statusMsg.style.display = 'block';
   const falhas = [];
@@ -1266,6 +1280,7 @@ async function handleFiles(files) {
     const id = 'p'+Date.now()+Math.random().toString(36).slice(2);
     const entry = { id, src: dataUrl, thumb, base64: dataUrl.split(',')[1], mediaType };
     state.fotosAtuais.push(entry); renderFotoPreview();
+    await new Promise(r => setTimeout(r, 150)); // pequena pausa: dá tempo do celular liberar memória antes da próxima foto
   }
   await salvarRascunho(); // salva uma vez só, depois de processar o lote inteiro (não a cada foto)
   if (statusMsg) statusMsg.style.display = 'none';
