@@ -1033,7 +1033,7 @@ function atualizarResumo() {
   div.style.display='block';
   document.getElementById('countBadge').textContent = state.registros.length;
   document.getElementById('registroList').innerHTML = state.registros.map((r, idx) => {
-    const thumb = r.fotos[0] ? `<img src="${r.fotos[0].src}">` : '<div style="width:50px;height:50px;background:var(--light);border-radius:6px;flex-shrink:0"></div>';
+    const thumb = r.fotos[0] ? `<img src="${r.fotos[0].thumb || r.fotos[0].src}" loading="lazy">` : '<div style="width:50px;height:50px;background:var(--light);border-radius:6px;flex-shrink:0"></div>';
     const qtdFotos = r.fotos.length;
     return `<div class="registro-item" onclick="abrirRegistro(${idx})" style="cursor:pointer;position:relative">
       ${thumb}
@@ -1072,7 +1072,7 @@ function renderModalRegistro() {
     </button>`;
   document.getElementById('modalRegistroFotos').innerHTML = r.fotos.map((f, i) => `
     <div style="display:flex;align-items:center;gap:10px;background:var(--light);border-radius:10px;padding:8px">
-      <img src="${f.src}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;flex-shrink:0">
+      <img src="${f.thumb || f.src}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;flex-shrink:0" loading="lazy">
       <div style="flex:1;font-size:12px;font-weight:700;color:var(--muted)">Foto ${i + 1} de ${r.fotos.length}</div>
       <div style="display:flex;flex-direction:column;gap:3px">
         <button onclick="moverFotoRegistro(${i},-1)" ${i === 0 ? 'disabled style="opacity:.3"' : ''} style="background:#fff;border:1px solid var(--border);border-radius:6px;width:28px;height:24px;cursor:pointer"><i class="ti ti-chevron-up"></i></button>
@@ -1162,7 +1162,68 @@ function comTimeout(promessa, ms, valorPadrao) {
 // Isso evita que o navegador fique sem memória e feche a aba sozinho quando
 // várias fotos grandes se acumulam numa mesma vistoria. 1600px já é mais que
 // suficiente pra qualidade boa num laudo em PDF/Word.
-function redimensionarImagem(dataUrl, maxDim = 1280) {
+// Redimensiona a foto ANTES de qualquer outra coisa, trabalhando direto a partir do
+// arquivo (createImageBitmap) em vez de primeiro transformar tudo em texto base64
+// gigante e só depois reduzir — isso evita um pico de memória enorme (a foto original
+// de um iPhone pode decodificar pra 40-50MB só de pixels), que era o motivo mais
+// provável do navegador fechar a aba sozinho com várias fotos seguidas.
+function redimensionarImagem(file, maxDim = 1280) {
+  return new Promise(async (resolve) => {
+    // Caminho rápido e leve: decodifica e já redimensiona direto do arquivo
+    if ('createImageBitmap' in window) {
+      try {
+        const bitmapOriginal = await createImageBitmap(file);
+        let { width, height } = bitmapOriginal;
+        if (width > maxDim || height > maxDim) {
+          const escala = maxDim / Math.max(width, height);
+          width = Math.round(width * escala);
+          height = Math.round(height * escala);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(bitmapOriginal, 0, 0, width, height);
+        bitmapOriginal.close(); // libera a versão em tamanho grande da memória imediatamente
+        resolve(canvas.toDataURL('image/jpeg', 0.78));
+        return;
+      } catch (e) {
+        console.error('createImageBitmap falhou, tentando caminho alternativo:', e);
+      }
+    }
+    // Caminho alternativo, pra navegadores mais antigos sem suporte a createImageBitmap
+    try {
+      const dataUrlOriginal = await new Promise((res) => {
+        const reader = new FileReader();
+        reader.onload = ev => res(ev.target.result);
+        reader.onerror = () => res(null);
+        reader.readAsDataURL(file);
+      });
+      if (!dataUrlOriginal) { resolve(null); return; }
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            const escala = maxDim / Math.max(width, height);
+            width = Math.round(width * escala);
+            height = Math.round(height * escala);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.78));
+        } catch (e) { resolve(dataUrlOriginal); }
+      };
+      img.onerror = () => resolve(null); // imagem não carregou de jeito nenhum (formato não suportado)
+      img.src = dataUrlOriginal;
+    } catch (e) { resolve(null); }
+  });
+}
+
+// Gera uma miniatura bem pequena (pra mostrar na tela, na grade de fotos) separada
+// da versão "de trabalho" (maior, usada no laudo). Com muitas fotos na tela ao mesmo
+// tempo, mostrar todas em tamanho grande sobrecarrega a memória do navegador — a
+// miniatura pequena resolve isso, já que só precisa ficar bonita numa telinha pequena.
+function gerarMiniatura(dataUrl, maxDim = 320) {
   return new Promise((resolve) => {
     try {
       const img = new Image();
@@ -1177,10 +1238,10 @@ function redimensionarImagem(dataUrl, maxDim = 1280) {
           const canvas = document.createElement('canvas');
           canvas.width = width; canvas.height = height;
           canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.78));
-        } catch (e) { console.error('Falha ao redimensionar, usando original:', e); resolve(dataUrl); }
+          resolve(canvas.toDataURL('image/jpeg', 0.6));
+        } catch (e) { resolve(dataUrl); }
       };
-      img.onerror = () => resolve(null); // imagem não carregou de jeito nenhum (formato não suportado)
+      img.onerror = () => resolve(dataUrl);
       img.src = dataUrl;
     } catch (e) { resolve(dataUrl); }
   });
@@ -1192,27 +1253,21 @@ async function handleFiles(files) {
   if (statusMsg) statusMsg.style.display = 'block';
   const falhas = [];
   for (const file of arquivos) {
-    await new Promise(resolveArquivo => {
-      const reader = new FileReader();
-      reader.onload = async ev => {
-        let dataUrl = await comTimeout(redimensionarImagem(ev.target.result), 15000, null);
-        let mediaType = 'image/jpeg'; // depois de passar pelo redimensionamento, sempre vira jpeg
-        if (!dataUrl) { falhas.push(file.name || 'foto sem nome'); resolveArquivo(); return; }
-        if (carimboAtivo) {
-          try {
-            const exifInfo = await comTimeout(lerExifDeArquivo(file), 5000, null); // tenta usar a data/local REAIS da foto (fotos antigas da galeria)
-            dataUrl = await comTimeout(carimbarFoto(dataUrl, exifInfo), 15000, dataUrl);
-          } catch (e) { console.error('Falha ao aplicar carimbo, mantendo foto sem carimbo:', e); }
-        }
-        const id = 'p'+Date.now()+Math.random().toString(36).slice(2);
-        const entry = { id, src: dataUrl, base64: dataUrl.split(',')[1], mediaType };
-        state.fotosAtuais.push(entry); renderFotoPreview(); salvarRascunho();
-        resolveArquivo();
-      };
-      reader.onerror = () => { falhas.push(file.name || 'foto sem nome'); resolveArquivo(); };
-      reader.readAsDataURL(file);
-    });
+    let dataUrl = await comTimeout(redimensionarImagem(file), 15000, null);
+    let mediaType = 'image/jpeg'; // depois de passar pelo redimensionamento, sempre vira jpeg
+    if (!dataUrl) { falhas.push(file.name || 'foto sem nome'); continue; }
+    if (carimboAtivo) {
+      try {
+        const exifInfo = await comTimeout(lerExifDeArquivo(file), 5000, null); // tenta usar a data/local REAIS da foto (fotos antigas da galeria)
+        dataUrl = await comTimeout(carimbarFoto(dataUrl, exifInfo), 15000, dataUrl);
+      } catch (e) { console.error('Falha ao aplicar carimbo, mantendo foto sem carimbo:', e); }
+    }
+    const thumb = await comTimeout(gerarMiniatura(dataUrl), 8000, dataUrl);
+    const id = 'p'+Date.now()+Math.random().toString(36).slice(2);
+    const entry = { id, src: dataUrl, thumb, base64: dataUrl.split(',')[1], mediaType };
+    state.fotosAtuais.push(entry); renderFotoPreview();
   }
+  await salvarRascunho(); // salva uma vez só, depois de processar o lote inteiro (não a cada foto)
   if (statusMsg) statusMsg.style.display = 'none';
   if (falhas.length > 0) {
     alert(`⚠ ${falhas.length} foto${falhas.length === 1 ? ' não pôde' : 's não puderam'} ser processada${falhas.length === 1 ? '' : 's'} e ${falhas.length === 1 ? 'foi' : 'foram'} ignorada${falhas.length === 1 ? '' : 's'} (formato não suportado, como HEIC do iPhone).\n\nAs outras fotos foram adicionadas normalmente. Pra essa(s) que falhou(aram), tente: enviar de novo, tirar a foto direto pela Câmera do app, ou salvar essa foto como JPEG antes de enviar.`);
@@ -1221,7 +1276,7 @@ async function handleFiles(files) {
 
 function renderFotoPreview() {
   document.getElementById('photoPreviewGrid').innerHTML = state.fotosAtuais.map(p => `
-    <div class="photo-thumb"><img src="${p.src}">
+    <div class="photo-thumb"><img src="${p.thumb || p.src}" loading="lazy">
       <button class="remove-photo" onclick="removerFoto('${p.id}')">✕</button>
     </div>`).join('');
 }
