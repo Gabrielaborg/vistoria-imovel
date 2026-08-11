@@ -1146,32 +1146,77 @@ function removerFotoRegistro(fotoIdx) {
 const fileInput = document.getElementById('fileInputPhoto');
 fileInput.addEventListener('change', e => { handleFiles(e.target.files); fileInput.value=''; });
 
+// Coloca um limite de tempo em qualquer processo — se ele nunca terminar (nem der
+// certo, nem der erro, só travar), usa o valor padrão em vez de ficar esperando
+// pra sempre. Evita que UMA foto problemática (ex: HEIC corrompida do iPhone)
+// trave a vistoria inteira.
+function comTimeout(promessa, ms, valorPadrao) {
+  return Promise.race([
+    promessa,
+    new Promise(resolve => setTimeout(() => resolve(valorPadrao), ms))
+  ]);
+}
+
+// Reduz o tamanho da imagem antes de guardar (fotos de iPhone/Android modernos
+// costumam vir enormes — vários MB, resolução de vários milhares de pixels).
+// Isso evita que o navegador fique sem memória e feche a aba sozinho quando
+// várias fotos grandes se acumulam numa mesma vistoria. 1600px já é mais que
+// suficiente pra qualidade boa num laudo em PDF/Word.
+function redimensionarImagem(dataUrl, maxDim = 1280) {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            const escala = maxDim / Math.max(width, height);
+            width = Math.round(width * escala);
+            height = Math.round(height * escala);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.78));
+        } catch (e) { console.error('Falha ao redimensionar, usando original:', e); resolve(dataUrl); }
+      };
+      img.onerror = () => resolve(null); // imagem não carregou de jeito nenhum (formato não suportado)
+      img.src = dataUrl;
+    } catch (e) { resolve(dataUrl); }
+  });
+}
+
 async function handleFiles(files) {
   const arquivos = Array.from(files).slice(0,8);
   const statusMsg = document.getElementById('carimboStatusMsg');
-  if (carimboAtivo && statusMsg) statusMsg.style.display = 'block';
+  if (statusMsg) statusMsg.style.display = 'block';
+  const falhas = [];
   for (const file of arquivos) {
     await new Promise(resolveArquivo => {
       const reader = new FileReader();
       reader.onload = async ev => {
-        let dataUrl = ev.target.result;
-        let mediaType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        let dataUrl = await comTimeout(redimensionarImagem(ev.target.result), 15000, null);
+        let mediaType = 'image/jpeg'; // depois de passar pelo redimensionamento, sempre vira jpeg
+        if (!dataUrl) { falhas.push(file.name || 'foto sem nome'); resolveArquivo(); return; }
         if (carimboAtivo) {
           try {
-            const exifInfo = await lerExifDeArquivo(file); // tenta usar a data/local REAIS da foto (fotos antigas da galeria)
-            dataUrl = await carimbarFoto(dataUrl, exifInfo);
-            mediaType = 'image/jpeg'; // o carimbo sempre gera uma nova imagem em jpeg
-          } catch (e) { console.error('Falha ao aplicar carimbo, salvando foto original:', e); }
+            const exifInfo = await comTimeout(lerExifDeArquivo(file), 5000, null); // tenta usar a data/local REAIS da foto (fotos antigas da galeria)
+            dataUrl = await comTimeout(carimbarFoto(dataUrl, exifInfo), 15000, dataUrl);
+          } catch (e) { console.error('Falha ao aplicar carimbo, mantendo foto sem carimbo:', e); }
         }
         const id = 'p'+Date.now()+Math.random().toString(36).slice(2);
         const entry = { id, src: dataUrl, base64: dataUrl.split(',')[1], mediaType };
         state.fotosAtuais.push(entry); renderFotoPreview(); salvarRascunho();
         resolveArquivo();
       };
+      reader.onerror = () => { falhas.push(file.name || 'foto sem nome'); resolveArquivo(); };
       reader.readAsDataURL(file);
     });
   }
   if (statusMsg) statusMsg.style.display = 'none';
+  if (falhas.length > 0) {
+    alert(`⚠ ${falhas.length} foto${falhas.length === 1 ? ' não pôde' : 's não puderam'} ser processada${falhas.length === 1 ? '' : 's'} e ${falhas.length === 1 ? 'foi' : 'foram'} ignorada${falhas.length === 1 ? '' : 's'} (formato não suportado, como HEIC do iPhone).\n\nAs outras fotos foram adicionadas normalmente. Pra essa(s) que falhou(aram), tente: enviar de novo, tirar a foto direto pela Câmera do app, ou salvar essa foto como JPEG antes de enviar.`);
+  }
 }
 
 function renderFotoPreview() {
@@ -1456,9 +1501,24 @@ async function carimbarFoto(dataUrl, exifInfo) {
           resolve(canvas.toDataURL('image/jpeg', 0.9));
         } catch (e) { console.error('Falha ao desenhar carimbo:', e); resolve(dataUrl); }
       };
-      img.onerror = () => resolve(dataUrl); // se a imagem falhar ao carregar, usa a original sem carimbo
+      // Se a imagem não conseguir carregar (formato não suportado, ex: HEIC do iPhone
+      // salvo na galeria), NÃO usa a foto quebrada — sinaliza falha clara em vez de
+      // guardar algo que vai travar o app mais tarde na hora de gerar o laudo.
+      img.onerror = () => resolve(null);
       img.src = dataUrl;
     } catch (e) { resolve(dataUrl); }
+  });
+}
+
+// Confere se uma imagem consegue ser carregada/decodificada pelo navegador —
+// usado quando o carimbo está desligado, pra pegar o mesmo tipo de problema
+// (formato não suportado) antes de adicionar a foto na vistoria.
+function validarImagemCarregavel(dataUrl) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = dataUrl;
   });
 }
 
