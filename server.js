@@ -1,820 +1,2680 @@
-#!/usr/bin/env node
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-const zlib = require('zlib');
-const { execSync } = require('child_process');
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>EngCheck · Vistoria de Imóvel</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1A3C5E">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="EngCheck">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --brand: #1A3C5E; --brand2: #2B5F96; --accent: #D4762A;
+    --success: #1A6B3C; --danger: #C0392B;
+    --surface: #F7F5F2; --card: #FFFFFF; --border: #DDD8D0;
+    --text: #1C1917; --muted: #6B6560; --light: #F0EDE8;
+    --radius: 12px; --font: 'Montserrat', sans-serif;
+  }
+  body { font-family: var(--font); background: var(--surface); color: var(--text); min-height: 100vh; }
 
-const PORT = 3000;
-const OUTPUT_DIR = path.join(__dirname, 'laudos_gerados');
-const COVER_IMG = path.join(__dirname, 'cover_page.png');
-const FOOTER_IMG = path.join(__dirname, 'footer_bar.jpeg');
-const LOGO_IMG = path.join(__dirname, 'logo.png');
-const HISTORICO_FILE = path.join(OUTPUT_DIR, 'historico.json');
-const AGENDA_FILE = path.join(OUTPUT_DIR, 'agendamentos.json');
+  .app-header { background: var(--brand); color: #fff; padding: 12px 20px; display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  .app-header img { width: 32px; height: 32px; object-fit: contain; border-radius: 4px; background: #fff; padding: 2px; }
+  .app-header h1 { font-size: 15px; font-weight: 700; letter-spacing: .3px; line-height: 1.2; }
+  .app-header .subtitulo { font-size: 9px; font-weight: 500; opacity: .75; letter-spacing: .2px; line-height: 1.2; }
+  .app-header .badge { background: var(--accent); font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px; }
+  .progress-track { background: rgba(255,255,255,.2); height: 3px; flex: 1; border-radius: 2px; max-width: 80px; }
+  .progress-fill { background: var(--accent); height: 100%; border-radius: 2px; transition: width .3s; }
 
-// Chave de API da Anthropic, lida de variável de ambiente (NUNCA fica no código nem no navegador).
-// Configure em Railway: Service > Variables > ANTHROPIC_API_KEY
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+  .screen { display: none; max-width: 520px; margin: 0 auto; padding: 16px 16px 100px; }
+  .screen.active { display: block; }
 
-// Chave de API do Geoapify (gratuita), usada para buscar a imagem do mapa pela localização atual.
-// Configure em Railway: Service > Variables > GEOAPIFY_API_KEY
-// Como conseguir de graça: https://www.geoapify.com/ → Sign Up → cria um projeto → copia a API Key.
-const GEOAPIFY_API_KEY = process.env.GEOAPIFY_API_KEY || '';
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 14px; }
+  .card-title { font-size: 16px; font-weight: 700; color: var(--brand); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
 
-// Senha de acesso ao app inteiro (protege dados de clientes: CPF, endereço, etc).
-// Configure em Railway: Service > Variables > APP_PASSWORD
-// Se não configurada, o app fica sem senha (comportamento de antes, sem travar nada).
-const APP_PASSWORD = process.env.APP_PASSWORD || '';
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; margin-bottom: 5px; }
+  .field input, .field select, .field textarea { width: 100%; padding: 11px 13px; border: 1.5px solid var(--border); border-radius: 8px; font-family: var(--font); font-size: 14px; color: var(--text); background: #fff; transition: border .15s; outline: none; }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--brand); }
+  .field textarea { resize: vertical; min-height: 80px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
 
-const SEIS_MESES_MS = 6 * 30 * 24 * 60 * 60 * 1000; // aproximação de 6 meses, usada pra decidir o que é "antigo"
+  .option-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 6px; }
+  .opt-btn { padding: 12px 8px; border: 1.5px solid var(--border); border-radius: 10px; background: #fff; cursor: pointer; font-family: var(--font); font-size: 13px; font-weight: 600; color: var(--text); text-align: center; transition: all .15s; display: flex; align-items: center; justify-content: center; gap: 6px; line-height: 1.3; }
+  .opt-btn:hover { border-color: var(--brand2); background: #EEF4FB; }
+  .opt-btn.selected { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .opt-btn.accent { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .opt-btn.success { background: var(--success); color: #fff; border-color: var(--success); }
+  .opt-btn.azul { background: var(--brand2); color: #fff; border-color: var(--brand2); }
+  .opt-btn i { font-size: 17px; }
 
-if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  .upload-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 22px 16px; text-align: center; cursor: pointer; transition: all .2s; background: #FDFCFB; margin-bottom: 10px; }
+  .upload-zone:hover { border-color: var(--brand); background: #EEF4FB; }
+  .upload-zone i { font-size: 30px; color: var(--muted); display: block; margin-bottom: 6px; }
+  .upload-zone p { font-size: 13px; color: var(--muted); }
+  .upload-zone strong { color: var(--brand); }
 
-function lerHistorico() { try { return JSON.parse(fs.readFileSync(HISTORICO_FILE, 'utf8')); } catch { return []; } }
-function salvarHistorico(h) { fs.writeFileSync(HISTORICO_FILE, JSON.stringify(h, null, 2)); }
-function lerAgenda() { try { return JSON.parse(fs.readFileSync(AGENDA_FILE, 'utf8')); } catch { return []; } }
-function salvarAgenda(a) { fs.writeFileSync(AGENDA_FILE, JSON.stringify(a, null, 2)); }
+  .photo-preview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  .photo-thumb { position: relative; border-radius: 8px; overflow: hidden; aspect-ratio: 1; }
+  .photo-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .photo-thumb .ai-overlay { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,.65); color: #fff; font-size: 10px; padding: 4px 6px; line-height: 1.3; font-family: var(--font); }
+  .photo-thumb .remove-photo, .single-thumb .remove-photo { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; background: rgba(0,0,0,.55); color: #fff; border: none; border-radius: 50%; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .analyzing-tag { position: absolute; top: 4px; left: 4px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 8px; }
+  .single-thumb { position: relative; border-radius: 8px; overflow: hidden; margin-top: 10px; }
+  .single-thumb img { width: 100%; max-height: 180px; object-fit: cover; border-radius: 8px; display: block; }
 
-// ── Compactação de laudos antigos (economiza espaço no Volume do Railway) ──
+  .bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid var(--border); padding: 12px 16px; display: flex; gap: 10px; z-index: 50; }
+  .btn { flex: 1; padding: 13px; border-radius: 10px; font-family: var(--font); font-size: 14px; font-weight: 700; cursor: pointer; border: none; transition: all .15s; display: flex; align-items: center; justify-content: center; gap: 7px; }
+  .btn-primary { background: var(--brand); color: #fff; }
+  .btn-primary:hover { background: #122D47; }
+  .btn-accent { background: var(--accent); color: #fff; }
+  .btn-outline { background: #fff; color: var(--brand); border: 1.5px solid var(--brand); flex: 0 0 auto; padding: 13px 16px; }
+  .btn-success { background: var(--success); color: #fff; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
 
-// Compacta um arquivo com gzip (reduz bastante o tamanho, principalmente do .docx,
-// que já é um zip por dentro mas ainda tem folga) e apaga o original.
-function compactarArquivo(caminhoOriginal) {
-  const dados = fs.readFileSync(caminhoOriginal);
-  const comprimido = zlib.gzipSync(dados, { level: 9 });
-  fs.writeFileSync(caminhoOriginal + '.gz', comprimido);
-  fs.unlinkSync(caminhoOriginal);
+  .section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin-bottom: 10px; margin-top: 6px; }
+  .registro-list { display: flex; flex-direction: column; gap: 8px; }
+  .registro-item { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; align-items: flex-start; gap: 10px; }
+  .registro-item img { width: 50px; height: 50px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+  .registro-item .ambiente-tag { display: inline-block; background: var(--brand); color: #fff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-bottom: 3px; }
+  .registro-item .defeito-tag { display: inline-block; background: #FDF0E4; color: #7A3D10; border: 1px solid #EDCFAD; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-left: 3px; }
+  .registro-item .ai-desc { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 2px; }
+  .count-badge { background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
+
+  .success-icon { width: 68px; height: 68px; background: #E6F4EC; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; }
+  .success-icon i { font-size: 34px; color: var(--success); }
+  .success-title { font-size: 22px; font-weight: 700; color: var(--brand); text-align: center; margin-bottom: 6px; }
+  .success-sub { font-size: 13px; color: var(--muted); text-align: center; margin-bottom: 22px; }
+  .download-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; display: flex; align-items: center; gap: 12px; cursor: pointer; margin-bottom: 10px; transition: border .15s; }
+  .download-card:hover { border-color: var(--brand); }
+  .download-card i { font-size: 26px; }
+  .download-card .dl-info strong { display: block; font-size: 14px; font-weight: 700; }
+  .download-card .dl-info span { font-size: 12px; color: var(--muted); }
+
+  .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: middle; margin-right: 5px; }
+  .sp2 { width: 14px; height: 14px; border: 2px solid rgba(26,60,94,.15); border-top-color: var(--brand); border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .processing-msg { font-size: 12px; color: var(--muted); text-align: center; padding: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+
+  .hist-item { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .hist-item .info { flex: 1; }
+  .hist-item .info strong { display: block; font-size: 13px; font-weight: 700; }
+  .hist-item .info span { font-size: 11px; color: var(--muted); }
+  .hist-btn { padding: 7px 12px; border-radius: 7px; font-size: 11px; font-weight: 700; cursor: pointer; border: none; background: var(--brand); color: #fff; font-family: var(--font); }
+  .search-bar { display: flex; gap: 8px; margin-bottom: 14px; }
+  .search-bar input { flex: 1; padding: 10px 13px; border: 1.5px solid var(--border); border-radius: 8px; font-family: var(--font); font-size: 13px; outline: none; }
+  .search-bar input:focus { border-color: var(--brand); }
+  .nav-tabs { display: flex; gap: 4px; margin-bottom: 16px; background: var(--light); padding: 4px; border-radius: 10px; }
+  .nav-tab { flex: 1; padding: 8px 3px; text-align: center; font-size: 10.5px; font-weight: 700; border-radius: 7px; cursor: pointer; border: none; background: transparent; color: var(--muted); font-family: var(--font); transition: all .15s; white-space: nowrap; }
+  .nav-tab.active { background: #fff; color: var(--brand); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .view-toggle-btn { flex: 1; padding: 8px; text-align: center; font-size: 12px; font-weight: 700; border-radius: 6px; cursor: pointer; border: none; background: transparent; color: var(--muted); font-family: var(--font); transition: all .15s; }
+  .view-toggle-btn.active-view { background: var(--brand); color: #fff; }
+</style>
+</head>
+<body>
+
+<div id="splashWelcome" style="position:fixed;inset:0;background:var(--brand);color:#fff;z-index:200;overflow:hidden">
+
+  <!-- Textura sutil de grade (planta técnica), reforça o universo de engenharia/vistoria -->
+  <div style="position:absolute;inset:0;opacity:.05;pointer-events:none;background-image:linear-gradient(#fff 1px, transparent 1px),linear-gradient(90deg, #fff 1px, transparent 1px);background-size:36px 36px"></div>
+
+  <!-- Logo pequena, discreta, como assinatura no canto — não é o protagonista -->
+  <div style="position:absolute;top:22px;left:22px;display:flex;align-items:center;gap:8px">
+    <img src="/logo.png" alt="G&G" style="width:26px;height:26px;object-fit:contain;background:#fff;border-radius:6px;padding:2px">
+    <span style="font-size:10px;font-weight:700;letter-spacing:1.2px;opacity:.6">G&G ENGENHARIA</span>
+  </div>
+
+  <div style="position:relative;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px">
+    <div style="font-size:12px;font-weight:700;letter-spacing:3px;text-transform:uppercase;opacity:.55;margin-bottom:14px">Seja bem-vindo</div>
+    <div style="font-size:clamp(48px,16vw,88px);font-weight:800;letter-spacing:-1.5px;line-height:.95;margin-bottom:20px">Eng<span style="color:var(--accent)">Check</span></div>
+    <div style="width:52px;height:4px;background:var(--accent);border-radius:2px;margin-bottom:22px"></div>
+    <div style="font-size:13px;font-weight:500;opacity:.7;margin-bottom:40px">Desenvolvido por G&G Engenharia</div>
+    <button onclick="fecharSplash()" style="background:var(--accent);color:#fff;border:none;border-radius:100px;padding:14px 36px;font-family:var(--font);font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:0 8px 24px rgba(212,118,42,.35)">
+      Começar <i class="ti ti-arrow-right"></i>
+    </button>
+  </div>
+</div>
+
+<div class="app-header">
+  <img src="/logo.png" alt="G&G" style="width:40px;height:40px;object-fit:contain;background:#fff;border-radius:6px;padding:3px">
+  <div>
+    <h1>EngCheck</h1>
+    <div class="subtitulo">Desenvolvido por G&G Engenharia</div>
+  </div>
+  <span class="badge">IA</span>
+  <div style="flex:1"></div>
+  <label id="carimboToggleLabel" title="Carimbo de data/hora/local nas fotos" style="display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;cursor:pointer;user-select:none;margin-right:10px">
+    <i class="ti ti-map-pin-filled" style="font-size:14px"></i>
+    <input type="checkbox" id="carimboToggle" checked onchange="toggleCarimbo(this.checked)" style="display:none">
+    <span id="carimboToggleTrack" style="width:32px;height:18px;background:var(--accent);border-radius:20px;position:relative;transition:background .15s;flex-shrink:0">
+      <span id="carimboToggleDot" style="position:absolute;top:2px;left:16px;width:14px;height:14px;background:#fff;border-radius:50%;transition:left .15s"></span>
+    </span>
+  </label>
+  <a href="/logout" title="Sair" style="color:#fff;opacity:.75;font-size:15px;margin-right:8px;display:flex;align-items:center" onclick="return confirm('Sair do EngCheck? Vai precisar da senha pra entrar de novo.')"><i class="ti ti-logout"></i></a>
+  <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:10%"></div></div>
+</div>
+
+<div id="filaBanner" style="display:none;align-items:center;justify-content:center;gap:8px;background:var(--accent);color:#fff;font-size:12px;font-weight:700;padding:8px 16px;text-align:center;position:sticky;top:0;z-index:99"></div>
+
+<div id="instalarBanner" style="display:none;align-items:center;justify-content:space-between;gap:10px;background:var(--brand2);color:#fff;font-size:12px;font-weight:600;padding:10px 16px;position:sticky;top:0;z-index:98">
+  <span id="instalarBannerTexto">📲 Instale o app na tela inicial pra abrir mais rápido, em tela cheia.</span>
+  <div style="display:flex;gap:6px;flex-shrink:0">
+    <button id="instalarBtn" onclick="instalarApp()" style="display:none;background:#fff;color:var(--brand2);border:none;border-radius:7px;padding:6px 12px;font-size:11px;font-weight:700;font-family:var(--font);cursor:pointer">Instalar</button>
+    <button onclick="dispensarInstalarBanner()" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:7px;padding:6px 10px;font-size:11px;font-weight:700;font-family:var(--font);cursor:pointer">Agora não</button>
+  </div>
+</div>
+
+<div style="max-width:520px;margin:0 auto;padding:12px 16px 0">
+  <div class="nav-tabs">
+    <button class="nav-tab active" id="tab-vistoria" onclick="switchTab('vistoria')"><i class="ti ti-clipboard-check"></i> Vistoria</button>
+    <button class="nav-tab" id="tab-agenda" onclick="switchTab('agenda')"><i class="ti ti-calendar"></i> Agenda</button>
+    <button class="nav-tab" id="tab-financeiro" onclick="switchTab('financeiro')"><i class="ti ti-report-money"></i> Financeiro</button>
+    <button class="nav-tab" id="tab-historico" onclick="switchTab('historico')"><i class="ti ti-history"></i> Histórico</button>
+  </div>
+</div>
+
+<div id="vistoria-screens">
+
+<!-- TELA 1: DADOS -->
+<div class="screen active" id="screen-dados">
+  <div class="card">
+    <div class="card-title"><i class="ti ti-user-check"></i> Dados do cliente</div>
+    <div class="field">
+      <label>Tipo de serviço</label>
+      <input type="hidden" id="tipoAgendamento" value="Vistoria">
+      <div class="option-grid" style="grid-template-columns:1fr 1fr">
+        <button type="button" class="opt-btn selected" id="btnTipoVistoria" onclick="selecionarTipoAgendamento('Vistoria')"><i class="ti ti-search"></i> Vistoria</button>
+        <button type="button" class="opt-btn" id="btnTipoRevistoria" onclick="selecionarTipoAgendamento('Revistoria')"><i class="ti ti-repeat"></i> Revistoria</button>
+      </div>
+    </div>
+    <div class="field"><label>Nome completo</label><input type="text" id="nomeCliente" placeholder="Maria Souza da Silva" /></div>
+    <div id="painelVistoriaAnterior" style="display:none;margin-bottom:14px">
+      <button type="button" onclick="buscarVistoriaAnterior()" style="width:100%;background:#F3E9DD;border:1.5px dashed #7B4FA0;color:#7B4FA0;border-radius:9px;padding:10px;font-family:var(--font);font-size:12.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <i class="ti ti-history"></i> Ver defeitos da vistoria anterior
+      </button>
+      <div id="resultadoVistoriaAnterior"></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>CPF</label><input type="text" id="cpf" placeholder="000.000.000-00" maxlength="14" /></div>
+      <div class="field"><label>Telefone</label><input type="text" id="telefone" placeholder="(34) 99999-0000" /></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Empreendimento</label><input type="text" id="empreendimento" placeholder="Nome do condomínio / residencial" /></div>
+      <div class="field"><label>Construtora</label><input type="text" id="construtora" placeholder="Nome da construtora" /></div>
+    </div>
+    <div class="field"><label>Endereço</label><input type="text" id="endereco" placeholder="Rua das Flores, 123" /></div>
+    <div class="grid3">
+      <div class="field"><label>Bloco</label><input type="text" id="bloco" placeholder="Bloco A" /></div>
+      <div class="field"><label>Apto</label><input type="text" id="apto" placeholder="401" /></div>
+      <div class="field"><label>CEP</label><input type="text" id="cep" placeholder="38400-000" maxlength="9" /></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Cidade / UF</label><input type="text" id="cidade" placeholder="Uberlândia - MG" /></div>
+      <div class="field"><label>Metragem (m²)</label><input type="text" id="metragem" placeholder="59,00" /></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Data da vistoria</label><input type="date" id="dataVistoria" /></div>
+      <div class="field"><label>Horário (opcional)</label><input type="time" id="horaVistoria" /></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Valor da vistoria (R$)</label><input type="number" id="valorVistoria" step="0.01" min="0" placeholder="0,00" /></div>
+      <div class="field"><label>Forma de pagamento</label>
+        <select id="formaPagamento" style="width:100%;padding:10px 13px;border:1.5px solid var(--border);border-radius:8px;font-family:var(--font);font-size:13px;outline:none;background:#fff">
+          <option value="">Selecione</option>
+          <option value="Pix">Pix</option>
+          <option value="Dinheiro">Dinheiro</option>
+          <option value="Cartão de crédito">Cartão de crédito</option>
+          <option value="Cartão de débito">Cartão de débito</option>
+          <option value="Transferência">Transferência</option>
+          <option value="Boleto">Boleto</option>
+          <option value="Outro">Outro</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><i class="ti ti-layout-list"></i> Descrição do imóvel</div>
+    <div class="field">
+      <label>Cômodos (um por linha)</label>
+      <textarea id="comodos" placeholder="2 quartos, sendo 1 suíte;&#10;Sala em dois ambientes;&#10;Banheiro social;&#10;Cozinha;&#10;Lavanderia;&#10;Vaga de garagem."></textarea>
+    </div>
+    <div class="field"><label>Planta do imóvel</label></div>
+    <div class="upload-zone" onclick="document.getElementById('plantaInput').click()">
+      <i class="ti ti-blueprint"></i>
+      <p>Toque para enviar a <strong>planta</strong> do imóvel</p>
+    </div>
+    <input type="file" id="plantaInput" accept="image/*" style="display:none" />
+    <div id="plantaPreview"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><i class="ti ti-map-pin"></i> Localização</div>
+    <button type="button" id="btnMapaAutomatico" onclick="buscarMapaAtual()" style="width:100%;background:var(--brand2);color:#fff;border:none;border-radius:10px;padding:13px;font-family:var(--font);font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:10px">
+      <i class="ti ti-current-location"></i> Usar minha localização atual
+    </button>
+    <div class="upload-zone" onclick="document.getElementById('mapaInput').click()">
+      <i class="ti ti-map-2"></i>
+      <p>Ou envie o <strong>print do Google Maps</strong> do endereço</p>
+    </div>
+    <input type="file" id="mapaInput" accept="image/*" style="display:none" />
+    <div id="mapaPreview"></div>
+  </div>
+
+  <div class="bottom-bar">
+    <button class="btn btn-outline" id="btnCancelarDados" onclick="cancelarTelaDados()" style="display:none;flex:0 0 auto;padding:0 16px"><i class="ti ti-x"></i></button>
+    <button class="btn btn-outline" id="btnSalvarAgendaAlt" onclick="salvarAgendamento()" style="flex:1"><i class="ti ti-calendar-plus"></i> Salvar agendamento</button>
+    <button class="btn btn-primary" id="btnAcaoDados" onclick="irParaAmbiente()" style="flex:1"><i class="ti ti-arrow-right"></i> Iniciar vistoria</button>
+  </div>
+</div>
+
+<!-- TELA 2: AMBIENTE -->
+<div class="screen" id="screen-ambiente">
+  <div style="margin-top:12px">
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button type="button" onclick="editarDadosIniciais()" style="flex:1;background:#fff;border:1.5px solid var(--border);color:var(--brand);border-radius:9px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px">
+        <i class="ti ti-edit"></i> Editar dados iniciais
+      </button>
+      <button type="button" onclick="descartarVistoria()" style="flex:1;background:#fff;border:1.5px solid #f0c4c0;color:var(--danger);border-radius:9px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px">
+        <i class="ti ti-trash"></i> Descartar vistoria
+      </button>
+    </div>
+    <div id="defeitosPendentesSecao" style="display:none;margin-bottom:16px">
+      <div class="section-label" style="display:flex;align-items:center;gap:6px;color:#7B4FA0"><i class="ti ti-list-check"></i> Defeitos da vistoria anterior a conferir</div>
+      <div id="defeitosPendentesLista"></div>
+    </div>
+    <div class="card-title" style="padding:0 4px 10px;font-size:16px;font-weight:700;color:var(--brand)"><i class="ti ti-layout-grid"></i> Escolha o ambiente</div>
+    <div class="option-grid">
+      <button class="opt-btn" onclick="selecionarAmbiente('Sala')"><i class="ti ti-sofa"></i> Sala</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Cozinha')"><i class="ti ti-tools-kitchen-2"></i> Cozinha</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Área de serviço')"><i class="ti ti-wash-machine"></i> Área de serviço</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Cozinha e área de serviço')"><i class="ti ti-tools-kitchen-2"></i> Cozinha e área de serviço</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Hall')"><i class="ti ti-door"></i> Hall</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Corredor')"><i class="ti ti-arrows-horizontal"></i> Corredor</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Sacada')"><i class="ti ti-building-arch"></i> Sacada</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Laje técnica')"><i class="ti ti-building"></i> Laje técnica</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Lavabo')"><i class="ti ti-droplet"></i> Lavabo</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Garagem')"><i class="ti ti-car"></i> Garagem</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Banheiro social')"><i class="ti ti-bath"></i> Banheiro social</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Banheiro suíte 1')"><i class="ti ti-bath"></i> Banheiro suíte 1</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Banheiro suíte 2')"><i class="ti ti-bath"></i> Banheiro suíte 2</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Banheiro suíte 3')"><i class="ti ti-bath"></i> Banheiro suíte 3</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Quarto social')"><i class="ti ti-bed"></i> Quarto social</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Quarto principal')"><i class="ti ti-bed"></i> Quarto principal</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Quarto suíte 1')"><i class="ti ti-bed"></i> Quarto suíte 1</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Quarto suíte 2')"><i class="ti ti-bed"></i> Quarto suíte 2</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Quarto suíte 3')"><i class="ti ti-bed"></i> Quarto suíte 3</button>
+      <button class="opt-btn" onclick="pedirOutroAmbiente()"><i class="ti ti-plus"></i> Outro</button>
+    </div>
+    <div id="outroAmbienteField" style="display:none;margin-top:10px">
+      <div class="field"><label>Nome do ambiente</label><input type="text" id="outroAmbienteInput" placeholder="Ex: Suíte, Hall, Lavabo..." /></div>
+      <button class="btn btn-primary" style="width:100%" onclick="confirmarOutroAmbiente()">Confirmar</button>
+    </div>
+    <div id="resumoRegistros" style="margin-top:16px;display:none">
+      <div class="section-label">Registros <span class="count-badge" id="countBadge">0</span></div>
+      <div class="registro-list" id="registroList"></div>
+    </div>
+    <div style="height:16px"></div>
+    <button class="btn btn-success" style="width:100%" onclick="irParaObs()"><i class="ti ti-check"></i> Finalizar vistoria</button>
+  </div>
+</div>
+
+<!-- TELA 3: FOTO -->
+<div class="screen" id="screen-foto">
+  <div style="margin-top:12px">
+    <div class="card">
+      <div class="card-title"><i class="ti ti-camera"></i> <span id="ambienteFotoTitle">Ambiente</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div class="upload-zone" style="margin-bottom:0" onclick="document.getElementById('fileInputPhoto').click()">
+          <i class="ti ti-camera"></i>
+          <p><strong>Câmera</strong></p>
+        </div>
+        <div class="upload-zone" style="margin-bottom:0" onclick="document.getElementById('fileInputGallery').click()">
+          <i class="ti ti-photo"></i>
+          <p><strong>Galeria</strong></p>
+        </div>
+      </div>
+      <input type="file" id="fileInputPhoto" accept="image/*" multiple capture="environment" style="display:none" />
+      <input type="file" id="fileInputGallery" accept="image/*" multiple style="display:none" />
+      <div class="photo-preview" id="photoPreviewGrid"></div>
+      <p id="carimboStatusMsg" style="display:none;font-size:11px;color:var(--muted);text-align:center;margin-top:10px"><span class="sp2"></span> Aplicando carimbo de data/hora/local...</p>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    <button class="btn btn-outline" onclick="voltarParaAmbiente()"><i class="ti ti-arrow-left"></i></button>
+    <button class="btn btn-primary" onclick="irParaDefeito()"><i class="ti ti-arrow-right"></i> Próximo</button>
+  </div>
+</div>
+
+<!-- TELA 4: DEFEITO -->
+<div class="screen" id="screen-defeito">
+  <div style="margin-top:12px">
+    <div class="card-title" style="padding:0 4px 10px;font-size:16px;font-weight:700;color:var(--brand)"><i class="ti ti-alert-triangle"></i> Qual defeito foi encontrado?</div>
+    <div class="section-label" style="margin-top:0;display:flex;align-items:center;justify-content:space-between">
+      <span>Fita colorida (atalho)</span>
+      <button onclick="toggleConfigCores()" style="background:none;border:none;color:var(--brand);cursor:pointer;font-size:16px;padding:2px 6px"><i class="ti ti-settings"></i></button>
+    </div>
+    <div id="configCoresPainel" style="display:none;background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px"></div>
+    <div class="option-grid" id="fitaColoridaGrid" style="margin-bottom:16px"></div>
+    <div class="section-label">Outros defeitos (biblioteca de legendas)</div>
+    <div class="option-grid" id="categoriaGrid"></div>
+    <div id="itemGrid" style="display:none">
+      <button class="btn btn-outline" style="width:100%;margin-bottom:10px" onclick="voltarCategorias()"><i class="ti ti-arrow-left"></i> Categorias</button>
+      <div class="registro-list" id="itemLista"></div>
+    </div>
+    <div id="outroDefeitoField" style="display:none;margin-top:10px">
+      <div class="field"><label>Descreva o defeito</label><input type="text" id="outroDefeitoInput" placeholder="Ex: buraco na parede, porta travando..." /></div>
+      <button type="button" onclick="gerarTextoDefeitoIA()" id="btnGerarDefeitoIA" style="width:100%;background:var(--brand2);color:#fff;border:none;border-radius:9px;padding:10px;font-family:var(--font);font-size:12.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <i class="ti ti-sparkles"></i> Transformar em texto técnico com IA
+      </button>
+      <p style="font-size:10.5px;color:var(--muted);margin-top:5px">Digite de forma simples (ex: "buraco na parede") e a IA escreve o texto formal pro laudo. Você pode editar depois.</p>
+    </div>
+    <div style="margin-top:14px">
+      <div class="section-label">O que fazer a seguir?</div>
+      <div class="option-grid">
+        <button class="opt-btn accent" onclick="salvarEProximoAmbiente()"><i class="ti ti-refresh"></i> Próximo ambiente</button>
+        <button class="opt-btn success" onclick="salvarEVoltarAmbiente()"><i class="ti ti-check"></i> Salvar registro</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TELA 5: OBSERVAÇÃO -->
+<div class="screen" id="screen-obs">
+  <div style="margin-top:12px">
+    <div class="card">
+      <div class="card-title"><i class="ti ti-pencil"></i> Observação final</div>
+      <div class="option-grid" style="margin-bottom:14px">
+        <button class="opt-btn" id="btnSimObs" onclick="mostrarObs(true)"><i class="ti ti-check"></i> Adicionar</button>
+        <button class="opt-btn" id="btnNaoObs" onclick="mostrarObs(false)"><i class="ti ti-x"></i> Não precisa</button>
+      </div>
+      <div id="obsField" style="display:none">
+        <div class="field">
+          <label>Observações rápidas (toque para marcar, pode escolher mais de uma)</label>
+          <div id="obsRapidasGrid" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+        </div>
+        <div class="field"><label>Outra observação (opcional)</label><textarea id="obsGeral" placeholder="Ex: Apartamento sem energia no momento da vistoria..."></textarea></div>
+      </div>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    <button class="btn btn-outline" onclick="mostrarScreen('screen-ambiente')"><i class="ti ti-arrow-left"></i></button>
+    <button class="btn btn-accent" onclick="processarLaudo()"><i class="ti ti-file-text"></i> Gerar laudo</button>
+  </div>
+</div>
+
+<!-- TELA 6: SUCESSO -->
+<div class="screen" id="screen-sucesso">
+  <div style="margin-top:36px;padding:0 4px">
+    <div class="success-icon"><i class="ti ti-circle-check"></i></div>
+    <h2 class="success-title">Vistoria finalizada!</h2>
+    <p class="success-sub">Escolha o formato para baixar o laudo.</p>
+    <div class="download-card" id="btnBaixarDocx">
+      <i class="ti ti-file-word" style="color:#2B5F96"></i>
+      <div class="dl-info"><strong>Baixar Word (.docx)</strong><span>Editável — para ajustes</span></div>
+      <i class="ti ti-download" style="color:var(--muted)"></i>
+    </div>
+
+    <button class="btn btn-outline" style="width:100%;margin-top:14px" onclick="novaVistoria()"><i class="ti ti-plus"></i> Nova vistoria</button>
+    <p id="gerandoMsg" style="font-size:12px;color:var(--muted);text-align:center;margin-top:10px;display:none"></p>
+  </div>
+</div>
+
+</div><!-- /vistoria-screens -->
+
+<!-- HISTÓRICO -->
+<div id="historico-screen" style="display:none;max-width:520px;margin:0 auto;padding:0 16px 80px">
+  <div id="armazenamentoPainel" style="display:none;background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)"><i class="ti ti-server-2"></i> Espaço usado no servidor</span>
+      <span id="armazenamentoTexto" style="font-size:12px;font-weight:700;color:var(--brand)">—</span>
+    </div>
+    <div style="background:var(--light);border-radius:20px;height:8px;overflow:hidden">
+      <div id="armazenamentoBarra" style="background:var(--accent);height:100%;width:0%;transition:width .3s"></div>
+    </div>
+  </div>
+  <div class="search-bar">
+    <input type="text" id="searchInput" placeholder="Buscar por nome ou data..." oninput="filtrarHistorico()" />
+    <button class="btn btn-primary" style="flex:0 0 auto;padding:10px 14px" onclick="carregarHistorico()"><i class="ti ti-refresh"></i></button>
+  </div>
+  <button type="button" onclick="limparHistorico()" style="width:100%;background:#fff;border:1.5px solid #f0c4c0;color:var(--danger);border-radius:9px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:14px">
+    <i class="ti ti-trash"></i> Limpar histórico
+  </button>
+  <p style="font-size:10.5px;color:var(--muted);text-align:center;margin-bottom:12px"><i class="ti ti-share-2"></i> Toque em Word ou PDF pra baixar ou compartilhar direto por WhatsApp/E-mail</p>
+  <div id="historicoList"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p></div>
+</div>
+
+<div id="agenda-screen" style="display:none;max-width:520px;margin:0 auto;padding:0 16px 80px">
+  <button class="btn btn-primary" style="width:100%;margin-bottom:14px" onclick="novoAgendamento()"><i class="ti ti-calendar-plus"></i> Nova vistoria agendada</button>
+
+  <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">
+    <div style="display:flex;gap:4px;margin-bottom:14px;background:var(--light);padding:3px;border-radius:9px">
+      <button class="view-toggle-btn" id="viewBtn_mes" onclick="mudarViewAgenda('mes')">Mês</button>
+      <button class="view-toggle-btn" id="viewBtn_semana" onclick="mudarViewAgenda('semana')">Semana</button>
+      <button class="view-toggle-btn" id="viewBtn_dia" onclick="mudarViewAgenda('dia')">Dia</button>
+    </div>
+    <div id="calendarioContainer"></div>
+    <button onclick="irParaHoje()" style="width:100%;margin-top:10px;background:none;border:none;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">Ir para hoje</button>
+  </div>
+
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+    <div class="section-label">Todos os agendamentos</div>
+    <div id="agendaTotais" style="display:flex;gap:6px;font-size:10.5px;font-weight:700"></div>
+  </div>
+  <div id="agendaList"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p></div>
+</div>
+
+<div id="financeiro-screen" style="display:none;max-width:520px;margin:0 auto;padding:0 16px 80px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <button onclick="navegarFinanceiro(-1)" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--brand);padding:4px"><i class="ti ti-chevron-left"></i></button>
+    <span id="financeiroMesTitulo" style="font-weight:700;color:var(--brand);font-size:15px"></span>
+    <button onclick="navegarFinanceiro(1)" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--brand);padding:4px"><i class="ti ti-chevron-right"></i></button>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+    <div style="background:var(--brand);border-radius:12px;padding:16px;color:#fff">
+      <div style="font-size:10px;font-weight:700;opacity:.75;text-transform:uppercase;letter-spacing:.4px">Total recebido</div>
+      <div id="financeiroTotalValor" style="font-size:22px;font-weight:800;margin-top:4px">R$ 0,00</div>
+    </div>
+    <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px">
+      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Vistorias no mês</div>
+      <div id="financeiroTotalQtd" style="font-size:22px;font-weight:800;color:var(--brand);margin-top:4px">0</div>
+      <div id="financeiroTotalQtdDetalhe" style="font-size:10.5px;color:var(--muted);margin-top:2px"></div>
+    </div>
+  </div>
+
+  <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">
+    <div class="section-label" style="margin-bottom:10px">Por forma de pagamento</div>
+    <div id="financeiroPorForma"><p style="color:var(--muted);font-size:12px;text-align:center;padding:10px 0">Sem dados nesse mês.</p></div>
+  </div>
+
+  <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">
+    <div class="section-label" style="margin-bottom:10px">Últimos 6 meses</div>
+    <div id="financeiroGraficoMensal"></div>
+  </div>
+
+  <div class="section-label" style="margin-bottom:8px">Vistorias do mês</div>
+  <div id="financeiroLista"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p></div>
+</div>
+
+<div id="modalRegistro" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:150;align-items:flex-end;justify-content:center">
+  <div style="background:#fff;border-radius:16px 16px 0 0;max-width:520px;width:100%;max-height:85vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px 10px">
+      <div>
+        <div id="modalRegistroAmbiente" style="font-weight:700;color:var(--brand);font-size:15px"></div>
+        <div id="modalRegistroDefeito" style="font-size:12px;color:var(--muted);margin-top:2px"></div>
+      </div>
+      <button onclick="fecharRegistroModal()" style="background:var(--light);border:none;width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;flex-shrink:0">✕</button>
+    </div>
+    <div style="padding:0 18px 6px;font-size:11px;color:var(--muted)">Use as setinhas pra reorganizar a ordem das fotos, ou ✕ pra remover uma repetida.</div>
+    <div id="modalRegistroFotos" style="overflow-y:auto;padding:12px 18px 24px;display:flex;flex-direction:column;gap:10px"></div>
+  </div>
+</div>
+
+<div id="modalConsultaRevistoria" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:150;align-items:flex-end;justify-content:center">
+  <div style="background:#fff;border-radius:16px 16px 0 0;max-width:520px;width:100%;max-height:88vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px 10px">
+      <div style="font-weight:700;color:var(--brand);font-size:15px"><i class="ti ti-file-search"></i> Consultar laudo anterior</div>
+      <button onclick="fecharConsultaRevistoria()" style="background:var(--light);border:none;width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;flex-shrink:0">✕</button>
+    </div>
+    <div style="padding:0 18px 10px;font-size:11px;color:var(--muted)">Escolha um laudo abaixo pra ver os defeitos, ou já iniciar a revistoria levando esses itens como checklist.</div>
+    <div id="modalConsultaConteudo" style="overflow-y:auto;padding:0 18px 24px"></div>
+  </div>
+</div>
+
+<script>
+const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', obsGeral:'', obsRapidas:[], defeitosPendentes:[], plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'', modoAgenda:false };
+let todosLaudos = [];
+
+// ══════════════════════════════════════════════════════════════
+// SALVAMENTO AUTOMÁTICO (IndexedDB) — pra vistoria nunca se perder
+// ══════════════════════════════════════════════════════════════
+const DB_NOME = 'vistoria_db';
+const DB_VERSAO = 2;
+const LOJA = 'rascunho';
+const LOJA_FILA = 'fila_envio';
+const CHAVE_RASCUNHO = 'vistoria_em_andamento';
+
+function abrirDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NOME, DB_VERSAO);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(LOJA)) db.createObjectStore(LOJA);
+      if (!db.objectStoreNames.contains(LOJA_FILA)) db.createObjectStore(LOJA_FILA, { keyPath: 'id' });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
 }
 
-// Descompacta de volta pra memória na hora do download, sem precisar guardar
-// uma cópia solta do arquivo original no disco.
-function lerArquivoTalvezCompactado(caminhoOriginal) {
-  if (fs.existsSync(caminhoOriginal)) return fs.readFileSync(caminhoOriginal);
-  if (fs.existsSync(caminhoOriginal + '.gz')) return zlib.gunzipSync(fs.readFileSync(caminhoOriginal + '.gz'));
-  return null;
-}
-function arquivoExisteOuCompactado(caminhoOriginal) {
-  return fs.existsSync(caminhoOriginal) || fs.existsSync(caminhoOriginal + '.gz');
+async function salvarRascunho() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA, 'readwrite');
+    tx.objectStore(LOJA).put(JSON.parse(JSON.stringify(state)), CHAVE_RASCUNHO);
+    return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+  } catch (e) { console.error('Falha ao salvar rascunho local:', e); }
 }
 
-// Roda periodicamente: procura laudos com mais de 6 meses no histórico e compacta
-// o Word/PDF deles (ficam bem menores, mas continuam disponíveis pra download normal
-// no app — só demoram uma fração de segundo a mais, pela descompactação na hora).
-function compactarLaudosAntigos() {
-  const hist = lerHistorico();
-  let mudou = false;
-  for (const item of hist) {
-    if (item.compactado) continue;
-    if (!item.ts || (Date.now() - item.ts) < SEIS_MESES_MS) continue;
+async function lerRascunho() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA, 'readonly');
+    return new Promise(res => {
+      const req = tx.objectStore(LOJA).get(CHAVE_RASCUNHO);
+      req.onsuccess = () => res(req.result || null);
+      req.onerror = () => res(null);
+    });
+  } catch (e) { return null; }
+}
+
+async function limparRascunho() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA, 'readwrite');
+    tx.objectStore(LOJA).delete(CHAVE_RASCUNHO);
+  } catch (e) { console.error('Falha ao limpar rascunho local:', e); }
+}
+
+// ══════════════════════════════════════════════════════════════
+// FILA DE REENVIO AUTOMÁTICO — se o envio do laudo falhar (sem
+// internet, sinal fraco, servidor fora do ar por um instante), o
+// laudo fica guardado aqui e o app continua tentando reenviar
+// sozinho, em segundo plano, até dar certo.
+// ══════════════════════════════════════════════════════════════
+
+async function salvarNaFila(payload, tipo) {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA_FILA, 'readwrite');
+    const item = {
+      id: 'fila_' + Date.now() + Math.random().toString(36).slice(2),
+      payload, tipo,
+      nome: (payload.dados && payload.dados.nome) || 'Cliente',
+      criadoEm: Date.now(),
+      tentativas: 0
+    };
+    tx.objectStore(LOJA_FILA).put(item);
+    return new Promise(res => { tx.oncomplete = () => res(item.id); tx.onerror = () => res(null); });
+  } catch (e) { console.error('Falha ao salvar na fila de reenvio:', e); return null; }
+}
+
+async function listarFila() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA_FILA, 'readonly');
+    return new Promise(res => {
+      const req = tx.objectStore(LOJA_FILA).getAll();
+      req.onsuccess = () => res(req.result || []);
+      req.onerror = () => res([]);
+    });
+  } catch (e) { return []; }
+}
+
+async function removerDaFila(id) {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA_FILA, 'readwrite');
+    tx.objectStore(LOJA_FILA).delete(id);
+    return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+  } catch (e) { console.error('Falha ao remover item da fila:', e); }
+}
+
+async function marcarTentativaFila(id) {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA_FILA, 'readwrite');
+    const store = tx.objectStore(LOJA_FILA);
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const item = getReq.result;
+      if (item) { item.tentativas = (item.tentativas || 0) + 1; store.put(item); }
+    };
+    return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+  } catch (e) { /* ignora */ }
+}
+
+// Mostra/atualiza o aviso fixo no topo do app com o que ainda está pendente de envio
+async function atualizarBannerFila() {
+  const fila = await listarFila();
+  const banner = document.getElementById('filaBanner');
+  if (!banner) return;
+  if (fila.length === 0) { banner.style.display = 'none'; return; }
+  const nomes = fila.map(f => f.nome).join(', ');
+  banner.style.display = 'flex';
+  banner.innerHTML = `<span class="sp2" style="border-color:rgba(255,255,255,.4);border-top-color:#fff"></span> Reenviando laudo pendente (${fila.length}): ${nomes}`;
+}
+
+// Baixa/compartilha um arquivo pro usuário. Sempre que o navegador permitir
+// (Android, iPhone, e até alguns navegadores de computador), abre o menu nativo
+// de compartilhar — com WhatsApp, E-mail, Salvar em Arquivos, etc — em vez de só
+// baixar direto. Se o navegador não suportar isso, cai automaticamente pro
+// download tradicional, sem travar nada.
+async function baixarArquivo(blob, filename, mimeType) {
+  if (navigator.canShare) {
     try {
-      const docxPath = path.join(OUTPUT_DIR, item.arquivo);
-      const pdfPath = docxPath.replace('.docx', '.pdf');
-      let compactouAlgo = false;
-      if (fs.existsSync(docxPath)) { compactarArquivo(docxPath); compactouAlgo = true; }
-      if (fs.existsSync(pdfPath)) { compactarArquivo(pdfPath); compactouAlgo = true; }
-      if (compactouAlgo) {
-        item.compactado = true;
-        mudou = true;
-        console.log(`✓ Laudo compactado (economia de espaço): ${item.arquivo}`);
+      const file = new File([blob], filename, { type: mimeType });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] });
+        return;
       }
     } catch (e) {
-      console.error(`Falha ao compactar "${item.arquivo}", tenta de novo na próxima rodada:`, e.message);
+      if (e.name === 'AbortError') return; // pessoa cancelou o compartilhamento, tudo certo
+      console.error('Falha ao compartilhar, tentando download tradicional:', e);
     }
   }
-  if (mudou) salvarHistorico(hist);
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
 }
 
-setTimeout(() => { try { compactarLaudosAntigos(); } catch (e) { console.error('Erro na rotina de compactação:', e.message); } }, 30 * 1000);
-setInterval(() => { try { compactarLaudosAntigos(); } catch (e) { console.error('Erro na rotina de compactação:', e.message); } }, 24 * 60 * 60 * 1000);
-
-// ── Chamada central à API da Anthropic (roda só no servidor, chave nunca exposta) ──
-async function chamarClaude({ system, messages, maxTokens = 300 }) {
-  if (!ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY não configurada no servidor.');
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-5',
-      max_tokens: maxTokens,
-      system,
-      messages
-    })
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Anthropic API respondeu ${res.status}: ${errText}`);
-  }
-  const data = await res.json();
-  return data.content?.[0]?.text || '';
-}
-
-// Lê o corpo (body) de uma requisição POST como JSON
-function lerCorpoJSON(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => {
-      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch (e) { reject(e); }
-    });
-    req.on('error', reject);
-  });
-}
-
-async function gerarDocx(payload) {
-  const { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, Footer } = require('docx');
-  const { dados, tipoVistoria, obsGeral, registros, plantaBase64, plantaMediaType, mapaBase64, mapaMediaType, conclusaoIA } = payload;
-
-  const dataFmt = dados.data
-    ? new Date(dados.data + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })
-    : new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
-
-  const coverImgData = fs.readFileSync(COVER_IMG);
-  const footerImgData = fs.readFileSync(FOOTER_IMG);
-  const logoImgData = fs.readFileSync(LOGO_IMG);
-
-  const FONT = 'Montserrat';
-
-  // ─── Helpers ────────────────────────────────────────────
-  const B = (text, size=20) => new TextRun({ text, bold: true, size, font: FONT });
-  const N = (text, size=20) => new TextRun({ text, size, font: FONT });
-  const br = () => new Paragraph({ children: [N('')], spacing: { after: 120 } });
-  const indent = { left: 720 };
-
-  const secNum = (n, text) => new Paragraph({
-    children: [B(`${n}. ${text}`, 22)],
-    spacing: { before: 300, after: 140 }
-  });
-  const subNum = (n, text) => new Paragraph({
-    children: [B(`${n} `, 20), B(text, 20)],
-    indent, spacing: { before: 180, after: 80 }
-  });
-  const bodyP = (text) => new Paragraph({
-    children: [N(text, 20)], indent, spacing: { after: 100 }, alignment: AlignmentType.JUSTIFIED
-  });
-  const bodyBold = (label, val) => new Paragraph({
-    children: [B(label, 20), N(val, 20)], indent, spacing: { after: 80 }
-  });
-  const bulletP = (text) => new Paragraph({
-    children: [N(`• ${text}`, 20)], indent: { left: 1260 }, spacing: { after: 60 }
-  });
-  const defP = (label, text) => new Paragraph({
-    children: [B(label+': ', 20), N(text, 20)], indent, spacing: { after: 80 }, alignment: AlignmentType.JUSTIFIED
-  });
-
-  // ─── Footer ─────────────────────────────────────────────
-  const makeFooter = () => new Footer({
-    children: [
-      new Paragraph({
-        children: [new ImageRun({ data: footerImgData, transformation: { width: 520, height: 17 }, type: 'jpg' })],
-        alignment: AlignmentType.CENTER, spacing: { before: 60 }
-      })
-    ]
-  });
-
-  // ─── Registros ──────────────────────────────────────────
-  const registrosParagraphs = [];
-  let imgCounter = 1; // numeração contínua por TODO o laudo (não reinicia a cada ambiente/defeito)
-  const byAmbiente = {};
-  registros.forEach(r => { if (!byAmbiente[r.ambiente]) byAmbiente[r.ambiente] = []; byAmbiente[r.ambiente].push(r); });
-
-  for (const [ambiente, items] of Object.entries(byAmbiente)) {
-    registrosParagraphs.push(new Paragraph({
-      children: [B(ambiente, 20)], indent, spacing: { before: 200, after: 100 }
-    }));
-    // Agrupa registros com o MESMO texto de defeito dentro do mesmo ambiente,
-    // mesmo que tenham sido salvos em momentos separados durante a vistoria.
-    const porDefeito = {};
-    const ordemDefeitos = [];
-    for (const item of items) {
-      if (!porDefeito[item.defeito]) { porDefeito[item.defeito] = []; ordemDefeitos.push(item.defeito); }
-      porDefeito[item.defeito].push(...item.fotos);
-    }
-    for (const defeito of ordemDefeitos) {
-      const fotosDoGrupo = porDefeito[defeito];
-      // Texto completo do defeito aparece UMA VEZ por grupo (não repete por foto nem por registro separado)
-      registrosParagraphs.push(new Paragraph({
-        children: [N(defeito, 20)], indent, spacing: { after: 80 }, alignment: AlignmentType.JUSTIFIED
-      }));
-      const totalFotos = fotosDoGrupo.length;
-      const inicio = imgCounter;
-      const fim = imgCounter + totalFotos - 1;
-      const referencia = totalFotos > 1 ? `Evidenciado nas imagens ${inicio} a ${fim}.` : `Evidenciado na imagem ${inicio}.`;
-      registrosParagraphs.push(new Paragraph({
-        children: [N(referencia, 18)], indent, spacing: { after: 100 }
-      }));
-      for (let i = 0; i < totalFotos; i++) {
-        const foto = fotosDoGrupo[i];
-        registrosParagraphs.push(new Paragraph({
-          children: [N(`Imagem ${imgCounter}`, 20)], alignment: AlignmentType.CENTER, spacing: { after: 60 }
-        }));
-        try {
-          const imgBuf = Buffer.from(foto.base64, 'base64');
-          const imgType = foto.mediaType === 'image/png' ? 'png' : 'jpg';
-          registrosParagraphs.push(new Paragraph({
-            children: [new ImageRun({ data: imgBuf, transformation: { width: 400, height: 280 }, type: imgType })],
-            alignment: AlignmentType.CENTER, spacing: { before: 80, after: 160 }
-          }));
-        } catch(e) { console.error('Img error:', e.message); }
-        imgCounter++;
+// Tenta reenviar tudo que estiver na fila. Chamado ao abrir o app, periodicamente,
+// e sempre que o celular voltar a ter internet.
+let reenviandoFila = false;
+async function tentarReenviarFila() {
+  if (reenviandoFila) return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  reenviandoFila = true;
+  try {
+    const fila = await listarFila();
+    await atualizarBannerFila();
+    for (const item of fila) {
+      try {
+        const res = await fetch('/gerar-laudo', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(item.payload)
+        });
+        if (!res.ok) throw new Error('Servidor respondeu erro ao reenviar');
+        const blob = await res.blob();
+        const nomeArquivo = `Laudo_${(item.payload.dados.nome || 'cliente').split(' ')[0]}_${item.payload.dados.data || 'vistoria'}.${item.tipo}`;
+        const mimeType = item.tipo === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        await baixarArquivo(blob, nomeArquivo, mimeType);
+        await removerDaFila(item.id);
+      } catch (e) {
+        console.error('Reenvio ainda falhou, vai tentar de novo depois:', e.message);
+        await marcarTentativaFila(item.id);
       }
     }
-    registrosParagraphs.push(br());
+    await atualizarBannerFila();
+  } finally {
+    reenviandoFila = false;
   }
+}
 
-  // ─── Planta ─────────────────────────────────────────────
-  const plantaParagraphs = [];
-  if (plantaBase64) {
-    try {
-      const plantaBuf = Buffer.from(plantaBase64, 'base64');
-      const plantaType = plantaMediaType === 'image/png' ? 'png' : 'jpg';
-      plantaParagraphs.push(
-        secNum(5, 'PLANTA DO IMÓVEL'),
-        bodyP('Abaixo, apresenta-se planta semelhante da unidade vistoriada:'),
-        new Paragraph({
-          children: [new ImageRun({ data: plantaBuf, transformation: { width: 420, height: 300 }, type: plantaType })],
-          alignment: AlignmentType.CENTER, spacing: { before: 100, after: 160 }
-        }),
-        br()
-      );
-    } catch(e) { console.error('Planta error:', e.message); }
-  }
+// Verifica, ao abrir o app, se existe uma vistoria salva e não finalizada
+async function verificarRascunhoAoAbrir() {
+  const salvo = await lerRascunho();
+  if (!salvo || (!salvo.dados?.nome && (!salvo.registros || salvo.registros.length===0))) return;
 
-  // ─── Mapa ────────────────────────────────────────────────
-  const mapaParagraphs = [];
-  if (mapaBase64) {
-    try {
-      const mapaBuf = Buffer.from(mapaBase64, 'base64');
-      const mapaType = mapaMediaType === 'image/png' ? 'png' : 'jpg';
-      mapaParagraphs.push(
-        new Paragraph({ children: [B('Localização:', 20)], indent, spacing: { before: 100, after: 60 } }),
-        new Paragraph({
-          children: [new ImageRun({ data: mapaBuf, transformation: { width: 420, height: 220 }, type: mapaType })],
-          alignment: AlignmentType.CENTER, spacing: { before: 60, after: 120 }
-        })
-      );
-    } catch(e) { console.error('Mapa error:', e.message); }
-  } else {
-    mapaParagraphs.push(new Paragraph({ children: [B('Localização:', 20), N(' ' + [dados.endereco, dados.bloco, dados.apto, dados.cidade].filter(Boolean).join(', '), 20)], indent, spacing: { after: 80 } }));
-  }
+  const nomeCliente = salvo.dados?.nome || 'sem nome';
+  const qtdRegistros = (salvo.registros || []).length;
+  const continuar = confirm(`Encontramos uma vistoria não finalizada de "${nomeCliente}" (${qtdRegistros} registro${qtdRegistros===1?'':'s'} salvos).\n\nDeseja continuar de onde parou?\n\nOK = Continuar\nCancelar = Começar vistoria nova (apaga o rascunho salvo)`);
 
-  // ─── Cômodos ────────────────────────────────────────────
-  const comodosLines = (dados.comodos||'').split('\n').map(l=>l.trim()).filter(Boolean);
-  const comodosItems = comodosLines.length > 0 ? comodosLines.map(l => bulletP(l.replace(/[;,.]$/,'') + ';')) : [bulletP('Conforme especificações do projeto.')];
+  if (!continuar) { await limparRascunho(); return; }
 
-  const endFull = [dados.endereco, dados.bloco, dados.apto, dados.cidade, dados.cep].filter(Boolean).join(', ');
-  const numOffset = plantaParagraphs.length > 0 ? 1 : 0;
+  // Restaura o estado salvo
+  Object.assign(state, salvo);
 
-  // ─── Textos fixos ────────────────────────────────────────
-  const elaboracaoTexto1 = 'A elaboração do presente relatório de vistoria técnica de recebimento da unidade habitacional foi realizada com base na identificação dos elementos construtivos aparentes, sua localização dentro do imóvel e as manifestações patológicas visíveis no momento da inspeção.';
-  const elaboracaoTexto2 = 'Durante a vistoria, foram observados diversos pontos de não conformidade, falhas de acabamento, anomalias e possíveis vícios construtivos que podem comprometer o desempenho esperado dos sistemas e materiais.';
-  const elaboracaoTexto3 = 'A inspeção foi feita com base nos princípios estabelecidos pela ABNT NBR 16747:2020 – Diretrizes para inspeção predial, na ABNT NBR 5674:2024 – Manutenção de edificações, e também conforme os conceitos definidos pelo IBAPE Nacional.';
-  const elaboracaoTexto4 = 'Considerando que alguns termos utilizados neste documento podem não ser de conhecimento geral, seguem abaixo os principais conceitos utilizados ao longo do relatório:';
-  const elaboracaoTexto5 = 'A unidade inspecionada apresenta diversas não conformidades visuais. Tais ocorrências indicam ausência de cuidados na execução final e comprometem o recebimento do imóvel em condições ideais de entrega.';
-  const elaboracaoTexto6 = 'A recomendação técnica é que todas as anomalias listadas neste relatório sejam corrigidas antes da conclusão da entrega da unidade ao proprietário, garantindo o desempenho mínimo esperado e evitando prejuízos futuros.';
-
-  // Se o front-end mandou uma conclusão gerada por IA (baseada nos defeitos reais), usa ela.
-  // Caso contrário (IA falhou, ou não foi chamada), cai no texto fixo genérico de sempre.
-  const conclusaoTextoFixo = [
-    'Com base na vistoria técnica realizada na unidade habitacional, constatou-se a presença de não conformidades construtivas, falhas de acabamento e inconformidades funcionais distribuídas nos ambientes inspecionados, conforme descrito e documentado ao longo deste relatório técnico. As manifestações observadas incluem irregularidades em revestimentos, falhas de rejuntamento, defeitos em pintura, problemas em esquadrias, portas, elementos hidráulicos, acabamentos e demais sistemas construtivos aparentes.',
-    'Os defeitos identificados evidenciam deficiência nos processos executivos e no controle de qualidade durante as etapas de acabamento e entrega da unidade, não sendo compatíveis com o padrão esperado para um imóvel novo. Ainda que parte das inconformidades apresente caráter predominantemente estético, diversas manifestações podem comprometer a durabilidade dos materiais, o desempenho dos sistemas construtivos, a estanqueidade, a funcionalidade dos ambientes e a vida útil da edificação ao longo do tempo.',
-    'Conforme os princípios estabelecidos pela ABNT NBR 15575, a edificação deve atender aos requisitos mínimos de desempenho relacionados à segurança, habitabilidade, funcionalidade e durabilidade. Da mesma forma, os serviços executivos e acabamentos devem seguir padrões adequados de qualidade e conformidade técnica, observando as boas práticas construtivas e as normas aplicáveis a cada sistema construtivo. As anomalias constatadas neste relatório demonstram inconformidades em relação a tais requisitos, tornando tecnicamente recomendável a correção integral dos itens apontados.',
-    'Dessa forma, conclui-se que todas as não conformidades registradas neste documento devem ser devidamente corrigidas pela construtora/responsável técnico antes da aceitação definitiva do imóvel, garantindo o adequado desempenho dos sistemas, a preservação da vida útil dos materiais e o padrão de qualidade esperado para a edificação. Recomenda-se ainda que os reparos sejam executados com acompanhamento técnico e observância aos procedimentos normativos aplicáveis, a fim de evitar recorrência das falhas identificadas.'
-  ];
-  const conclusaoTexto = (conclusaoIA && conclusaoIA.trim())
-    ? conclusaoIA.trim().split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
-    : conclusaoTextoFixo;
-
-  const doc = new Document({
-    sections: [
-      // CAPA
-      {
-        properties: { page: { size: { width: 11910, height: 16840 }, margin: { top: 0, right: 0, bottom: 0, left: 0 } } },
-        children: [
-          new Paragraph({
-            children: [new ImageRun({ data: coverImgData, transformation: { width: 794, height: 1123 }, type: 'png' })],
-            alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0 }
-          })
-        ]
-      },
-      // CONTEÚDO
-      {
-        properties: { page: { size: { width: 11910, height: 16840 }, margin: { top: 1134, right: 1134, bottom: 1134, left: 1134 } } },
-        footers: { default: makeFooter() },
-        children: [
-          // 1. IDENTIFICAÇÃO
-          secNum(1, 'IDENTIFICAÇÃO DO CONTRATANTE'),
-          bodyP(`${dados.nome || 'Cliente'}, portador(a) do CPF nº ${dados.cpf || '—'}${dados.telefone ? `, telefone ${dados.telefone}` : ''}, solicitou a elaboração do presente relatório de vistoria de imóvel, com o objetivo de registrar as condições da unidade no momento da entrega, identificando eventuais inconformidades aparentes e falhas de execução visíveis.`),
-          br(),
-
-          // 2. OBJETIVO
-          secNum(2, 'OBJETIVO'),
-          bodyP(`Este relatório tem como finalidade documentar, de forma objetiva e detalhada, as condições do imóvel ${tipoVistoria === 'Imóvel Novo' ? 'novo ' : ''}na data da vistoria, identificando eventuais não conformidades em acabamentos, instalações elétricas e hidráulicas, estrutura e funcionalidade dos ambientes. A avaliação foi conduzida seguindo as diretrizes estabelecidas pelas normas técnicas vigentes, incluindo as NBR (Normas Brasileiras) e os referenciais do PBQP-H (Programa Brasileiro da Qualidade e Produtividade no Habitat), assegurando que os padrões de qualidade, segurança, funcionalidade e durabilidade do empreendimento sejam observados.`),
-          br(),
-
-          // 3. DADOS INICIAIS
-          secNum(3, 'DADOS INICIAIS'),
-          subNum('3.1', 'Identificação'),
-          bodyBold('Empreendimento: ', dados.empreendimento || '—'),
-          bodyBold('Endereço: ', endFull),
-          ...mapaParagraphs,
-          br(),
-          subNum('3.2', 'Realização da vistoria'),
-          bodyP('Responsável: Engenheira Civil Gabriela Soares Borges'),
-          bodyP('Registro CREA: 427760MG'),
-          br(),
-          subNum('3.3', 'Data das Vistorias'),
-          bodyP(`A vistoria foi realizada dia ${dataFmt}.`),
-          br(),
-
-          // 4. DESCRIÇÃO DO IMÓVEL
-          secNum(4, 'DESCRIÇÃO DO IMÓVEL'),
-          bodyP('O imóvel vistoriado trata-se de um apartamento com a seguinte configuração:'),
-          ...(dados.metragem ? [bulletP(`Área total: ${dados.metragem} m²`)] : []),
-          ...comodosItems,
-          br(),
-          bodyP('Durante a vistoria, foram inspecionados os acabamentos, instalações elétricas e hidráulicas, funcionalidade dos ambientes e demais itens que compõem o imóvel, registrando-se eventuais não conformidades para que sejam corrigidas conforme os padrões de qualidade estabelecidos pela construtora.'),
-          br(),
-
-          // 5. PLANTA (se houver)
-          ...plantaParagraphs,
-
-          // 6. ELABORAÇÃO DE RELATÓRIO
-          secNum(5 + numOffset, 'ELABORAÇÃO DE RELATÓRIO'),
-          bodyP(elaboracaoTexto1),
-          br(),
-          bodyP(elaboracaoTexto2),
-          br(),
-          bodyP(elaboracaoTexto3),
-          br(),
-          bodyP(elaboracaoTexto4),
-          br(),
-          defP('Anomalia', 'Irregularidade que compromete o desempenho de um elemento ou sistema da edificação. Pode ter origem no projeto, execução, uso ou manutenção inadequada.'),
-          defP('Manifestação Patológica', 'Sinais visíveis de degradação, como fissuras, manchas, destacamentos, entre outros.'),
-          defP('Agente de Degradação', 'Fatores (naturais, físicos ou químicos) que contribuem para a deterioração dos elementos construtivos.'),
-          defP('Falha', 'Perda da função de um componente, seja por uso indevido, má execução ou falta de manutenção.'),
-          defP('Desempenho', 'Comportamento da edificação e seus sistemas durante o uso, frente às solicitações normais esperadas ao longo de sua vida útil.'),
-          defP('Vida Útil (VU)', 'Período em que um sistema ou componente deve cumprir suas funções, conforme previsto em projeto e respeitada sua manutenção adequada.'),
-          defP('Plano de Manutenção', 'Documento técnico que organiza as ações necessárias de manutenção preventiva e corretiva de uma edificação.'),
-          br(),
-          bodyP(elaboracaoTexto5),
-          br(),
-          bodyP(elaboracaoTexto6),
-          br(),
-
-          // 7. REGISTROS
-          secNum(6 + numOffset, 'REGISTRO DE NÃO CONFORMIDADES DA VISTORIA'),
-          bodyP(`A seguir, são apresentados os registros fotográficos das não conformidades identificadas durante a vistoria no dia ${dataFmt}, acompanhados da respectiva descrição detalhada.`),
-          br(),
-          ...registrosParagraphs,
-
-          // OUTROS PROBLEMAS
-          ...(obsGeral ? [
-            secNum(7 + numOffset, 'OUTROS PROBLEMAS'),
-            ...obsGeral.split('\n').map(p => bodyP(p)),
-            br()
-          ] : []),
-
-          // CONCLUSÃO
-          secNum(obsGeral ? 8 + numOffset : 7 + numOffset, 'CONCLUSÃO'),
-          ...conclusaoTexto.map(p => bodyP(p)),
-          br(),
-
-          // ASSINATURA
-          secNum(obsGeral ? 9 + numOffset : 8 + numOffset, 'ASSINATURA DO RESPONSÁVEL'),
-          br(),
-          new Paragraph({ children: [N('_______________________________', 20)], alignment: AlignmentType.CENTER, spacing: { after: 60 } }),
-          new Paragraph({ children: [N('Gabriela Soares Borges', 20)], alignment: AlignmentType.CENTER, spacing: { after: 40 } }),
-          new Paragraph({ children: [N('Engenheira Civil · CREA: 427760MG', 20)], alignment: AlignmentType.CENTER, spacing: { after: 40 } }),
-
-        ]
-      }
-    ]
+  // Restaura os campos do formulário de dados do cliente
+  const campos = { nomeCliente:'nome', cpf:'cpf', telefone:'telefone', empreendimento:'empreendimento', construtora:'construtora', endereco:'endereco', bloco:'bloco', apto:'apto', cep:'cep', cidade:'cidade', metragem:'metragem', comodos:'comodos', valorVistoria:'valor', formaPagamento:'formaPagamento' };
+  Object.entries(campos).forEach(([idCampo, chaveState]) => {
+    const el = document.getElementById(idCampo);
+    if (el && state.dados[chaveState]) el.value = state.dados[chaveState];
   });
+  if (state.dados.data) document.getElementById('dataVistoria').value = state.dados.data;
+  if (state.dados.hora) document.getElementById('horaVistoria').value = state.dados.hora;
+  selecionarTipoAgendamento(state.dados.tipo === 'Revistoria' ? 'Revistoria' : 'Vistoria');
 
-  return Packer.toBuffer(doc);
+  // Restaura pré-visualização da planta e do mapa, se houver
+  if (state.plantaBase64) {
+    document.getElementById('plantaPreview').innerHTML = `<div class="single-thumb"><img src="data:${state.plantaMediaType};base64,${state.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>`;
+  }
+  if (state.mapaBase64) {
+    document.getElementById('mapaPreview').innerHTML = `<div class="single-thumb"><img src="data:${state.mapaMediaType};base64,${state.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>`;
+  }
+
+  // Leva o usuário direto pra tela de ambientes, já com o resumo dos registros salvos
+  atualizarResumo();
+  mostrarScreen('screen-ambiente');
 }
 
-// ── Login por senha única (protege dados de clientes) ──────
-function parseCookies(cabecalho) {
-  const cookies = {};
-  (cabecalho || '').split(';').forEach(par => {
-    const i = par.indexOf('=');
-    if (i === -1) return;
-    cookies[par.slice(0, i).trim()] = decodeURIComponent(par.slice(i + 1).trim());
+
+document.getElementById('dataVistoria').value = new Date().toISOString().split('T')[0];
+
+document.getElementById('cpf').addEventListener('input', function() {
+  this.value = this.value.replace(/\D/g,'').replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d{1,2})$/,'$1-$2');
+});
+document.getElementById('cep').addEventListener('input', function() {
+  this.value = this.value.replace(/\D/g,'').replace(/(\d{5})(\d)/,'$1-$2');
+});
+
+function setupUpload(inputId, previewId, stateKey, stateMediaKey) {
+  document.getElementById(inputId).addEventListener('change', function(e) {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      state[stateKey] = ev.target.result.split(',')[1];
+      state[stateMediaKey] = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+      document.getElementById(previewId).innerHTML = `<div class="single-thumb"><img src="${ev.target.result}"><button class="remove-photo" onclick="removerUpload('${previewId}','${stateKey}','${stateMediaKey}','${inputId}')">✕</button></div>`;
+      salvarRascunho();
+    };
+    reader.readAsDataURL(file);
   });
-  return cookies;
+}
+setupUpload('plantaInput','plantaPreview','plantaBase64','plantaMediaType');
+setupUpload('mapaInput','mapaPreview','mapaBase64','mapaMediaType');
+
+function removerUpload(previewId, stateKey, stateMediaKey, inputId) {
+  state[stateKey] = null; state[stateMediaKey] = null;
+  document.getElementById(previewId).innerHTML = '';
+  document.getElementById(inputId).value = '';
 }
 
-function estaAutenticado(req) {
-  if (!APP_PASSWORD) return true; // sem senha configurada, não bloqueia (comportamento de antes)
-  const cookies = parseCookies(req.headers.cookie);
-  return cookies['engcheck_auth'] === APP_PASSWORD;
+// Busca a imagem do mapa automaticamente, pela localização atual do GPS,
+// sem precisar tirar print do Google Maps manualmente.
+async function buscarMapaAtual() {
+  const btn = document.getElementById('btnMapaAutomatico');
+  const textoOriginal = btn.innerHTML;
+  btn.disabled = true;
+  btn.style.opacity = '.7';
+  btn.innerHTML = '<span class="spinner"></span> Buscando localização...';
+  try {
+    const loc = await obterLocalizacaoAtual();
+    if (!loc) throw new Error(ultimoErroLocalizacao || 'Não foi possível obter a localização do GPS.');
+    const res = await fetch(`/obter-mapa?lat=${loc.lat}&lon=${loc.lon}`);
+    const data = await res.json();
+    if (data.erro || !data.base64) throw new Error(data.erro || 'Serviço de mapa indisponível.');
+    state.mapaBase64 = data.base64;
+    state.mapaMediaType = data.mediaType;
+    document.getElementById('mapaPreview').innerHTML = `<div class="single-thumb"><img src="data:${data.mediaType};base64,${data.base64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>`;
+    await salvarRascunho();
+  } catch (e) {
+    console.error('Falha ao buscar mapa automático:', e.message);
+    alert(`Não foi possível buscar o mapa automaticamente agora.\n\nMotivo: ${e.message}\n\nVocê pode enviar o print do Google Maps manualmente logo abaixo.`);
+  } finally {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.innerHTML = textoOriginal;
+  }
 }
 
-function paginaLogin(erro) {
-  return `<!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EngCheck · Login</title>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Montserrat',sans-serif;background:#1A3C5E;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.card{background:#fff;border-radius:16px;padding:32px 28px;max-width:340px;width:100%;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.25)}
-img{width:64px;height:64px;object-fit:contain;background:#fff;border-radius:12px;padding:6px;border:1px solid #eee;margin-bottom:16px}
-h1{font-size:22px;font-weight:800;color:#1A3C5E;margin-bottom:4px}
-p.sub{font-size:12px;color:#888;margin-bottom:22px}
-input{width:100%;padding:13px 14px;border:1.5px solid #ddd;border-radius:9px;font-size:15px;font-family:inherit;margin-bottom:14px;outline:none}
-input:focus{border-color:#D4762A}
-button{width:100%;background:#D4762A;color:#fff;border:none;border-radius:9px;padding:13px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer}
-.erro{background:#FDECEA;color:#C0392B;font-size:12px;font-weight:600;padding:9px;border-radius:8px;margin-bottom:14px}
-</style></head>
-<body>
-  <form class="card" method="POST" action="/login">
-    <img src="/logo.png" alt="EngCheck">
-    <h1>EngCheck</h1>
-    <p class="sub">Digite a senha de acesso</p>
-    ${erro ? '<div class="erro">Senha incorreta. Tente de novo.</div>' : ''}
-    <input type="password" name="senha" placeholder="Senha" autofocus required>
-    <button type="submit">Entrar</button>
-  </form>
-</body></html>`;
+function switchTab(tab) {
+  document.getElementById('tab-vistoria').classList.toggle('active', tab==='vistoria');
+  document.getElementById('tab-agenda').classList.toggle('active', tab==='agenda');
+  document.getElementById('tab-financeiro').classList.toggle('active', tab==='financeiro');
+  document.getElementById('tab-historico').classList.toggle('active', tab==='historico');
+  document.getElementById('vistoria-screens').style.display = tab==='vistoria' ? 'block' : 'none';
+  document.getElementById('agenda-screen').style.display = tab==='agenda' ? 'block' : 'none';
+  document.getElementById('financeiro-screen').style.display = tab==='financeiro' ? 'block' : 'none';
+  document.getElementById('historico-screen').style.display = tab==='historico' ? 'block' : 'none';
+  if (tab==='historico') carregarHistorico();
+  if (tab==='agenda') carregarAgenda();
+  if (tab==='financeiro') carregarFinanceiro();
 }
 
+function mostrarScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  window.scrollTo(0, 0);
+  const steps = {'screen-dados':10,'screen-ambiente':35,'screen-foto':55,'screen-defeito':70,'screen-obs':85,'screen-sucesso':100};
+  document.getElementById('progressFill').style.width = (steps[id]||10) + '%';
+}
 
-// ── HTTP SERVER ──────────────────────────────────────────
-const server = http.createServer(async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  const caminho = req.url.split('?')[0];
+function selectTipo(el, val) {
+  
+  el.classList.add('selected'); state.tipoVistoria = val;
+}
 
-  // Login: mostra o formulário, ou confere a senha enviada
-  if (caminho === '/login') {
-    if (req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      return res.end(paginaLogin(false));
-    }
-    if (req.method === 'POST') {
-      const chunks = [];
-      req.on('data', chunk => chunks.push(chunk));
-      req.on('end', () => {
-        const body = Buffer.concat(chunks).toString('utf8');
-        const params = new URLSearchParams(body);
-        const senha = params.get('senha') || '';
-        if (APP_PASSWORD && senha === APP_PASSWORD) {
-          res.writeHead(302, {
-            'Set-Cookie': `engcheck_auth=${encodeURIComponent(senha)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=31536000`,
-            Location: '/'
-          });
-          return res.end();
-        }
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        return res.end(paginaLogin(true));
-      });
+function selecionarTipoAgendamento(tipo) {
+  document.getElementById('tipoAgendamento').value = tipo;
+  document.getElementById('btnTipoVistoria').classList.toggle('selected', tipo === 'Vistoria');
+  document.getElementById('btnTipoRevistoria').classList.toggle('selected', tipo === 'Revistoria');
+  const painel = document.getElementById('painelVistoriaAnterior');
+  painel.style.display = tipo === 'Revistoria' ? 'block' : 'none';
+  if (tipo !== 'Revistoria') document.getElementById('resultadoVistoriaAnterior').innerHTML = '';
+}
+
+// Busca a vistoria mais recente já feita pra esse mesmo cliente (pelo nome) e mostra
+// os defeitos registrados nela — pra conferir rápido o que já foi corrigido na revistoria.
+let vistoriasAnterioresEncontradas = [];
+
+async function buscarVistoriaAnterior() {
+  const nome = document.getElementById('nomeCliente').value.trim().toLowerCase();
+  const resultado = document.getElementById('resultadoVistoriaAnterior');
+  if (!nome) {
+    resultado.innerHTML = '<p style="color:var(--danger);font-size:12px;padding:8px 4px 0">Digite o nome do cliente primeiro.</p>';
+    return;
+  }
+  resultado.innerHTML = '<p style="color:var(--muted);font-size:12px;padding:8px 4px 0"><span class="sp2"></span> Buscando...</p>';
+  try {
+    const res = await fetch('/historico');
+    const lista = await res.json();
+    vistoriasAnterioresEncontradas = lista.filter(l => (l.nome || '').toLowerCase().includes(nome)).sort((a, b) => b.ts - a.ts);
+    if (vistoriasAnterioresEncontradas.length === 0) {
+      resultado.innerHTML = '<p style="color:var(--muted);font-size:12px;padding:8px 4px 0">Nenhuma vistoria anterior encontrada com esse nome.</p>';
       return;
     }
+    renderResultadosVistoriaAnterior();
+  } catch (e) {
+    resultado.innerHTML = '<p style="color:var(--danger);font-size:12px;padding:8px 4px 0">Erro ao buscar. Tente de novo.</p>';
   }
+}
 
-  if (caminho === '/logout') {
-    res.writeHead(302, { 'Set-Cookie': 'engcheck_auth=; Path=/; HttpOnly; Max-Age=0', Location: '/login' });
-    return res.end();
-  }
+// Um mesmo cliente pode ter mais de um imóvel vistoriado — por isso mostra TODAS as
+// vistorias anteriores encontradas com esse nome, não só a mais recente. Cada uma
+// abre/fecha os defeitos dela individualmente, pra você escolher a certa.
+function renderResultadosVistoriaAnterior() {
+  const resultado = document.getElementById('resultadoVistoriaAnterior');
+  const qtd = vistoriasAnterioresEncontradas.length;
+  resultado.innerHTML = `
+    <p style="font-size:11px;color:var(--muted);margin:8px 4px 6px">${qtd} vistoria${qtd === 1 ? '' : 's'} anterior${qtd === 1 ? '' : 'es'} encontrada${qtd === 1 ? '' : 's'} com esse nome:</p>
+    ${vistoriasAnterioresEncontradas.map((l, i) => `
+      <div style="background:#F3E9DD;border-radius:10px;padding:12px;margin-bottom:8px">
+        <div onclick="toggleDefeitosAnteriores(${i})" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="font-size:11.5px;font-weight:700;color:#7B4FA0;line-height:1.5">
+            ${badgeTipo(l.tipo)} em ${l.data && l.data !== '—' ? l.data.split('-').reverse().join('/') : 'data não informada'}<br>
+            <span>${l.empreendimento || 'Sem empreendimento'}${l.endereco ? ' · ' + l.endereco : ''}</span>
+          </div>
+          <i class="ti ti-chevron-down" id="chevronAnterior${i}" style="color:#7B4FA0;flex-shrink:0;transition:transform .15s"></i>
+        </div>
+        <div id="defeitosAnteriores${i}" style="display:none;margin-top:10px">
+          ${(l.registros && l.registros.length)
+            ? l.registros.map(r => `<div style="font-size:12px;padding:5px 0;border-bottom:1px solid rgba(0,0,0,.08)"><strong>${r.ambiente}:</strong> ${r.defeito}</div>`).join('')
+            : '<p style="font-size:12px;color:var(--muted)">Esse laudo foi gerado antes dessa função existir, sem detalhes de defeitos salvos.</p>'}
+          <button onclick="baixarPdfHistorico('${encodeURIComponent(l.arquivo)}')" style="width:100%;margin-top:10px;background:#C0392B;color:#fff;border:none;border-radius:8px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer"><i class="ti ti-file-type-pdf"></i> Ver PDF do laudo</button>
+        </div>
+      </div>`).join('')}
+  `;
+}
 
-  // Bloqueia todo o resto do app se a senha estiver configurada e a pessoa não tiver logado
-  // (ícones/manifest do PWA ficam liberados, senão a própria tela de login não carrega o logo)
-  const PUBLICO = ['/logo.png', '/icon-192.png', '/icon-512.png', '/manifest.json', '/service-worker.js'];
-  if (!PUBLICO.includes(caminho) && !estaAutenticado(req)) {
-    if (req.method === 'GET' && (req.headers.accept || '').includes('text/html')) {
-      res.writeHead(302, { Location: '/login' });
-      return res.end();
-    }
-    res.writeHead(401, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ erro: 'Não autorizado. Faça login novamente.' }));
-  }
+function toggleDefeitosAnteriores(i) {
+  const div = document.getElementById('defeitosAnteriores' + i);
+  const chevron = document.getElementById('chevronAnterior' + i);
+  const aberto = div.style.display === 'block';
+  div.style.display = aberto ? 'none' : 'block';
+  chevron.style.transform = aberto ? 'rotate(0deg)' : 'rotate(180deg)';
+}
 
-  if (req.method === 'GET' && req.url === '/') {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    return res.end(fs.readFileSync(path.join(__dirname, 'vistoria_app.html')));
-  }
-  if (req.method === 'GET' && req.url === '/logo.png') {
-    res.writeHead(200, { 'Content-Type': 'image/png' });
-    return res.end(fs.readFileSync(LOGO_IMG));
-  }
-  if (req.method === 'GET' && req.url === '/manifest.json') {
-    res.writeHead(200, { 'Content-Type': 'application/manifest+json' });
-    return res.end(fs.readFileSync(path.join(__dirname, 'manifest.json')));
-  }
-  if (req.method === 'GET' && req.url === '/service-worker.js') {
-    // Service-Worker-Allowed garante que o service worker consegue controlar todo o site (escopo "/")
-    res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Service-Worker-Allowed': '/' });
-    return res.end(fs.readFileSync(path.join(__dirname, 'service-worker.js')));
-  }
-  if (req.method === 'GET' && (req.url === '/icon-192.png' || req.url === '/icon-512.png')) {
-    res.writeHead(200, { 'Content-Type': 'image/png' });
-    return res.end(fs.readFileSync(path.join(__dirname, req.url.slice(1))));
-  }
-  if (req.method === 'GET' && req.url.startsWith('/obter-mapa')) {
-    try {
-      const urlObj = new URL(req.url, `http://${req.headers.host}`);
-      const lat = parseFloat(urlObj.searchParams.get('lat'));
-      const lon = parseFloat(urlObj.searchParams.get('lon'));
-      if (isNaN(lat) || isNaN(lon)) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ erro: 'Coordenadas inválidas.' }));
-      }
-      if (!GEOAPIFY_API_KEY) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ erro: 'Chave do serviço de mapas (GEOAPIFY_API_KEY) não configurada no servidor.' }));
-      }
-      // Geoapify Static Maps: serviço confiável baseado no OpenStreetMap, com tier gratuito
-      const mapaUrl = `https://maps.geoapify.com/v1/staticmap?style=osm-bright&width=640&height=400&center=lonlat:${lon},${lat}&zoom=13&marker=lonlat:${lon},${lat};type:awesome;color:orange;size:large&apiKey=${GEOAPIFY_API_KEY}`;
-      const mapaRes = await fetch(mapaUrl);
-      if (!mapaRes.ok) {
-        const corpoErro = await mapaRes.text().catch(() => '');
-        throw new Error(`Geoapify respondeu ${mapaRes.status}: ${corpoErro.slice(0, 200)}`);
-      }
-      const buf = Buffer.from(await mapaRes.arrayBuffer());
-      const base64 = buf.toString('base64');
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ base64, mediaType: 'image/png' }));
-    } catch (e) {
-      console.error('Erro em /obter-mapa:', e.message);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ erro: `Não foi possível buscar o mapa automaticamente. Detalhe: ${e.message}` }));
-    }
-  }
+function irParaAmbiente() {
+  state.dados = {
+    tipo: document.getElementById('tipoAgendamento').value,
+    nome: document.getElementById('nomeCliente').value.trim(),
+    cpf: document.getElementById('cpf').value.trim(),
+    telefone: document.getElementById('telefone').value.trim(),
+    empreendimento: document.getElementById('empreendimento').value.trim(),
+    construtora: document.getElementById('construtora').value.trim(),
+    valor: document.getElementById('valorVistoria').value,
+    formaPagamento: document.getElementById('formaPagamento').value,
+    endereco: document.getElementById('endereco').value.trim(),
+    bloco: document.getElementById('bloco').value.trim(),
+    apto: document.getElementById('apto').value.trim(),
+    cep: document.getElementById('cep').value.trim(),
+    cidade: document.getElementById('cidade').value.trim(),
+    metragem: document.getElementById('metragem').value.trim(),
+    data: document.getElementById('dataVistoria').value,
+    hora: document.getElementById('horaVistoria').value,
+    comodos: document.getElementById('comodos').value.trim()
+  };
+  if (!state.dados.nome) { alert('Informe o nome do cliente.'); return; }
+  state.tipoVistoria = state.dados.tipo || 'Vistoria';
+  salvarRascunho();
+  mostrarScreen('screen-ambiente');
+}
 
-  // Dispara a compactação na hora, sem esperar a rotina automática diária — útil pra testar.
-  if (req.method === 'GET' && req.url === '/compactar-agora') {
-    try {
-      compactarLaudosAntigos();
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true }));
-    } catch (e) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ ok: false, erro: e.message }));
-    }
-  }
+// Controla o botão "✕" que aparece no rodapé da tela de Dados quando ela foi aberta
+// a partir da Agenda ou pra editar dados no meio de uma vistoria — permite voltar
+// sem salvar/alterar nada, em vez de ficar preso na tela.
+let dadosContexto = 'novo'; // 'novo' | 'agenda' | 'agenda-edicao' | 'edicao'
 
-  // Espaço usado no Volume do Railway (onde os laudos ficam guardados) — pra acompanhar
-  // se está chegando perto do limite antes que o app pare de conseguir salvar coisa nova.
-  if (req.method === 'GET' && req.url === '/armazenamento') {
-    try {
-      const saida = execSync(`df -k "${OUTPUT_DIR}"`).toString();
-      const linhas = saida.trim().split('\n');
-      const partes = linhas[linhas.length - 1].trim().split(/\s+/);
-      const totalKB = parseInt(partes[1], 10);
-      const usadoKB = parseInt(partes[2], 10);
-      const percentual = (totalKB > 0) ? Math.round((usadoKB / totalKB) * 100) : null;
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ usadoMB: Math.round(usadoKB / 1024), totalMB: Math.round(totalKB / 1024), percentual }));
-    } catch (e) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ erro: e.message }));
-    }
-  }
+function atualizarBotaoCancelarDados() {
+  document.getElementById('btnCancelarDados').style.display = (dadosContexto === 'novo') ? 'none' : 'inline-flex';
+  document.getElementById('btnSalvarAgendaAlt').style.display = (dadosContexto === 'novo') ? 'inline-flex' : 'none';
+}
 
-  // ── Agenda: pré-cadastro dos dados do cliente/imóvel antes da vistoria ──
-  if (req.method === 'GET' && req.url === '/agenda') {
-    const lista = lerAgenda().sort((a, b) => (a.dados.data || '9999').localeCompare(b.dados.data || '9999'));
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify(lista));
+function cancelarTelaDados() {
+  if (dadosContexto === 'agenda' || dadosContexto === 'agenda-edicao') {
+    dadosContexto = 'novo';
+    state.modoAgenda = false;
+    resetarBotaoDados();
+    atualizarBotaoCancelarDados();
+    switchTab('agenda');
+  } else if (dadosContexto === 'edicao') {
+    dadosContexto = 'novo';
+    resetarBotaoDados();
+    atualizarBotaoCancelarDados();
+    mostrarScreen('screen-ambiente'); // volta sem aplicar as alterações digitadas
   }
+}
 
-  if (req.method === 'POST' && req.url === '/agenda') {
-    const chunks = [];
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => {
-      try {
-        const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        if (!payload.dados || !payload.dados.nome) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ erro: 'Nome do cliente é obrigatório.' }));
-        }
-        const agenda = lerAgenda();
-        const item = {
-          id: 'ag_' + Date.now() + Math.random().toString(36).slice(2),
-          dados: payload.dados,
-          plantaBase64: payload.plantaBase64 || null,
-          plantaMediaType: payload.plantaMediaType || null,
-          mapaBase64: payload.mapaBase64 || null,
-          mapaMediaType: payload.mapaMediaType || null,
-          criadoEm: Date.now()
-        };
-        agenda.push(item);
-        salvarAgenda(agenda);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ ok: true, id: item.id }));
-      } catch (e) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ erro: e.message }));
-      }
+// Permite voltar pra tela de Dados do cliente no meio da vistoria (ex: corrigir um
+// nome digitado errado) sem perder os ambientes/fotos já registrados até agora.
+function editarDadosIniciais() {
+  preencherFormularioDados(state.dados);
+  document.getElementById('plantaPreview').innerHTML = state.plantaBase64 ? `<div class="single-thumb"><img src="data:${state.plantaMediaType};base64,${state.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>` : '';
+  document.getElementById('mapaPreview').innerHTML = state.mapaBase64 ? `<div class="single-thumb"><img src="data:${state.mapaMediaType};base64,${state.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>` : '';
+  const btn = document.getElementById('btnAcaoDados');
+  btn.innerHTML = '<i class="ti ti-device-floppy"></i> Salvar e continuar vistoria';
+  btn.onclick = salvarEdicaoDados;
+  dadosContexto = 'edicao';
+  atualizarBotaoCancelarDados();
+  mostrarScreen('screen-dados');
+}
+
+function salvarEdicaoDados() {
+  irParaAmbiente(); // relê os campos do formulário, atualiza state.dados e volta pra tela de ambiente
+  resetarBotaoDados(); // devolve o botão ao texto padrão, pra próxima vez que abrir uma vistoria nova
+  dadosContexto = 'novo';
+  atualizarBotaoCancelarDados();
+}
+
+// Descarta a vistoria em andamento (ambientes, fotos e defeitos já registrados)
+// e volta pra tela inicial em branco, sem precisar fechar e reabrir o app.
+function descartarVistoria() {
+  if (!confirm('Descartar essa vistoria? Todos os ambientes e fotos registrados até agora serão perdidos — essa ação não pode ser desfeita.')) return;
+  novaVistoria();
+}
+
+function selecionarAmbiente(nome) {
+  state.ambienteAtual = nome; state.fotosAtuais = [];
+  document.getElementById('ambienteFotoTitle').textContent = nome;
+  document.getElementById('photoPreviewGrid').innerHTML = '';
+  document.getElementById('outroAmbienteField').style.display = 'none';
+  mostrarScreen('screen-foto');
+}
+function pedirOutroAmbiente() { document.getElementById('outroAmbienteField').style.display='block'; document.getElementById('outroAmbienteInput').focus(); }
+function confirmarOutroAmbiente() { const v=document.getElementById('outroAmbienteInput').value.trim(); if(!v) return; document.getElementById('outroAmbienteInput').value=''; selecionarAmbiente(v); }
+function voltarParaAmbiente() { state.fotosAtuais=[]; document.getElementById('photoPreviewGrid').innerHTML=''; mostrarScreen('screen-ambiente'); }
+// Observações finais rápidas — frases comuns que ela digitaria toda hora,
+// agora com um toque só. Pode marcar quantas fizerem sentido pra aquela vistoria.
+const OBS_RAPIDAS_PRESET = [
+  'Sem energia no imóvel no momento da vistoria.',
+  'Sem água no imóvel no momento da vistoria.',
+  'Sem energia e água no imóvel no momento da vistoria.',
+  'Imóvel muito sujo, o que pode ter feito com que algo passasse despercebido durante a vistoria.',
+  'Rejunte geral muito manchado e com falhas, recomenda-se atenção em todo o imóvel.'
+];
+
+function renderObsRapidas() {
+  if (!Array.isArray(state.obsRapidas)) state.obsRapidas = [];
+  const grid = document.getElementById('obsRapidasGrid');
+  grid.innerHTML = OBS_RAPIDAS_PRESET.map((texto, i) => {
+    const marcado = state.obsRapidas.includes(texto);
+    return `<button type="button" onclick="toggleObsRapida(${i})" style="text-align:left;display:flex;align-items:center;gap:10px;background:${marcado ? '#F3E9DD' : '#fff'};border:1.5px solid ${marcado ? 'var(--accent)' : 'var(--border)'};border-radius:9px;padding:10px 12px;font-family:var(--font);font-size:12.5px;font-weight:600;color:var(--text);cursor:pointer">
+      <i class="ti ${marcado ? 'ti-square-check-filled' : 'ti-square'}" style="font-size:19px;color:${marcado ? 'var(--accent)' : 'var(--muted)'};flex-shrink:0"></i>
+      ${texto}
+    </button>`;
+  }).join('');
+}
+
+function toggleObsRapida(i) {
+  const texto = OBS_RAPIDAS_PRESET[i];
+  const idx = state.obsRapidas.indexOf(texto);
+  if (idx === -1) state.obsRapidas.push(texto); else state.obsRapidas.splice(idx, 1);
+  renderObsRapidas();
+  salvarRascunho();
+}
+
+function irParaObs() { renderObsRapidas(); mostrarScreen('screen-obs'); }
+
+function atualizarResumo() {
+  renderDefeitosPendentes();
+  const div = document.getElementById('resumoRegistros');
+  if (state.registros.length === 0) { div.style.display='none'; return; }
+  div.style.display='block';
+  document.getElementById('countBadge').textContent = state.registros.length;
+  document.getElementById('registroList').innerHTML = state.registros.map((r, idx) => {
+    const thumb = r.fotos[0] ? `<img src="${r.fotos[0].src}">` : '<div style="width:50px;height:50px;background:var(--light);border-radius:6px;flex-shrink:0"></div>';
+    const qtdFotos = r.fotos.length;
+    return `<div class="registro-item" onclick="abrirRegistro(${idx})" style="cursor:pointer;position:relative">
+      ${thumb}
+      <div class="info"><span class="ambiente-tag">${r.ambiente}</span><span class="defeito-tag">${r.defeito}</span></div>
+      <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;color:var(--muted);font-size:11px;font-weight:700">
+        <i class="ti ti-photo"></i> ${qtdFotos} <i class="ti ti-chevron-right" style="font-size:14px"></i>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Modal pra revisar todas as fotos de um registro, reorganizar a ordem
+// (útil pra decidir qual aparece primeiro no laudo) e remover fotos repetidas.
+let registroAbertoIdx = null;
+
+function abrirRegistro(idx) {
+  registroAbertoIdx = idx;
+  renderModalRegistro();
+  document.getElementById('modalRegistro').style.display = 'flex';
+}
+
+function fecharRegistroModal() {
+  document.getElementById('modalRegistro').style.display = 'none';
+  registroAbertoIdx = null;
+  atualizarResumo();
+}
+
+function renderModalRegistro() {
+  const r = state.registros[registroAbertoIdx];
+  if (!r) { fecharRegistroModal(); return; }
+  document.getElementById('modalRegistroAmbiente').textContent = r.ambiente;
+  document.getElementById('modalRegistroDefeito').innerHTML = `
+    <textarea id="modalRegistroDefeitoInput" style="width:100%;min-height:60px;border:1.5px solid var(--border);border-radius:8px;padding:8px;font-family:var(--font);font-size:12px;color:var(--text);margin-top:4px" oninput="salvarTextoDefeitoRegistro()">${r.defeito}</textarea>
+    <button type="button" onclick="gerarTextoDefeitoRegistroIA()" id="btnGerarDefeitoRegistroIA" style="width:100%;margin-top:6px;background:var(--brand2);color:#fff;border:none;border-radius:8px;padding:8px;font-family:var(--font);font-size:11.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px">
+      <i class="ti ti-sparkles"></i> Gerar/melhorar texto com IA
+    </button>`;
+  document.getElementById('modalRegistroFotos').innerHTML = r.fotos.map((f, i) => `
+    <div style="display:flex;align-items:center;gap:10px;background:var(--light);border-radius:10px;padding:8px">
+      <img src="${f.src}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;flex-shrink:0">
+      <div style="flex:1;font-size:12px;font-weight:700;color:var(--muted)">Foto ${i + 1} de ${r.fotos.length}</div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <button onclick="moverFotoRegistro(${i},-1)" ${i === 0 ? 'disabled style="opacity:.3"' : ''} style="background:#fff;border:1px solid var(--border);border-radius:6px;width:28px;height:24px;cursor:pointer"><i class="ti ti-chevron-up"></i></button>
+        <button onclick="moverFotoRegistro(${i},1)" ${i === r.fotos.length - 1 ? 'disabled style="opacity:.3"' : ''} style="background:#fff;border:1px solid var(--border);border-radius:6px;width:28px;height:24px;cursor:pointer"><i class="ti ti-chevron-down"></i></button>
+      </div>
+      <button onclick="removerFotoRegistro(${i})" style="background:#fdecea;border:none;color:var(--danger);border-radius:6px;width:28px;height:52px;cursor:pointer"><i class="ti ti-trash"></i></button>
+    </div>`).join('');
+}
+
+function salvarTextoDefeitoRegistro() {
+  const r = state.registros[registroAbertoIdx];
+  if (!r) return;
+  r.defeito = document.getElementById('modalRegistroDefeitoInput').value;
+  salvarRascunho();
+}
+
+// Gera (ou melhora) o texto técnico de um defeito já salvo — útil quando não tinha
+// internet no momento e o texto ficou só com a descrição simples, digitada na hora.
+async function gerarTextoDefeitoRegistroIA() {
+  const r = state.registros[registroAbertoIdx];
+  if (!r) return;
+  const textarea = document.getElementById('modalRegistroDefeitoInput');
+  const textoAtual = textarea.value.trim();
+  if (!textoAtual) { alert('Digite uma descrição do defeito primeiro.'); return; }
+  const btn = document.getElementById('btnGerarDefeitoRegistroIA');
+  const textoOriginalBtn = btn.innerHTML;
+  btn.disabled = true;
+  btn.style.opacity = '.6';
+  btn.innerHTML = '<span class="sp2"></span> Gerando...';
+  try {
+    const res = await fetch('/gerar-defeito-texto', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ambiente: r.ambiente, textoCurto: textoAtual })
     });
+    const data = await res.json();
+    if (data.erro || !data.texto) throw new Error(data.erro || 'Resposta vazia da IA.');
+    textarea.value = data.texto;
+    salvarTextoDefeitoRegistro();
+  } catch (e) {
+    console.error('Falha ao gerar texto do defeito com IA:', e);
+    alert('Não foi possível gerar o texto agora. Verifique sua internet e tente de novo.');
+  } finally {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.innerHTML = textoOriginalBtn;
+  }
+}
+
+function moverFotoRegistro(fotoIdx, direcao) {
+  const r = state.registros[registroAbertoIdx];
+  const novoIdx = fotoIdx + direcao;
+  if (novoIdx < 0 || novoIdx >= r.fotos.length) return;
+  [r.fotos[fotoIdx], r.fotos[novoIdx]] = [r.fotos[novoIdx], r.fotos[fotoIdx]];
+  salvarRascunho();
+  renderModalRegistro();
+}
+
+function removerFotoRegistro(fotoIdx) {
+  const r = state.registros[registroAbertoIdx];
+  r.fotos.splice(fotoIdx, 1);
+  if (r.fotos.length === 0) {
+    state.registros.splice(registroAbertoIdx, 1);
+    salvarRascunho();
+    fecharRegistroModal();
     return;
   }
+  salvarRascunho();
+  renderModalRegistro();
+}
 
-  if (req.method === 'DELETE' && req.url.startsWith('/agenda')) {
-    const urlObj = new URL(req.url, `http://${req.headers.host}`);
-    const id = urlObj.searchParams.get('id');
-    const agenda = lerAgenda().filter(a => a.id !== id);
-    salvarAgenda(agenda);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ ok: true }));
-  }
+const fileInput = document.getElementById('fileInputPhoto');
+fileInput.addEventListener('change', e => { handleFiles(e.target.files); fileInput.value=''; });
 
-  if (req.method === 'PUT' && req.url.startsWith('/agenda')) {
-    const urlObj = new URL(req.url, `http://${req.headers.host}`);
-    const id = urlObj.searchParams.get('id');
-    const chunks = [];
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => {
+// Coloca um limite de tempo em qualquer processo — se ele nunca terminar (nem der
+// certo, nem der erro, só travar), usa o valor padrão em vez de ficar esperando
+// pra sempre. Evita que UMA foto problemática (ex: HEIC corrompida do iPhone)
+// trave a vistoria inteira.
+function comTimeout(promessa, ms, valorPadrao) {
+  return Promise.race([
+    promessa,
+    new Promise(resolve => setTimeout(() => resolve(valorPadrao), ms))
+  ]);
+}
+
+// Reduz o tamanho da imagem antes de guardar (fotos de iPhone/Android modernos
+// costumam vir enormes — vários MB, resolução de vários milhares de pixels).
+// Isso evita que o navegador fique sem memória e feche a aba sozinho quando
+// várias fotos grandes se acumulam numa mesma vistoria. 1600px já é mais que
+// suficiente pra qualidade boa num laudo em PDF/Word.
+// Redimensiona a foto ANTES de qualquer outra coisa, trabalhando direto a partir do
+// arquivo (createImageBitmap) em vez de primeiro transformar tudo em texto base64
+// gigante e só depois reduzir — isso evita um pico de memória enorme (a foto original
+// de um iPhone pode decodificar pra 40-50MB só de pixels), que era o motivo mais
+// provável do navegador fechar a aba sozinho com várias fotos seguidas.
+function redimensionarImagem(file, maxDim = 1280) {
+  return new Promise(async (resolve) => {
+    // Caminho rápido e leve: decodifica e já redimensiona direto do arquivo
+    if ('createImageBitmap' in window) {
       try {
-        const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        const agenda = lerAgenda();
-        const item = agenda.find(a => a.id === id);
-        if (!item) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ erro: 'Agendamento não encontrado.' }));
+        const bitmapOriginal = await createImageBitmap(file);
+        let { width, height } = bitmapOriginal;
+        if (width > maxDim || height > maxDim) {
+          const escala = maxDim / Math.max(width, height);
+          width = Math.round(width * escala);
+          height = Math.round(height * escala);
         }
-        item.dados = payload.dados;
-        item.plantaBase64 = payload.plantaBase64 || null;
-        item.plantaMediaType = payload.plantaMediaType || null;
-        item.mapaBase64 = payload.mapaBase64 || null;
-        item.mapaMediaType = payload.mapaMediaType || null;
-        salvarAgenda(agenda);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ ok: true }));
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(bitmapOriginal, 0, 0, width, height);
+        bitmapOriginal.close(); // libera a versão em tamanho grande da memória imediatamente
+        resolve(canvas.toDataURL('image/jpeg', 0.78));
+        return;
       } catch (e) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ erro: e.message }));
+        console.error('createImageBitmap falhou, tentando caminho alternativo:', e);
       }
-    });
-    return;
-  }
-
-  if (req.method === 'GET' && req.url === '/historico') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify(lerHistorico().reverse()));
-  }
-
-  // Apaga TODOS os laudos do histórico — inclui apagar os arquivos de verdade
-  // do servidor (Word/PDF, compactados ou não), não só a lista. Ação irreversível.
-  if (req.method === 'DELETE' && req.url.startsWith('/historico')) {
+    }
+    // Caminho alternativo, pra navegadores mais antigos sem suporte a createImageBitmap
     try {
-      const urlObj = new URL(req.url, `http://${req.headers.host}`);
-      const arquivoAlvo = urlObj.searchParams.get('arquivo'); // se vier, apaga só esse; senão, apaga tudo
-      const hist = lerHistorico();
-      const alvos = arquivoAlvo ? hist.filter(h => h.arquivo === arquivoAlvo) : hist;
-      for (const item of alvos) {
-        const docxPath = path.join(OUTPUT_DIR, item.arquivo);
-        const pdfPath = docxPath.replace('.docx', '.pdf');
-        [docxPath, docxPath + '.gz', pdfPath, pdfPath + '.gz'].forEach(p => {
-          try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e) { /* segue mesmo se algum arquivo já não existir */ }
-        });
-      }
-      const restante = arquivoAlvo ? hist.filter(h => h.arquivo !== arquivoAlvo) : [];
-      salvarHistorico(restante);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, removidos: alvos.length }));
-    } catch (e) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ erro: e.message }));
-    }
-  }
-
-  if (req.method === 'GET' && req.url.startsWith('/download-pdf/')) {
-    const filename = decodeURIComponent(req.url.replace('/download-pdf/', ''));
-    const docxPath = path.join(OUTPUT_DIR, filename);
-    const pdfPath = docxPath.replace('.docx', '.pdf');
-    const pdfBuf = lerArquivoTalvezCompactado(pdfPath);
-    if (pdfBuf) {
-      res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${filename.replace('.docx','.pdf')}"` });
-      return res.end(pdfBuf);
-    }
-    // Tenta gerar o PDF a partir do docx (se o docx existir, mesmo que compactado)
-    const docxBuf = lerArquivoTalvezCompactado(docxPath);
-    if (docxBuf) {
-      try {
-        if (!fs.existsSync(docxPath)) fs.writeFileSync(docxPath, docxBuf); // descompacta temporariamente pro LibreOffice conseguir ler
-        const paths = ['C:\\Program Files\\LibreOffice\\program\\soffice.exe','C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe','soffice'];
-        let soffice = 'soffice';
-        for (const p of paths) { if (fs.existsSync(p)) { soffice = p; break; } }
-        execSync(`"${soffice}" --headless --convert-to pdf "${docxPath}" --outdir "${OUTPUT_DIR}"`, { timeout: 60000 });
-        const pdfBufGerado = fs.readFileSync(pdfPath);
-        res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${filename.replace('.docx','.pdf')}"` });
-        return res.end(pdfBufGerado);
-      } catch(e) {
-        // fallback: manda o docx mesmo
-        res.writeHead(200, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'Content-Disposition': `attachment; filename="${filename}"` });
-        return res.end(docxBuf);
-      }
-    }
-    res.writeHead(404); return res.end('Not found');
-  }
-
-  if (req.method === 'GET' && req.url.startsWith('/download/')) {
-    const filename = decodeURIComponent(req.url.replace('/download/', ''));
-    const filepath = path.join(OUTPUT_DIR, filename);
-    const buf = lerArquivoTalvezCompactado(filepath);
-    if (buf) {
-      res.writeHead(200, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'Content-Disposition': `attachment; filename="${filename}"` });
-      return res.end(buf);
-    }
-    res.writeHead(404); return res.end('Not found');
-  }
-
-  if (req.method === 'POST' && req.url === '/gerar-conclusao') {
-    try {
-      const { registros, tipoVistoria, obsGeral } = await lerCorpoJSON(req);
-      const listaDefeitos = (registros || [])
-        .map(r => `- ${r.ambiente}: ${r.defeito}`)
-        .join('\n') || 'Nenhum defeito registrado.';
-      const outrosProblemas = (obsGeral || '').trim();
-      const texto = await chamarClaude({
-        maxTokens: 700,
-        system: 'Você é um(a) engenheiro(a) civil redigindo a seção de CONCLUSÃO de um laudo técnico de vistoria de imóvel, seguindo ABNT NBR 16747:2020, ABNT NBR 5674:2024 e conceitos do IBAPE Nacional. Escreva 3 a 4 parágrafos técnicos, objetivos e formais, em português, baseados nos defeitos e observações fornecidos, recomendando a correção antes da entrega/aceitação do imóvel. Retorne SOMENTE os parágrafos de texto, separados por uma linha em branco, sem títulos, sem markdown, sem numeração.',
-        messages: [{ role: 'user', content: `Tipo de vistoria: ${tipoVistoria || 'não informado'}\n\nDefeitos registrados (por legenda escolhida em cada foto):\n${listaDefeitos}\n\nOutros problemas observados:\n${outrosProblemas || 'Nenhum'}\n\nRedija a conclusão do laudo.` }]
+      const dataUrlOriginal = await new Promise((res) => {
+        const reader = new FileReader();
+        reader.onload = ev => res(ev.target.result);
+        reader.onerror = () => res(null);
+        reader.readAsDataURL(file);
       });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ conclusao: texto.trim() }));
-    } catch (e) {
-      console.error('Erro em /gerar-conclusao:', e.message);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ conclusao: '' })); // falha silenciosa: server usa o texto padrão fixo
-    }
-  }
-
-  // Transforma uma descrição curta/informal de defeito (ex: "buraco na parede") no
-  // texto técnico formal que vai pro laudo, no mesmo estilo da biblioteca de legendas.
-  if (req.method === 'POST' && req.url === '/gerar-defeito-texto') {
-    try {
-      const { ambiente, textoCurto } = await lerCorpoJSON(req);
-      if (!textoCurto || !textoCurto.trim()) throw new Error('Texto do defeito vazio.');
-      const texto = await chamarClaude({
-        maxTokens: 200,
-        system: 'Você é um(a) engenheiro(a) civil redigindo a descrição técnica de UM defeito construtivo específico, pra entrar na seção de registros fotográficos de um laudo de vistoria de imóvel. Use o mesmo estilo formal e objetivo de normas ABNT e do IBAPE Nacional. Escreva de 1 a 2 frases apenas, descrevendo o defeito de forma técnica, e se fizer sentido, uma recomendação breve de correção. NÃO use saudações, títulos, aspas, markdown ou numeração — retorne SOMENTE o texto final, pronto pra ser colado no laudo, como neste exemplo de estilo: "Foram identificados danos na superfície da parede, comprometendo a integridade e o acabamento do revestimento. Recomenda-se reparo com massa adequada e repintura do trecho afetado."',
-        messages: [{ role: 'user', content: `Ambiente: ${ambiente || 'não informado'}\nDefeito descrito de forma resumida pelo usuário: "${textoCurto.trim()}"\n\nRedija a descrição técnica formal desse defeito, pronta pra entrar no laudo.` }]
-      });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ texto: texto.trim() }));
-    } catch (e) {
-      console.error('Erro em /gerar-defeito-texto:', e.message);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ erro: e.message }));
-    }
-  }
-
-  if (req.method === 'POST' && req.url === '/gerar-laudo') {
-    const chunks = [];
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', async () => {
-      try {
-        const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        const docxBuffer = await gerarDocx(payload);
-        const ts = Date.now();
-        const nomeArquivo = `Laudo_${(payload.dados.nome||'cliente').replace(/\s+/g,'_')}_${payload.dados.data||'vistoria'}_${ts}.docx`;
-        const docxPath = path.join(OUTPUT_DIR, nomeArquivo);
-        fs.writeFileSync(docxPath, docxBuffer);
-
-        const hist = lerHistorico();
-        const registrosResumo = (payload.registros || []).map(r => ({ ambiente: r.ambiente, defeito: r.defeito }));
-        hist.push({ nome: payload.dados.nome||'Cliente', empreendimento: payload.dados.empreendimento||'', endereco: payload.dados.endereco||'', data: payload.dados.data||'—', tipo: payload.tipoVistoria||'—', valor: payload.dados.valor || null, formaPagamento: payload.dados.formaPagamento || null, registros: registrosResumo, arquivo: nomeArquivo, ts });
-        salvarHistorico(hist);
-
-        if (payload.formato === 'docx') {
-          res.writeHead(200, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'Content-Disposition': `attachment; filename="${nomeArquivo}"` });
-          return res.end(docxBuffer);
-        }
-
+      if (!dataUrlOriginal) { resolve(null); return; }
+      const img = new Image();
+      img.onload = () => {
         try {
-          const paths = ['C:\\Program Files\\LibreOffice\\program\\soffice.exe','C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe','soffice'];
-          let soffice = 'soffice';
-          for (const p of paths) { if (fs.existsSync(p)) { soffice = p; break; } }
-          execSync(`"${soffice}" --headless --convert-to pdf "${docxPath}" --outdir "${OUTPUT_DIR}"`, { timeout: 60000 });
-          const pdfBuf = fs.readFileSync(docxPath.replace('.docx','.pdf'));
-          res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${nomeArquivo.replace('.docx','.pdf')}"` });
-          return res.end(pdfBuf);
-        } catch(e) {
-          console.error('PDF falhou, enviando docx:', e.message);
-          res.writeHead(200, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'Content-Disposition': `attachment; filename="${nomeArquivo}"` });
-          return res.end(docxBuffer);
-        }
-      } catch(e) {
-        console.error('Erro:', e);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
-      }
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            const escala = maxDim / Math.max(width, height);
+            width = Math.round(width * escala);
+            height = Math.round(height * escala);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.78));
+        } catch (e) { resolve(dataUrlOriginal); }
+      };
+      img.onerror = () => resolve(null); // imagem não carregou de jeito nenhum (formato não suportado)
+      img.src = dataUrlOriginal;
+    } catch (e) { resolve(null); }
+  });
+}
+
+async function handleFiles(files) {
+  const arquivos = Array.from(files).slice(0,8);
+  const statusMsg = document.getElementById('carimboStatusMsg');
+  if (statusMsg) statusMsg.style.display = 'block';
+  const falhas = [];
+  for (const file of arquivos) {
+    let dataUrl = await comTimeout(redimensionarImagem(file), 15000, null);
+    let mediaType = 'image/jpeg'; // depois de passar pelo redimensionamento, sempre vira jpeg
+    if (!dataUrl) { falhas.push(file.name || 'foto sem nome'); continue; }
+    if (carimboAtivo) {
+      try {
+        const exifInfo = await comTimeout(lerExifDeArquivo(file), 5000, null); // tenta usar a data/local REAIS da foto (fotos antigas da galeria)
+        dataUrl = await comTimeout(carimbarFoto(dataUrl, exifInfo), 15000, dataUrl);
+      } catch (e) { console.error('Falha ao aplicar carimbo, mantendo foto sem carimbo:', e); }
+    }
+    const id = 'p'+Date.now()+Math.random().toString(36).slice(2);
+    const entry = { id, src: dataUrl, base64: dataUrl.split(',')[1], mediaType };
+    state.fotosAtuais.push(entry); renderFotoPreview(); await salvarRascunho();
+  }
+  if (statusMsg) statusMsg.style.display = 'none';
+  if (falhas.length > 0) {
+    alert(`⚠ ${falhas.length} foto${falhas.length === 1 ? ' não pôde' : 's não puderam'} ser processada${falhas.length === 1 ? '' : 's'} e ${falhas.length === 1 ? 'foi' : 'foram'} ignorada${falhas.length === 1 ? '' : 's'} (formato não suportado, como HEIC do iPhone).\n\nAs outras fotos foram adicionadas normalmente. Pra essa(s) que falhou(aram), tente: enviar de novo, tirar a foto direto pela Câmera do app, ou salvar essa foto como JPEG antes de enviar.`);
+  }
+}
+
+function renderFotoPreview() {
+  document.getElementById('photoPreviewGrid').innerHTML = state.fotosAtuais.map(p => `
+    <div class="photo-thumb"><img src="${p.src}">
+      <button class="remove-photo" onclick="removerFoto('${p.id}')">✕</button>
+    </div>`).join('');
+}
+
+function removerFoto(id) { state.fotosAtuais=state.fotosAtuais.filter(p=>p.id!==id); renderFotoPreview(); salvarRascunho(); }
+
+// ══════════════════════════════════════════════════════════════
+// BIBLIOTECA DE LEGENDAS PADRÃO (baseada no documento da G&G Engenharia)
+// Cada item: t = título curto do botão, d = texto completo (usado como legenda da foto)
+// ══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// CONFIGURAÇÃO DE CORES DAS FITAS/ADESIVOS
+// Grupo A = peça oca/lascada/trincada · Grupo B = rejunte/pintura · Grupo C = fissura
+// Os textos da biblioteca usam os tokens {CORA}, {CORB}, {CORC} no lugar do nome da cor,
+// substituídos aqui pela cor atualmente configurada (ex: se a fita laranja acabar e a
+// pessoa passar a usar preta, é só trocar aqui — todos os textos atualizam sozinhos).
+// ══════════════════════════════════════════════════════════════
+const CORES_DISPONIVEIS = [
+  {id:'laranja', nome:'laranja', label:'Laranja', hex:'#D4762A', emoji:'🟠'},
+  {id:'verde', nome:'verde', label:'Verde', hex:'#1A6B3C', emoji:'🟢'},
+  {id:'azul', nome:'azul', label:'Azul', hex:'#2B5F96', emoji:'🔵'},
+  {id:'preto', nome:'preto', label:'Preta', hex:'#1C1917', emoji:'⚫'},
+  {id:'vermelho', nome:'vermelho', label:'Vermelha', hex:'#C0392B', emoji:'🔴'},
+  {id:'amarelo', nome:'amarelo', label:'Amarela', hex:'#D4A72A', emoji:'🟡'},
+  {id:'roxo', nome:'roxo', label:'Roxa', hex:'#7C3AED', emoji:'🟣'},
+  {id:'branco', nome:'branco', label:'Branca', hex:'#F0EDE8', emoji:'⚪'},
+  {id:'marrom', nome:'marrom', label:'Marrom', hex:'#6B4226', emoji:'🟤'}
+];
+
+let corConfig = { A: 'laranja', B: 'verde', C: 'azul' };
+
+function getCor(grupo) {
+  return CORES_DISPONIVEIS.find(c => c.id === corConfig[grupo]) || CORES_DISPONIVEIS[0];
+}
+
+function substituirCores(texto) {
+  return texto
+    .replace(/\{CORA\}/g, getCor('A').nome)
+    .replace(/\{CORB\}/g, getCor('B').nome)
+    .replace(/\{CORC\}/g, getCor('C').nome);
+}
+
+async function salvarCorConfig() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA, 'readwrite');
+    tx.objectStore(LOJA).put(JSON.parse(JSON.stringify(corConfig)), 'config_cores');
+  } catch (e) { console.error('Falha ao salvar configuração de cores:', e); }
+}
+
+async function carregarCorConfig() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA, 'readonly');
+    const salvo = await new Promise(res => {
+      const req = tx.objectStore(LOJA).get('config_cores');
+      req.onsuccess = () => res(req.result || null);
+      req.onerror = () => res(null);
     });
-    return;
+    if (salvo) Object.assign(corConfig, salvo);
+  } catch (e) { /* mantém padrão se der erro */ }
+}
+
+// ══════════════════════════════════════════════════════════════
+// CARIMBO DE DATA/HORA/LOCAL NAS FOTOS — liga/desliga no topo do app.
+// Quando ligado, cada foto tirada/enviada ganha um carimbo com data,
+// hora e endereço aproximado (via GPS + geocodificação reversa),
+// desenhado direto na imagem antes de ser salva no registro.
+// ══════════════════════════════════════════════════════════════
+let carimboAtivo = true; // ligado por padrão
+let ultimaLocalizacao = null; // cache: { lat, lon, endereco, timestamp }
+
+async function salvarCarimboConfig() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA, 'readwrite');
+    tx.objectStore(LOJA).put(carimboAtivo, 'config_carimbo');
+  } catch (e) { console.error('Falha ao salvar configuração do carimbo:', e); }
+}
+
+async function carregarCarimboConfig() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA, 'readonly');
+    const salvo = await new Promise(res => {
+      const req = tx.objectStore(LOJA).get('config_carimbo');
+      req.onsuccess = () => res(req.result);
+      req.onerror = () => res(undefined);
+    });
+    if (salvo === true || salvo === false) carimboAtivo = salvo;
+  } catch (e) { /* mantém padrão (ligado) se der erro */ }
+  atualizarToggleCarimboUI();
+}
+
+function toggleCarimbo(ligado) {
+  carimboAtivo = ligado;
+  atualizarToggleCarimboUI();
+  salvarCarimboConfig();
+}
+
+function atualizarToggleCarimboUI() {
+  const track = document.getElementById('carimboToggleTrack');
+  const dot = document.getElementById('carimboToggleDot');
+  const checkbox = document.getElementById('carimboToggle');
+  if (!track || !dot || !checkbox) return;
+  checkbox.checked = carimboAtivo;
+  track.style.background = carimboAtivo ? 'var(--accent)' : 'rgba(255,255,255,.25)';
+  dot.style.left = carimboAtivo ? '16px' : '2px';
+}
+
+// Pega a localização atual (GPS) e o endereço aproximado (rua/bairro/cidade).
+// Reaproveita a última localização se foi obtida há menos de 5 minutos, pra
+// não ficar pedindo GPS e endereço de novo a cada foto do mesmo ambiente.
+let ultimoErroLocalizacao = '';
+async function obterLocalizacaoAtual() {
+  if (ultimaLocalizacao && (Date.now() - ultimaLocalizacao.timestamp) < 5 * 60 * 1000) {
+    return ultimaLocalizacao;
+  }
+  if (!('geolocation' in navigator)) {
+    ultimoErroLocalizacao = 'Este navegador não suporta localização por GPS.';
+    return null;
+  }
+  try {
+    const pos = await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+    });
+    const lat = pos.coords.latitude, lon = pos.coords.longitude;
+    let endereco = '';
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=17&addressdetails=1`);
+      const data = await res.json();
+      const a = data.address || {};
+      const partes = [a.road, a.suburb || a.neighbourhood, a.city || a.town].filter(Boolean);
+      endereco = partes.join(', ');
+    } catch (e) { /* segue sem endereço textual, usa só as coordenadas */ }
+    ultimaLocalizacao = { lat, lon, endereco, timestamp: Date.now() };
+    return ultimaLocalizacao;
+  } catch (e) {
+    // Traduz o código de erro do GPS numa mensagem que a pessoa consiga agir a partir dela
+    const mensagens = {
+      1: 'Permissão de localização negada. No iPhone: Ajustes → Privacidade e Segurança → Serviços de Localização → Safari (ou o app EngCheck) → "Ao Usar o App". No Android: Ajustes do Chrome → Configurações do site → Localização.',
+      2: 'Não foi possível determinar sua localização agora (sinal de GPS fraco ou indisponível). Tente novamente em um local mais aberto, perto de uma janela.',
+      3: 'A busca por localização demorou demais e foi cancelada. Tente novamente — às vezes o GPS demora mais na primeira tentativa.'
+    };
+    ultimoErroLocalizacao = mensagens[e.code] || `Não foi possível obter a localização (${e.message}).`;
+    console.error('Não foi possível obter a localização:', e.message);
+    return null;
+  }
+}
+
+// Lê a data/hora (e localização, se houver) gravada dentro do próprio arquivo da foto
+// (metadado EXIF, comum em fotos tiradas por celular). Essencial pra vistorias antigas:
+// fotos já tiradas há tempo ganham o carimbo com a data REAL da foto, não a de hoje.
+// Retorna null se o arquivo não tiver EXIF (ex: print de tela, PNG, foto editada).
+async function lerExifDeArquivo(file) {
+  try {
+    const buf = await file.slice(0, 128 * 1024).arrayBuffer(); // os primeiros 128KB já bastam pro EXIF
+    const view = new DataView(buf);
+    if (view.getUint16(0, false) !== 0xFFD8) return null; // não é JPEG, EXIF não se aplica
+
+    let offset = 2, tiffStart = null;
+    while (offset < view.byteLength - 4) {
+      const marker = view.getUint16(offset, false);
+      if ((marker & 0xFF00) !== 0xFF00) break;
+      const segLength = view.getUint16(offset + 2, false);
+      if (marker === 0xFFE1 && view.getUint32(offset + 4, false) === 0x45786966) {
+        tiffStart = offset + 10; // pula "Exif\0\0" e cai no cabeçalho TIFF
+        break;
+      }
+      offset += 2 + segLength;
+    }
+    if (tiffStart === null) return null;
+
+    const little = view.getUint16(tiffStart, false) === 0x4949; // 'II' = little-endian
+    const ifd0Offset = tiffStart + view.getUint32(tiffStart + 4, little);
+
+    const lerString = (off, len) => {
+      let s = '';
+      for (let i = 0; i < len; i++) { const c = view.getUint8(off + i); if (c === 0) break; s += String.fromCharCode(c); }
+      return s;
+    };
+    const lerTagsIFD = (ifdOffset) => {
+      const num = view.getUint16(ifdOffset, little);
+      const tags = {};
+      for (let i = 0; i < num; i++) {
+        const entry = ifdOffset + 2 + i * 12;
+        const tag = view.getUint16(entry, little);
+        const type = view.getUint16(entry + 2, little);
+        const count = view.getUint32(entry + 4, little);
+        const tamanhos = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 9: 4, 10: 8 };
+        const tamanho = (tamanhos[type] || 1) * count;
+        const valueOffset = entry + 8;
+        const dataOffset = tamanho > 4 ? tiffStart + view.getUint32(valueOffset, little) : valueOffset;
+        tags[tag] = { type, count, dataOffset };
+      }
+      return tags;
+    };
+
+    const ifd0Tags = lerTagsIFD(ifd0Offset);
+    let dataHora = null, lat = null, lon = null;
+
+    if (ifd0Tags[0x8769]) { // ponteiro pra sub-IFD Exif (tem DateTimeOriginal)
+      const exifTags = lerTagsIFD(tiffStart + view.getUint32(ifd0Tags[0x8769].dataOffset, little));
+      const t = exifTags[0x9003]; // DateTimeOriginal
+      if (t) {
+        const m = lerString(t.dataOffset, t.count).match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+        if (m) dataHora = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+      }
+    }
+    if (!dataHora && ifd0Tags[0x0132]) { // fallback: DateTime do IFD0
+      const t = ifd0Tags[0x0132];
+      const m = lerString(t.dataOffset, t.count).match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+      if (m) dataHora = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    }
+
+    if (ifd0Tags[0x8825]) { // ponteiro pra sub-IFD de GPS
+      const gpsTags = lerTagsIFD(tiffStart + view.getUint32(ifd0Tags[0x8825].dataOffset, little));
+      const lerRational = (off) => { const n = view.getUint32(off, little), d = view.getUint32(off + 4, little); return d === 0 ? 0 : n / d; };
+      const lerCoordenada = (t) => lerRational(t.dataOffset) + lerRational(t.dataOffset + 8) / 60 + lerRational(t.dataOffset + 16) / 3600;
+      if (gpsTags[1] && gpsTags[2]) { lat = lerCoordenada(gpsTags[2]); if (lerString(gpsTags[1].dataOffset, gpsTags[1].count) === 'S') lat = -lat; }
+      if (gpsTags[3] && gpsTags[4]) { lon = lerCoordenada(gpsTags[4]); if (lerString(gpsTags[3].dataOffset, gpsTags[3].count) === 'W') lon = -lon; }
+    }
+
+    if (!dataHora && lat === null) return null;
+    return { dataHora, lat, lon };
+  } catch (e) {
+    console.error('Falha ao ler EXIF da foto:', e);
+    return null;
+  }
+}
+
+// Desenha o carimbo (data, hora e endereço) direto na imagem, numa faixa
+// semitransparente no canto inferior esquerdo. Retorna a nova imagem em JPEG.
+// A data usa o EXIF da foto quando disponível (fotos antigas da galeria);
+// o endereço usa sempre os dados do imóvel preenchidos na tela inicial —
+// não faz sentido usar o GPS de onde a pessoa está ao subir a foto, já que
+// o endereço da vistoria é o do imóvel, não de quem está com o celular.
+function montarEnderecoParaCarimbo() {
+  const d = state.dados || {};
+  const partes = [];
+  if (d.endereco) partes.push(d.endereco);
+  if (d.bloco) partes.push(d.bloco);
+  if (d.apto) partes.push(`Apto ${d.apto}`);
+  if (d.cidade) partes.push(d.cidade);
+  return partes.join(', ');
+}
+
+async function carimbarFoto(dataUrl, exifInfo) {
+  return new Promise(async (resolve) => {
+    try {
+      const enderecoTexto = montarEnderecoParaCarimbo();
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width; canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+
+          const momento = (exifInfo && exifInfo.dataHora) ? exifInfo.dataHora : new Date();
+          const linha1 = `${momento.toLocaleDateString('pt-BR')} ${momento.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+          const linha2 = enderecoTexto || 'Endereço não informado';
+
+          const fontSize = Math.max(14, Math.round(canvas.width * 0.028));
+          ctx.font = `bold ${fontSize}px Arial`;
+          const padding = fontSize * 0.6;
+          const textWidth = Math.min(canvas.width, Math.max(ctx.measureText(linha1).width, ctx.measureText(linha2).width) + padding * 2);
+          const boxHeight = fontSize * 2.6 + padding;
+
+          ctx.fillStyle = 'rgba(0,0,0,0.55)';
+          ctx.fillRect(0, canvas.height - boxHeight, textWidth, boxHeight);
+          ctx.fillStyle = '#fff';
+          ctx.textBaseline = 'top';
+          ctx.fillText(linha1, padding, canvas.height - boxHeight + padding * 0.5);
+          ctx.fillText(linha2, padding, canvas.height - boxHeight + padding * 0.5 + fontSize * 1.3);
+
+          resolve(canvas.toDataURL('image/jpeg', 0.9));
+        } catch (e) { console.error('Falha ao desenhar carimbo:', e); resolve(dataUrl); }
+      };
+      // Se a imagem não conseguir carregar (formato não suportado, ex: HEIC do iPhone
+      // salvo na galeria), NÃO usa a foto quebrada — sinaliza falha clara em vez de
+      // guardar algo que vai travar o app mais tarde na hora de gerar o laudo.
+      img.onerror = () => resolve(null);
+      img.src = dataUrl;
+    } catch (e) { resolve(dataUrl); }
+  });
+}
+
+// Confere se uma imagem consegue ser carregada/decodificada pelo navegador —
+// usado quando o carimbo está desligado, pra pegar o mesmo tipo de problema
+// (formato não suportado) antes de adicionar a foto na vistoria.
+function validarImagemCarregavel(dataUrl) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = dataUrl;
+  });
+}
+
+function renderFitaColorida() {
+  const grupos = [
+    { grupo: 'A', texto: 'Peça oca, lascada ou trincada', label: 'Peça oca/lascada/trincada' },
+    { grupo: 'B', texto: 'Falha de rejunte ou falha na pintura', label: 'Rejunte/pintura' },
+    { grupo: 'C', texto: 'Fissura na parede, piso ou teto', label: 'Fissura parede/piso/teto' }
+  ];
+  document.getElementById('fitaColoridaGrid').innerHTML = grupos.map(g => {
+    const cor = getCor(g.grupo);
+    return `<button class="opt-btn" style="background:${cor.hex};color:#fff;border-color:${cor.hex}" onclick="selecionarDefeito(this,'${g.texto.replace(/'/g,"\\'")}')"><i class="ti ti-tag"></i> ${cor.emoji} ${g.label}</button>`;
+  }).join('');
+}
+
+function toggleConfigCores() {
+  const painel = document.getElementById('configCoresPainel');
+  if (painel.style.display === 'block') { painel.style.display = 'none'; return; }
+  const grupos = [
+    { grupo: 'A', label: 'Peça oca/lascada/trincada' },
+    { grupo: 'B', label: 'Falha de rejunte/pintura' },
+    { grupo: 'C', label: 'Fissura' }
+  ];
+  painel.innerHTML = `<div class="section-label" style="margin-top:0">Configurar cores das fitas</div>` + grupos.map(g => `
+    <div class="field">
+      <label>${g.label}</label>
+      <select onchange="mudarCorGrupo('${g.grupo}', this.value)">
+        ${CORES_DISPONIVEIS.map(c => `<option value="${c.id}" ${corConfig[g.grupo]===c.id?'selected':''}>${c.emoji} ${c.label}</option>`).join('')}
+      </select>
+    </div>`).join('');
+  painel.style.display = 'block';
+}
+
+function mudarCorGrupo(grupo, corId) {
+  corConfig[grupo] = corId;
+  salvarCorConfig();
+  renderFitaColorida();
+  // Se o usuário já estava vendo a lista de itens de alguma categoria, atualiza os textos na hora
+  if (document.getElementById('itemGrid').style.display === 'block' && categoriaAtual) {
+    selecionarCategoria(categoriaAtual);
+  }
+}
+
+let categoriaAtual = '';
+
+const LEGENDAS = {
+  "Revestimentos Cerâmicos": [
+    {t:"Cerâmica oca (som cavo)", d:"Durante a vistoria, foi identificada manifestação patológica caracterizada por som cavo (oco) em peças de revestimento cerâmico, sinalizada com adesivo {CORA}. Essa condição indica falha de aderência entre a cerâmica e a base, podendo resultar em descolamento futuro das peças e redução do desempenho do sistema de revestimento. Recomenda-se a remoção e reinstalação das peças afetadas, com preparo adequado do substrato e utilização de argamassa colante compatível, conforme procedimentos estabelecidos na ABNT NBR 13753:1996."},
+    {t:"Falha no rejunte", d:"Foram identificadas falhas e descontinuidades no rejunte, sinalizadas com adesivo {CORB}, comprometendo o acabamento e podendo permitir a infiltração de água e o acúmulo de sujeira. Recomenda-se a correção com reaplicação adequada do rejunte."},
+    {t:"Cerâmica oca e falha no rejunte", d:"Verifica-se revestimento cerâmico com peças ocas (adesivo {CORA}) e ausência ou falhas no rejuntamento (adesivo {CORB}), comprometendo a aderência, a uniformidade e o acabamento estético do revestimento. Recomenda-se correção das peças e execução adequada do rejunte para garantir durabilidade e padrão visual adequado."},
+    {t:"Cerâmica trincada", d:"Foi identificada cerâmica trincada, sinalizada com adesivo {CORA}, comprometendo a integridade e a estética do revestimento. Possivelmente causada por movimentação do substrato ou impacto. Recomenda-se substituição da peça para restabelecer o acabamento e evitar infiltrações."},
+    {t:"Cerâmica lascada", d:"Verifica-se a presença de lascamentos no revestimento cerâmico, sinalizados com adesivo {CORA}, comprometendo o acabamento, a estética e a durabilidade do material."},
+    {t:"Cerâmica lascada e oca", d:"Foi constatada a presença de peça cerâmica lascada e com som cavo (oco), sinalizada com adesivo {CORA}. Essa condição pode estar associada a falhas no assentamento, utilização inadequada de argamassa colante ou movimentações do substrato. Recomenda-se a substituição da peça afetada e verificação das demais áreas para evitar recorrências."},
+    {t:"Rodapé oco", d:"Ao realizar a inspeção por percussão, foi constatado som cavo no rodapé, sinalizado com adesivo {CORA}, indicando falta de aderência adequada ao substrato, com risco de desplacamento. Recomenda-se a remoção e a correta reinstalação do rodapé, garantindo a adequada fixação e acabamento."},
+    {t:"Piso sujo", d:"Observa-se revestimento cerâmico com acúmulo de sujeira e resíduos de obra, comprometendo a aparência e o acabamento final da superfície. Recomenda-se a limpeza adequada e remoção dos resíduos."},
+    {t:"Cerâmica manchada (diferença de lote)", d:"Há variações de tonalidade entre as peças cerâmicas, possivelmente decorrentes do uso de lotes diferentes, resultando em um aspecto visual inconsistente."}
+  ],
+  "Pintura": [
+    {t:"Mancha na pintura", d:"Foram identificadas manchas na pintura, sinalizadas com adesivo {CORB}, comprometendo a uniformidade e a vedação das superfícies."},
+    {t:"Falha na pintura (manchas/ondulações)", d:"Observa-se falhas na pintura, sinalizadas com adesivo {CORB}, com presença de manchas e ondulações visíveis nas superfícies de parede e teto, comprometendo o acabamento estético do ambiente."},
+    {t:"Microfissura", d:"Foi verificado a presença de fissura linear na superfície da parede, sinalizada com adesivo {CORC}, com abertura estimada inferior a 1 mm. Pode estar relacionado à movimentação da edificação, retração de materiais ou variações térmicas. Recomenda-se o reparo com materiais adequados e o monitoramento da área."},
+    {t:"Falha na textura", d:"Foi identificada falha na textura, comprometendo o acabamento e a estética da superfície."},
+    {t:"Mancha de umidade", d:"Evidências de umidade foram observadas na superfície, podendo estar relacionadas a infiltrações, condensação ou falhas na impermeabilização."},
+    {t:"Falha no recorte teto/parede", d:"O acabamento da pintura na transição entre o teto e a parede apresenta irregularidades, sinalizado com adesivo {CORB}, resultando em um aspecto visual desalinhado e comprometendo a estética do ambiente."}
+  ],
+  "Porta": [
+    {t:"Porta quebrada", d:"A porta apresenta danos estruturais que comprometem sua funcionalidade e estética, podendo necessitar de reparo ou substituição."},
+    {t:"Porta fora do prumo", d:"Constata-se que a porta se encontra fora de prumo, o que compromete seu funcionamento adequado. A folha tende a fechar sozinha, o que pode causar desconforto aos usuários e risco de impacto constante ao passar. Essa condição pode estar relacionada à instalação inadequada ou deformações na estrutura. Recomenda-se o ajuste do alinhamento da porta para restabelecer seu uso seguro e confortável."},
+    {t:"Maçaneta com problema", d:"A maçaneta apresenta falhas no acionamento, podendo comprometer a abertura e o fechamento da porta."},
+    {t:"Falha ao trancar", d:"O mecanismo de fechamento da porta não está operando corretamente, dificultando o travamento adequado."},
+    {t:"Faltando dobradiça", d:"A ausência de dobradiça compromete a estabilidade e o correto funcionamento da porta, podendo impactar sua fixação e segurança."},
+    {t:"Batente e alizar lascado", d:"Foram identificados danos no batente e alizar, resultando em falhas na integridade e estética do acabamento."},
+    {t:"Folha da porta lascada", d:"Foram identificados danos na folha da porta, resultando em falhas na integridade e estética do acabamento."},
+    {t:"Ruído na abertura", d:"Ao movimentar a porta, foi constatada a emissão de ruído nas dobradiças, indicando possível aperto excessivo, falta de lubrificação ou desalinhamento. Recomenda-se verificação, ajuste e lubrificação."}
+  ],
+  "Porta de correr": [
+    {t:"Não desliza", d:"A porta de correr apresenta dificuldades no deslizamento, possivelmente devido a desalinhamento, sujeira no trilho ou desgaste dos componentes."},
+    {t:"Trilho amassado", d:"O trilho da porta de correr apresenta deformações, o que pode comprometer o deslizamento adequado da porta e exigir reparo ou substituição."},
+    {t:"Vidro arranhado", d:"Vidro da porta de correr apresenta arranhões visíveis, comprometendo o acabamento e a estética. Recomenda-se substituição ou polimento, conforme viabilidade."},
+    {t:"Falha ao trancar", d:"O mecanismo de travamento da porta de correr não está operando corretamente, dificultando seu fechamento seguro."}
+  ],
+  "Janela": [
+    {t:"Janela quebrada", d:"A estrutura da janela apresenta danos, comprometendo sua funcionalidade e segurança."},
+    {t:"Falha na movimentação", d:"Foi identificado que a janela apresenta dificuldade ao abrir, ficando travada, o que compromete seu funcionamento adequado."},
+    {t:"Trinco não funciona", d:"O trinco da janela não está operando corretamente, dificultando seu fechamento seguro."},
+    {t:"Peitoril lascado", d:"O peitoril apresenta danos na superfície, sinalizados com adesivo {CORA}, afetando sua estética e podendo comprometer sua resistência."},
+    {t:"Falha na vedação do PU", d:"A vedação com PU apresenta falhas, o que pode comprometer a impermeabilização e permitir infiltrações."},
+    {t:"Peitoril oco e falha rejunte", d:"O peitoril apresenta som cavo (adesivo {CORA}), comprometendo a estabilidade e segurança, além de falha no rejuntamento (adesivo {CORB}) entre peças prejudicando a vedação."},
+    {t:"Alizar mal encaixado", d:"Constatou-se que o alizar não apresenta bom encaixe no encontro com o marco da janela, resultando em frestas e desnível no acabamento. A situação compromete a estética, facilita o acúmulo de sujeira e pode permitir a passagem de ar e água. Recomenda-se o reposicionamento e fixação correta do alizar, com vedação adequada."},
+    {t:"Alizar com pontas pontiagudas (risco de corte)", d:"Foi identificado que o alizar apresenta pontas pontiagudas nas quinas, representando risco de corte aos usuários durante o manuseio ou circulação próxima ao ambiente. Recomenda-se o lixamento ou arredondamento das extremidades, garantindo segurança adequada."},
+    {t:"Fresta de luz / janela desaprumada", d:"A folha da janela apresenta fresta de luz ao ser fechada, indicando desaprumo e falha no alinhamento da esquadria. Recomenda-se o ajuste da folha para garantir vedação adequada e o correto funcionamento do fechamento."}
+  ],
+  "Pia e tanque": [
+    {t:"Pia trincada", d:"Foi identificada uma trinca na superfície da pia, podendo comprometer sua resistência e estética."},
+    {t:"Pia lascada", d:"A pia apresenta lascas, afetando o acabamento e podendo comprometer sua durabilidade."},
+    {t:"Vazamento no sifão", d:"O sifão da pia apresenta vazamento, comprometendo a vedação e o funcionamento adequado do sistema."},
+    {t:"Vazamento no engate", d:"Foi identificado vazamento no engate, o que pode comprometer a vedação e causar infiltrações."},
+    {t:"Vazamento na torneira", d:"A torneira da pia apresenta vazamento, podendo gerar desperdício de água e umidade excessiva na bancada."},
+    {t:"Falha na vedação", d:"A vedação da pia apresenta irregularidades, o que pode permitir infiltrações e comprometer a impermeabilização do ambiente."},
+    {t:"Pia desnivelada", d:"Foi observado desnivelamento na instalação da pia, o que pode impactar o escoamento da água e a funcionalidade do conjunto."}
+  ],
+  "Elétrica": [
+    {t:"Espelho quebrado", d:"O espelho da tomada e do interruptor apresenta danos, comprometendo a segurança e a estética do ambiente."},
+    {t:"Interruptor sem acionar", d:"O interruptor não está funcionando corretamente, podendo dificultar o acionamento da iluminação."},
+    {t:"QDC sem identificação", d:"O Quadro de Distribuição de Circuitos (QDC) não possui identificação, dificultando a localização e o manuseio correto dos disjuntores."},
+    {t:"QDC com falha na fixação", d:"O QDC não está devidamente fixado, o que pode comprometer sua estabilidade e segurança."},
+    {t:"Espelho sujo", d:"O interruptor e as tomadas apresentam sujeira, comprometendo o acabamento e a apresentação estética."},
+    {t:"Placa desalinhada", d:"Identificamos que a placa (tomada ou interruptor) está desalinhada e mal instalada, comprometendo a estética do ambiente."},
+    {t:"QDC com espaço/disjuntor exposto", d:"Constatada a existência de espaço aberto no QDC (Quadro de Distribuição de Circuitos), sem disjuntor instalado e sem proteção adequada, permitindo acesso à parte interna energizada. É necessária a instalação de tampa cega ou proteção plástica conforme normas de segurança."}
+  ],
+  "Bacia Sanitária": [
+    {t:"Bacia quebrada", d:"A bacia sanitária apresenta danos estruturais, comprometendo sua funcionalidade e segurança."},
+    {t:"Falha na fixação", d:"A fixação da bacia sanitária apresenta instabilidade, sendo necessário apertar os parafusos para garantir sua estabilidade."},
+    {t:"Falha no acionamento", d:"O sistema de acionamento da bacia sanitária não está operando corretamente, dificultando seu funcionamento adequado."},
+    {t:"Vazamento no engate", d:"Foi identificado vazamento no engate do vaso sanitário, comprometendo o funcionamento adequado dos sistemas."},
+    {t:"Vazamento no pé", d:"Foi identificado vazamento na base da bacia sanitária, possivelmente devido a falhas na vedação ou no sistema de escoamento."},
+    {t:"Vedação do pé com rejunte branco", d:"A vedação da base da bacia sanitária foi executada com rejunte na cor branca. Não se recomenda essa prática, pois o rejunte branco tende a apresentar mofo e encardimento ao longo do tempo devido à umidade constante na região, comprometendo o aspecto estético e a higiene do ambiente. Recomenda-se a utilização de rejunte em tonalidade mais escura, mais resistente ao mofo e ao encardimento."}
+  ],
+  "Ralo": [
+    {t:"Obstruído / precisa limpeza", d:"O ralo apresenta acúmulo de resíduos, impedindo o escoamento adequado da água e necessitando de limpeza."},
+    {t:"Sem sifão", d:"O ralo não possui sifão, o que pode comprometer a vedação contra odores e gases provenientes da tubulação."},
+    {t:"Grelha quebrada", d:"A grelha do ralo apresenta danos, podendo comprometer sua funcionalidade e segurança."},
+    {t:"Sem grelha", d:"O ralo está sem a grelha de proteção, podendo gerar risco de obstrução ou acidentes."},
+    {t:"Retorno de água no ralo", d:"Verificou-se retorno de água no ralo, indicando possível obstrução parcial na tubulação ou ausência de declividade adequada no ponto de escoamento. Recomenda-se verificação e correção do sistema de drenagem, garantindo o fluxo adequado da água e evitando acúmulo ou refluxo."},
+    {t:"Fresta entre porta-grelha e tubulação", d:"Existe uma falha no encaixe da tubulação de esgoto com o porta-grelha, com fresta visível entre as peças, indicando que não estão devidamente encaixadas. Essa condição pode comprometer o escoamento da água, podendo gerar infiltração, e necessita reparo ou substituição."}
+  ],
+  "Piso Laminado": [
+    {t:"Lascado e falha no encaixe", d:"O piso laminado apresenta peças lascadas, falhas no encaixe com espaços visíveis entre as peças e pontos com instabilidade ao pisar."},
+    {t:"Fresta entre placas", d:"O piso laminado apresenta falha no encaixe entre as placas, com fresta visível na junção, comprometendo o acabamento e podendo permitir acúmulo de sujeira ou umidade entre as peças."},
+    {t:"Piso afundando", d:"Foi identificado que o piso laminado apresenta afundamento ao ser pisado em determinados pontos, indicando falha na base de apoio ou no assentamento das placas. Recomenda-se verificação da estrutura de suporte e correção do nivelamento."},
+    {t:"Piso estalando", d:"Foi constatado que o piso laminado apresenta estalos ao ser pisado em determinados pontos, podendo indicar má fixação das placas, folga na base de apoio ou falha no encaixe entre os componentes. Recomenda-se verificação do assentamento e correção conforme necessário."}
+  ],
+  "Queda (caimento)": [
+    {t:"Queda insuficiente", d:"O piso apresenta falha na queda, podendo comprometer o escoamento adequado da água."},
+    {t:"Queda excessiva", d:"O piso apresenta inclinação excessiva, causando desconforto ao caminhar e podendo indicar execução fora do padrão técnico. Recomenda-se correção da inclinação."}
+  ],
+  "Drywall": [
+    {t:"Fissura na placa", d:"Foi identificada fissura na placa de drywall, o defeito compromete o acabamento e pode indicar movimentação da estrutura, aplicação incorreta ou dilatação dos materiais. Recomenda-se análise detalhada e correção adequada."},
+    {t:"Ondulação na emenda", d:"Foi identificada ondulação na região da emenda entre as placas de drywall, comprometendo a planeza e o acabamento da superfície. Essa condição pode estar relacionada a falhas no tratamento das juntas ou na aplicação da massa de rejunte. Recomenda-se o retrabalho da emenda para restabelecer o alinhamento adequado."}
+  ],
+  "Registro": [
+    {t:"Registro manchado", d:"Acabamento do registro apresenta manchas visíveis, comprometendo o aspecto estético do item. Recomenda-se a substituição da peça."},
+    {t:"Registro longe da parede", d:"O registro foi instalado de forma recuada em relação ao revestimento, resultando em uma fresta visível entre a canopla e a parede. Recomenda-se o reposicionamento ou ajuste com canopla adequada."},
+    {t:"Registro não fecha a água", d:"Foi constatado que o registro não realiza o fechamento adequado do fluxo de água, permanecendo com vazamento mesmo na posição fechada. Recomenda-se a verificação e substituição do componente para garantir o correto funcionamento."},
+    {t:"Registro sem acabamento", d:"Foi identificado que o registro está instalado sem o acabamento adequado (canopla/espelho), comprometendo a estética do ponto e deixando a tubulação aparente."}
+  ],
+  "Soleira": [
+    {t:"Soleira trincada", d:"Foi identificada trinca na soleira. Pode estar relacionada a impactos, assentamento inadequado, movimentações da base ou sobrecarga localizada. Recomenda-se a substituição da peça e a verificação do assentamento e rejuntamento adjacente."},
+    {t:"Soleira sem desnível", d:"A soleira encontra-se instalada no mesmo nível do piso interno, sem o desnível obrigatório entre área seca e área molhada. Recomenda-se executar o rebaixamento do piso ou o alteamento da soleira."}
+  ],
+  "Alvenaria": [
+    {t:"Fissura atravessando a parede", d:"Foi identificada fissura que atravessa a parede, sinalizada com adesivo {CORC}, indicando que a manifestação atinge também a alvenaria, não só o revestimento. Recomenda-se avaliação detalhada da origem, monitoramento da fissura e execução de reparos após a estabilização da causa."},
+    {t:"Fissura no encontro do muro", d:"Foram identificadas fissuras na parede externa e no encontro do muro, sinalizadas com adesivo {CORC}, possivelmente decorrentes de ausência de travamento adequado ou movimentações diferenciais. Recomenda-se avaliação estrutural detalhada e monitoramento."},
+    {t:"Falha na pintura e infiltração no teto", d:"Foi identificada falha na pintura da parede, com perda de uniformidade, além de mancha de infiltração no teto, possivelmente decorrente de falhas na impermeabilização ou instalações hidráulicas superiores. Recomenda-se investigar a origem antes de qualquer reparo estético."},
+    {t:"Fissura superficial", d:"Identificado fissura na parede, sinalizada com adesivo {CORC}, restrita ao revestimento/pintura, sem indícios de comprometimento da alvenaria. Pode estar relacionada à retração de materiais, movimentação natural da edificação ou variações térmicas. Recomenda-se o reparo com materiais adequados e monitoramento da área para verificar possível recorrência."}
+  ],
+  "Contra-piso": [
+    {t:"Contra-piso oco", d:"Foi identificado contra piso com áreas ocas (som oco ao toque), indicando falha no assentamento da argamassa. Recomenda-se remoção das áreas comprometidas, correção do assentamento e verificação da superfície adjacente."}
+  ],
+  "Garagem / Diversos": [
+    {t:"Falha na fixação de placa pré-moldada", d:"Foi identificada anomalia de fixação em uma das placas de piso pré-moldadas, caracterizando falha de estabilidade. Recomenda-se a recolocação e nivelamento adequado da placa, com correção da base de apoio."},
+    {t:"Fissura e infiltração no forro", d:"Foi identificada manifestação patológica no forro de gesso, com fissuras lineares e marcas de umidade. Recomenda-se investigar a origem da infiltração antes de qualquer reparo estético."},
+    {t:"Spot de iluminação não funciona", d:"Foi constatado que um dos spots embutidos no teto não está funcionando, enquanto os demais funcionam normalmente. Recomenda-se verificação do ponto elétrico e substituição da lâmpada, se necessário."},
+    {t:"Armário com falha no encaixe", d:"O armário apresenta falha no encaixe das portas, com amortecedor não funcionando adequadamente. Recomenda-se revisar o ajuste das portas e substituir o amortecedor danificado."}
+  ],
+  "Limpeza": [
+    {t:"Limpeza geral", d:"O imóvel apresenta necessidade de limpeza geral, com presença de resíduos de obra, poeira e sujidades acumuladas nos ambientes, comprometendo a apresentação final e o acabamento estético das superfícies. Recomenda-se a realização de limpeza completa antes da entrega/aceitação da unidade."},
+    {t:"Piso sujo", d:"O piso apresenta acúmulo de sujeira e resíduos de obra, comprometendo a aparência e o acabamento final da superfície. Recomenda-se a limpeza adequada e remoção dos resíduos."},
+    {t:"Vidros/esquadrias sujos", d:"As esquadrias e vidros apresentam sujidade, resíduos de silicone, tinta ou poeira, comprometendo a transparência e o acabamento estético. Recomenda-se limpeza adequada."},
+    {t:"Metais e louças sujos", d:"Metais e louças sanitárias apresentam resíduos e sujidade, comprometendo o acabamento e a higiene do ambiente. Recomenda-se limpeza adequada."},
+    {t:"Resíduos de obra (massa/tinta/silicone)", d:"Foram identificados resíduos de obra (massa, tinta, silicone ou similares) aderidos a superfícies e acabamentos, comprometendo a estética. Recomenda-se remoção e limpeza adequada dos resíduos."}
+  ]
+};
+
+function renderCategorias() {
+  document.getElementById('categoriaGrid').innerHTML = Object.keys(LEGENDAS).map(cat =>
+    `<button class="opt-btn" onclick="selecionarCategoria('${cat.replace(/'/g,"\\'")}')"><i class="ti ti-folder"></i> ${cat}</button>`
+  ).join('') + `<button class="opt-btn" onclick="selecionarDefeito(this,'Outro defeito')"><i class="ti ti-dots"></i> Outro / não listado</button>`;
+  document.getElementById('categoriaGrid').style.display = 'grid';
+  document.getElementById('itemGrid').style.display = 'none';
+}
+
+function selecionarCategoria(cat) {
+  categoriaAtual = cat;
+  const itens = LEGENDAS[cat] || [];
+  document.getElementById('itemLista').innerHTML = itens.map((item, i) => {
+    const textoFinal = substituirCores(item.d);
+    return `<button class="opt-btn" style="width:100%;text-align:left;justify-content:flex-start" onclick="selecionarDefeito(this,'${textoFinal.replace(/'/g,"\\'").replace(/\n/g,' ')}')"><i class="ti ti-tag"></i> ${item.t}</button>`;
+  }).join('');
+  document.getElementById('categoriaGrid').style.display = 'none';
+  document.getElementById('itemGrid').style.display = 'block';
+}
+
+function voltarCategorias() { categoriaAtual=''; renderCategorias(); }
+
+// Quando uma foto vem de um item pendente da revistoria (checklist da vistoria
+// anterior), pré-preenche o texto do defeito automaticamente nessa próxima tela.
+let defeitoPreSelecionado = null;
+let defeitoPendenteIdxAtual = null;
+
+function irParaDefeito() {
+  if (state.fotosAtuais.length===0) { alert('Envie ao menos uma foto.'); return; }
+  document.querySelectorAll('#screen-defeito .opt-btn').forEach(b=>b.classList.remove('selected'));
+  state.defeitoAtual=''; document.getElementById('outroDefeitoField').style.display='none';
+  document.getElementById('configCoresPainel').style.display='none';
+  renderFitaColorida();
+  renderCategorias();
+  mostrarScreen('screen-defeito');
+  if (defeitoPreSelecionado) {
+    document.getElementById('outroDefeitoField').style.display = 'block';
+    document.getElementById('outroDefeitoInput').value = defeitoPreSelecionado;
+    state.defeitoAtual = 'Outro defeito';
+    defeitoPreSelecionado = null;
+  }
+}
+
+// Pega uma descrição curta e informal (ex: "buraco na parede") e transforma no
+// texto técnico formal do laudo, no mesmo estilo da biblioteca de legendas —
+// evita ter que abrir o Word depois só pra arrumar a redação.
+async function gerarTextoDefeitoIA() {
+  const input = document.getElementById('outroDefeitoInput');
+  const textoCurto = input.value.trim();
+  if (!textoCurto) { alert('Digite uma descrição do defeito primeiro.'); return; }
+  const btn = document.getElementById('btnGerarDefeitoIA');
+  const textoOriginalBtn = btn.innerHTML;
+  btn.disabled = true;
+  btn.style.opacity = '.6';
+  btn.innerHTML = '<span class="sp2"></span> Gerando texto técnico...';
+  try {
+    const res = await fetch('/gerar-defeito-texto', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ambiente: state.ambienteAtual, textoCurto })
+    });
+    const data = await res.json();
+    if (data.erro || !data.texto) throw new Error(data.erro || 'Resposta vazia da IA.');
+    input.value = data.texto;
+  } catch (e) {
+    console.error('Falha ao gerar texto do defeito com IA:', e);
+    alert('Não foi possível gerar o texto agora. Verifique sua internet e tente de novo, ou digite o texto manualmente.');
+  } finally {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.innerHTML = textoOriginalBtn;
+  }
+}
+
+function selecionarDefeito(el, val) {
+  document.querySelectorAll('#screen-defeito .opt-btn').forEach(b=>b.classList.remove('selected'));
+  el.classList.add('selected'); state.defeitoAtual=val;
+  document.getElementById('outroDefeitoField').style.display=val==='Outro defeito'?'block':'none';
+  if (val==='Outro defeito') document.getElementById('outroDefeitoInput').focus();
+}
+
+function salvarRegistro() {
+  let defeito = state.defeitoAtual;
+  if (defeito==='Outro defeito') defeito=document.getElementById('outroDefeitoInput').value.trim()||'Outro defeito';
+  if (!defeito) { alert('Selecione o tipo de defeito.'); return false; }
+  state.registros.push({ ambiente:state.ambienteAtual, fotos:[...state.fotosAtuais], defeito });
+  if (defeitoPendenteIdxAtual !== null) {
+    state.defeitosPendentes.splice(defeitoPendenteIdxAtual, 1);
+    defeitoPendenteIdxAtual = null;
+  }
+  state.fotosAtuais=[]; atualizarResumo(); salvarRascunho(); return true;
+}
+
+function salvarEProximoAmbiente() { if(!salvarRegistro()) return; document.getElementById('photoPreviewGrid').innerHTML=''; mostrarScreen('screen-ambiente'); }
+function salvarEVoltarAmbiente() { if(!salvarRegistro()) return; document.getElementById('photoPreviewGrid').innerHTML=''; mostrarScreen('screen-ambiente'); }
+
+function mostrarObs(sim) {
+  document.getElementById('btnSimObs').classList.toggle('selected',sim);
+  document.getElementById('btnNaoObs').classList.toggle('selected',!sim);
+  document.getElementById('obsField').style.display=sim?'block':'none';
+}
+
+async function processarLaudo() {
+  const incluirObs = document.getElementById('btnSimObs').classList.contains('selected');
+  let obsFinal = '';
+  if (incluirObs) {
+    const textoLivre = document.getElementById('obsGeral').value.trim();
+    const partes = [...state.obsRapidas];
+    if (textoLivre) partes.push(textoLivre);
+    obsFinal = partes.join('\n\n');
+  }
+  state.obsGeral = obsFinal;
+  salvarRascunho();
+  mostrarScreen('screen-sucesso');
+  const btnDocx = document.getElementById('btnBaixarDocx');
+  btnDocx.onclick=()=>gerarDocumento('docx');
+
+  // Enquanto a IA está preparando a conclusão personalizada, o botão de baixar
+  // fica bloqueado — evita que o download saia rápido demais, antes da IA
+  // terminar, e acabe usando o texto padrão fixo por engano.
+  btnDocx.style.opacity = '.5';
+  btnDocx.style.pointerEvents = 'none';
+  const msg = document.getElementById('gerandoMsg');
+  msg.style.display = 'block';
+  msg.innerHTML = '<span class="sp2"></span> Preparando conclusão personalizada...';
+
+  // Gera a conclusão personalizada por IA, com base nos defeitos reais.
+  // Se falhar (rede, IA fora do ar, etc.), state.conclusaoIA fica vazio e o servidor
+  // usa automaticamente o texto padrão fixo — a vistoria nunca trava por causa disso.
+  try {
+    const registrosResumo = state.registros.map(r => ({ ambiente: r.ambiente, defeito: r.defeito }));
+    const res = await fetch('/gerar-conclusao', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ registros: registrosResumo, tipoVistoria: state.tipoVistoria, obsGeral: state.obsGeral })
+    });
+    const data = await res.json();
+    state.conclusaoIA = data.conclusao || '';
+  } catch { state.conclusaoIA = ''; }
+  finally {
+    btnDocx.style.opacity = '1';
+    btnDocx.style.pointerEvents = 'auto';
+    msg.style.display = 'none';
+    msg.innerHTML = '';
+  }
+}
+
+async function gerarDocumento(tipo) {
+  const msg=document.getElementById('gerandoMsg');
+  msg.style.display='block'; msg.innerHTML='<span class="spinner"></span> Gerando documento...';
+  const registrosData=state.registros.map(r=>({ambiente:r.ambiente,defeito:r.defeito,fotos:r.fotos.map(f=>({base64:f.base64,mediaType:f.mediaType}))}));
+  const payload={dados:state.dados,tipoVistoria:state.tipoVistoria,obsGeral:state.obsGeral,registros:registrosData,formato:tipo,plantaBase64:state.plantaBase64,plantaMediaType:state.plantaMediaType,mapaBase64:state.mapaBase64,mapaMediaType:state.mapaMediaType,conclusaoIA:state.conclusaoIA||''};
+  try {
+    const res=await fetch('/gerar-laudo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!res.ok) throw new Error('Erro no servidor');
+    const blob=await res.blob();
+    const nomeArquivo=`Laudo_${(state.dados.nome||'cliente').split(' ')[0]}_${state.dados.data||'vistoria'}.${tipo}`;
+    const mimeType = tipo === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    await baixarArquivo(blob, nomeArquivo, mimeType);
+    msg.textContent='✓ Download iniciado!';
+    await limparRascunho(); // laudo gerado com sucesso, não precisa mais do rascunho salvo
+  } catch(e) {
+    console.error(e);
+    // Sem internet, sinal fraco ou servidor fora do ar por um instante: guarda o laudo
+    // completo na fila local e o app continua tentando reenviar sozinho, em segundo plano.
+    await salvarNaFila(payload, tipo);
+    await atualizarBannerFila();
+    msg.innerHTML = '⚠ Sem conexão ou erro no envio agora. O laudo foi salvo no celular e será reenviado automaticamente assim que possível — acompanhe o aviso no topo da tela.';
+    await limparRascunho(); // já está garantido na fila, não precisa mais do rascunho separado
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// AGENDA — pré-cadastro dos dados do cliente/imóvel com antecedência,
+// pra na hora da vistoria só abrir o agendamento e ir direto pras fotos,
+// sem digitar nada de novo em campo.
+// ══════════════════════════════════════════════════════════════
+let agendaCache = [];
+
+function preencherFormularioDados(d) {
+  selecionarTipoAgendamento(d.tipo === 'Revistoria' ? 'Revistoria' : 'Vistoria');
+  document.getElementById('nomeCliente').value = d.nome || '';
+  document.getElementById('cpf').value = d.cpf || '';
+  document.getElementById('telefone').value = d.telefone || '';
+  document.getElementById('empreendimento').value = d.empreendimento || '';
+  document.getElementById('construtora').value = d.construtora || '';
+  document.getElementById('valorVistoria').value = d.valor || '';
+  document.getElementById('formaPagamento').value = d.formaPagamento || '';
+  document.getElementById('endereco').value = d.endereco || '';
+  document.getElementById('bloco').value = d.bloco || '';
+  document.getElementById('apto').value = d.apto || '';
+  document.getElementById('cep').value = d.cep || '';
+  document.getElementById('cidade').value = d.cidade || '';
+  document.getElementById('metragem').value = d.metragem || '';
+  document.getElementById('dataVistoria').value = d.data || '';
+  document.getElementById('horaVistoria').value = d.hora || '';
+  document.getElementById('comodos').value = d.comodos || '';
+}
+
+function resetarBotaoDados() {
+  const btn = document.getElementById('btnAcaoDados');
+  btn.innerHTML = '<i class="ti ti-arrow-right"></i> Iniciar vistoria';
+  btn.onclick = irParaAmbiente;
+}
+
+// Abre a tela de Dados do cliente em "modo agenda": preenchendo com calma agora,
+// vira um agendamento salvo, não uma vistoria em andamento.
+function novoAgendamento() {
+  ['nomeCliente','cpf','telefone','empreendimento','construtora','endereco','bloco','apto','cep','cidade','metragem','comodos','valorVistoria'].forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('dataVistoria').value = '';
+  document.getElementById('horaVistoria').value = '';
+  document.getElementById('formaPagamento').value = '';
+  selecionarTipoAgendamento('Vistoria');
+  state.plantaBase64 = null; state.plantaMediaType = null;
+  state.mapaBase64 = null; state.mapaMediaType = null;
+  document.getElementById('plantaPreview').innerHTML = '';
+  document.getElementById('mapaPreview').innerHTML = '';
+  state.modoAgenda = true;
+  const btn = document.getElementById('btnAcaoDados');
+  btn.innerHTML = '<i class="ti ti-calendar-check"></i> Salvar agendamento';
+  btn.onclick = salvarAgendamento;
+  dadosContexto = 'agenda';
+  atualizarBotaoCancelarDados();
+  switchTab('vistoria');
+  mostrarScreen('screen-dados');
+}
+
+async function salvarAgendamento() {
+  const dados = {
+    tipo: document.getElementById('tipoAgendamento').value,
+    nome: document.getElementById('nomeCliente').value.trim(),
+    cpf: document.getElementById('cpf').value.trim(),
+    telefone: document.getElementById('telefone').value.trim(),
+    empreendimento: document.getElementById('empreendimento').value.trim(),
+    construtora: document.getElementById('construtora').value.trim(),
+    valor: document.getElementById('valorVistoria').value,
+    formaPagamento: document.getElementById('formaPagamento').value,
+    endereco: document.getElementById('endereco').value.trim(),
+    bloco: document.getElementById('bloco').value.trim(),
+    apto: document.getElementById('apto').value.trim(),
+    cep: document.getElementById('cep').value.trim(),
+    cidade: document.getElementById('cidade').value.trim(),
+    metragem: document.getElementById('metragem').value.trim(),
+    data: document.getElementById('dataVistoria').value,
+    hora: document.getElementById('horaVistoria').value,
+    comodos: document.getElementById('comodos').value.trim()
+  };
+  if (!dados.nome) { alert('Informe pelo menos o nome do cliente.'); return; }
+  try {
+    await fetch('/agenda', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dados, plantaBase64: state.plantaBase64, plantaMediaType: state.plantaMediaType, mapaBase64: state.mapaBase64, mapaMediaType: state.mapaMediaType })
+    });
+    state.modoAgenda = false;
+    resetarBotaoDados();
+    dadosContexto = 'novo';
+    atualizarBotaoCancelarDados();
+    switchTab('agenda');
+  } catch (e) {
+    console.error('Falha ao salvar agendamento:', e);
+    alert('Não foi possível salvar o agendamento agora. Verifique sua internet e tente de novo.');
+  }
+}
+
+async function carregarAgenda() {
+  document.getElementById('agendaList').innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p>';
+  try {
+    const res = await fetch('/agenda');
+    agendaCache = await res.json();
+    renderAgenda();
+    renderCalendarioAgenda();
+  } catch (e) {
+    document.getElementById('agendaList').innerHTML = '<p style="color:var(--danger);font-size:13px;text-align:center;padding:20px">Erro ao carregar.</p>';
+  }
+}
+
+function badgeTipo(tipo) {
+  const ehRevistoria = tipo === 'Revistoria';
+  return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:${ehRevistoria ? '#EDE3F5' : '#DCEAF7'};color:${ehRevistoria ? '#7B4FA0' : 'var(--brand2)'};margin-left:6px;vertical-align:middle">${ehRevistoria ? 'REVISTORIA' : 'VISTORIA'}</span>`;
+}
+
+function renderAgenda() {
+  const lista = document.getElementById('agendaList');
+  renderAgendaTotais();
+  if (!agendaCache.length) { lista.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nenhuma vistoria agendada ainda.</p>'; return; }
+  lista.innerHTML = agendaCache.map(a => `
+    <div class="hist-item">
+      <i class="ti ti-calendar-event" style="font-size:26px;color:var(--brand)"></i>
+      <div class="info">
+        <strong>${a.dados.nome}${badgeTipo(a.dados.tipo)}</strong>
+        <span style="display:block">${a.dados.empreendimento || 'Empreendimento não informado'}${a.dados.construtora ? ' · ' + a.dados.construtora : ''}</span>
+        <span style="display:block">${a.dados.data ? a.dados.data.split('-').reverse().join('/') : 'Sem data'}${a.dados.hora ? ' às ' + a.dados.hora : ''} · ${a.dados.metragem ? a.dados.metragem + ' m²' : 'Metragem não informada'}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>
+        ${a.dados.tipo === 'Revistoria' ? `<button class="hist-btn" style="background:#7B4FA0;width:100%" onclick="abrirConsultaRevistoria('${a.id}')"><i class="ti ti-file-search"></i> Consultar</button>` : ''}
+        <button class="hist-btn" style="background:var(--brand2);width:100%" onclick="editarAgendamento('${a.id}')"><i class="ti ti-edit"></i> Editar</button>
+        <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirAgendamento('${a.id}')"><i class="ti ti-trash"></i> Excluir</button>
+      </div>
+    </div>`).join('');
+}
+
+function renderAgendaTotais() {
+  const total = agendaCache.length;
+  const totalVistoria = agendaCache.filter(a => a.dados.tipo !== 'Revistoria').length;
+  const totalRevistoria = agendaCache.filter(a => a.dados.tipo === 'Revistoria').length;
+  document.getElementById('agendaTotais').innerHTML = `
+    <span style="background:var(--light);color:var(--text);padding:3px 8px;border-radius:20px">${total} agendado${total === 1 ? '' : 's'}</span>
+    <span style="background:#DCEAF7;color:var(--brand2);padding:3px 8px;border-radius:20px">${totalVistoria} vistoria${totalVistoria === 1 ? '' : 's'}</span>
+    <span style="background:#EDE3F5;color:#7B4FA0;padding:3px 8px;border-radius:20px">${totalRevistoria} revistoria${totalRevistoria === 1 ? '' : 's'}</span>
+  `;
+}
+
+// ══════════════════════════════════════════════════════════════
+// CALENDÁRIO DA AGENDA — visualização por Mês, Semana e Dia,
+// pra ter uma noção visual real de como está a semana de vistorias.
+// ══════════════════════════════════════════════════════════════
+let agendaView = 'mes'; // 'mes' | 'semana' | 'dia'
+let agendaDataRef = new Date();
+const NOMES_MES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const NOMES_DIA_CURTO = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+const NOMES_DIA_LONGO = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
+
+function formatarDataISO(d) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dia = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dia}`;
+}
+
+function agendamentosDoDia(dataISO) {
+  return agendaCache.filter(a => a.dados.data === dataISO).sort((a, b) => (a.dados.hora || '99:99').localeCompare(b.dados.hora || '99:99'));
+}
+
+function mudarViewAgenda(view) {
+  agendaView = view;
+  renderCalendarioAgenda();
+}
+
+function navegarAgenda(delta) {
+  const d = new Date(agendaDataRef);
+  if (agendaView === 'mes') d.setMonth(d.getMonth() + delta);
+  else if (agendaView === 'semana') d.setDate(d.getDate() + delta * 7);
+  else d.setDate(d.getDate() + delta);
+  agendaDataRef = d;
+  renderCalendarioAgenda();
+}
+
+function irParaHoje() {
+  agendaDataRef = new Date();
+  renderCalendarioAgenda();
+}
+
+function abrirDiaAgenda(dataISO) {
+  const [y, m, d] = dataISO.split('-').map(Number);
+  agendaDataRef = new Date(y, m - 1, d);
+  agendaView = 'dia';
+  renderCalendarioAgenda();
+}
+
+function renderCalendarioAgenda() {
+  ['mes', 'semana', 'dia'].forEach(v => {
+    const btn = document.getElementById('viewBtn_' + v);
+    if (btn) btn.classList.toggle('active-view', agendaView === v);
+  });
+  const container = document.getElementById('calendarioContainer');
+  if (!container) return;
+  if (agendaView === 'mes') container.innerHTML = renderCalMes();
+  else if (agendaView === 'semana') container.innerHTML = renderCalSemana();
+  else container.innerHTML = renderCalDia();
+}
+
+function renderCalCabecalho(titulo) {
+  return `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <button onclick="navegarAgenda(-1)" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--brand);padding:4px"><i class="ti ti-chevron-left"></i></button>
+    ${titulo}
+    <button onclick="navegarAgenda(1)" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--brand);padding:4px"><i class="ti ti-chevron-right"></i></button>
+  </div>`;
+}
+
+function renderCalMes() {
+  const ano = agendaDataRef.getFullYear(), mes = agendaDataRef.getMonth();
+  const primeiroDia = new Date(ano, mes, 1);
+  const diasNoMes = new Date(ano, mes + 1, 0).getDate();
+  const inicioGrid = new Date(primeiroDia);
+  inicioGrid.setDate(inicioGrid.getDate() - primeiroDia.getDay());
+  const totalCelulas = Math.ceil((primeiroDia.getDay() + diasNoMes) / 7) * 7;
+  const hojeISO = formatarDataISO(new Date());
+
+  let celulas = '';
+  const cursor = new Date(inicioGrid);
+  for (let i = 0; i < totalCelulas; i++) {
+    const dataISO = formatarDataISO(cursor);
+    const foraDoMes = cursor.getMonth() !== mes;
+    const qtd = agendamentosDoDia(dataISO).length;
+    const ehHoje = dataISO === hojeISO;
+    celulas += `<div onclick="abrirDiaAgenda('${dataISO}')" style="aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:8px;cursor:pointer;opacity:${foraDoMes ? '.35' : '1'};background:${ehHoje ? 'var(--brand)' : 'transparent'}">
+      <span style="font-size:12px;font-weight:${ehHoje ? '700' : '500'};color:${ehHoje ? '#fff' : 'var(--text)'}">${cursor.getDate()}</span>
+      ${qtd > 0 ? `<span style="width:5px;height:5px;border-radius:50%;background:${ehHoje ? '#fff' : 'var(--accent)'};margin-top:2px"></span>` : '<span style="width:5px;height:5px;margin-top:2px"></span>'}
+    </div>`;
+    cursor.setDate(cursor.getDate() + 1);
   }
 
-  res.writeHead(404); res.end('Not found');
+  const titulo = `<span style="font-weight:700;color:var(--brand);font-size:14px">${NOMES_MES[mes]} de ${ano}</span>`;
+  return renderCalCabecalho(titulo) + `
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:10px;color:var(--muted);font-weight:700;text-align:center;margin-bottom:4px">
+      ${NOMES_DIA_CURTO.map(n => `<div>${n[0]}</div>`).join('')}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">${celulas}</div>`;
+}
+
+function renderCalSemana() {
+  const inicioSemana = new Date(agendaDataRef);
+  inicioSemana.setDate(inicioSemana.getDate() - inicioSemana.getDay());
+  const hojeISO = formatarDataISO(new Date());
+  let colunas = '';
+  const cursor = new Date(inicioSemana);
+  for (let i = 0; i < 7; i++) {
+    const dataISO = formatarDataISO(cursor);
+    const itens = agendamentosDoDia(dataISO);
+    const ehHoje = dataISO === hojeISO;
+    colunas += `<div onclick="abrirDiaAgenda('${dataISO}')" style="flex:1;min-width:0;border:1px solid var(--border);border-radius:8px;padding:6px 3px;cursor:pointer;background:${ehHoje ? '#F3E9DD' : '#fff'}">
+      <div style="text-align:center;font-size:9px;font-weight:700;color:${ehHoje ? 'var(--accent)' : 'var(--muted)'}">${NOMES_DIA_CURTO[i]}</div>
+      <div style="text-align:center;font-size:13px;font-weight:700;color:${ehHoje ? 'var(--accent)' : 'var(--text)'};margin-bottom:4px">${cursor.getDate()}</div>
+      ${itens.slice(0, 3).map(a => `<div style="font-size:8.5px;background:var(--light);border-radius:4px;padding:2px 3px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${a.dados.tipo === 'Revistoria' ? '#7B4FA0' : 'var(--brand2)'};margin-right:3px"></span>${a.dados.hora ? a.dados.hora + ' ' : ''}${(a.dados.nome || '').split(' ')[0]}</div>`).join('')}
+      ${itens.length > 3 ? `<div style="font-size:8.5px;color:var(--muted);text-align:center">+${itens.length - 3}</div>` : ''}
+    </div>`;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  const titulo = `<span style="font-weight:700;color:var(--brand);font-size:13px">${NOMES_MES[inicioSemana.getMonth()]} de ${inicioSemana.getFullYear()}</span>`;
+  return renderCalCabecalho(titulo) + `<div style="display:flex;gap:4px">${colunas}</div>`;
+}
+
+function renderCalDia() {
+  const dataISO = formatarDataISO(agendaDataRef);
+  const itens = agendamentosDoDia(dataISO);
+  const titulo = `<div style="text-align:center"><div style="font-weight:700;color:var(--brand);font-size:14px">${NOMES_DIA_LONGO[agendaDataRef.getDay()]}</div><div style="font-size:12px;color:var(--muted)">${agendaDataRef.getDate()} de ${NOMES_MES[agendaDataRef.getMonth()]}</div></div>`;
+  const cabecalho = renderCalCabecalho(titulo);
+  if (itens.length === 0) {
+    return cabecalho + `<p style="color:var(--muted);font-size:13px;text-align:center;padding:16px 0 4px">Nenhuma vistoria agendada pra esse dia.</p>`;
+  }
+  return cabecalho + `<div style="display:flex;flex-direction:column;gap:8px">${itens.map(a => `
+    <div class="hist-item">
+      <div style="width:46px;flex-shrink:0;text-align:center;font-size:12px;font-weight:700;color:var(--brand)">${a.dados.hora || '--:--'}</div>
+      <div class="info">
+        <strong>${a.dados.nome}${badgeTipo(a.dados.tipo)}</strong>
+        <span style="display:block">${a.dados.empreendimento || 'Empreendimento não informado'}${a.dados.construtora ? ' · ' + a.dados.construtora : ''}</span>
+        <span style="display:block">${a.dados.data ? a.dados.data.split('-').reverse().join('/') : 'Sem data'}${a.dados.hora ? ' às ' + a.dados.hora : ''} · ${a.dados.metragem ? a.dados.metragem + ' m²' : 'Metragem não informada'}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>
+        ${a.dados.tipo === 'Revistoria' ? `<button class="hist-btn" style="background:#7B4FA0;width:100%" onclick="abrirConsultaRevistoria('${a.id}')"><i class="ti ti-file-search"></i> Consultar</button>` : ''}
+        <button class="hist-btn" style="background:var(--brand2);width:100%" onclick="editarAgendamento('${a.id}')"><i class="ti ti-edit"></i> Editar</button>
+        <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirAgendamento('${a.id}')"><i class="ti ti-trash"></i> Excluir</button>
+      </div>
+    </div>`).join('')}</div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// CONSULTAR LAUDO ANTERIOR (a partir de um agendamento de Revistoria)
+// Permite ver os defeitos de qualquer vistoria anterior desse cliente, e, se
+// quiser, já iniciar a revistoria levando esses itens como um checklist —
+// evita ter que escolher tudo de novo do zero.
+// ══════════════════════════════════════════════════════════════
+let consultaAgendamentoId = null;
+let laudosConsultaRevistoria = [];
+
+async function abrirConsultaRevistoria(agendamentoId) {
+  consultaAgendamentoId = agendamentoId;
+  const item = agendaCache.find(a => a.id === agendamentoId);
+  if (!item) return;
+  const conteudo = document.getElementById('modalConsultaConteudo');
+  conteudo.innerHTML = '<p style="color:var(--muted);font-size:12px;text-align:center;padding:16px 0"><span class="sp2"></span> Buscando...</p>';
+  document.getElementById('modalConsultaRevistoria').style.display = 'flex';
+  try {
+    const nome = (item.dados.nome || '').trim().toLowerCase();
+    const res = await fetch('/historico');
+    const lista = await res.json();
+    laudosConsultaRevistoria = lista.filter(l => (l.nome || '').toLowerCase().includes(nome)).sort((a, b) => b.ts - a.ts);
+    if (laudosConsultaRevistoria.length === 0) {
+      conteudo.innerHTML = '<p style="color:var(--muted);font-size:12px;text-align:center;padding:16px 0">Nenhum laudo anterior encontrado com esse nome.</p>';
+      return;
+    }
+    conteudo.innerHTML = laudosConsultaRevistoria.map((l, i) => `
+      <div style="background:#F3E9DD;border-radius:10px;padding:12px;margin-bottom:10px">
+        <div onclick="toggleConsultaDefeitos(${i})" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="font-size:11.5px;font-weight:700;color:#7B4FA0;line-height:1.5">
+            ${badgeTipo(l.tipo)} em ${l.data && l.data !== '—' ? l.data.split('-').reverse().join('/') : 'data não informada'}<br>
+            <span>${l.empreendimento || 'Sem empreendimento'}${l.endereco ? ' · ' + l.endereco : ''}</span>
+          </div>
+          <i class="ti ti-chevron-down" id="chevronConsulta${i}" style="color:#7B4FA0;flex-shrink:0;transition:transform .15s"></i>
+        </div>
+        <div id="defeitosConsulta${i}" style="display:none;margin-top:10px">
+          ${(l.registros && l.registros.length)
+            ? l.registros.map(r => `<div style="font-size:12px;padding:5px 0;border-bottom:1px solid rgba(0,0,0,.08)"><strong>${r.ambiente}:</strong> ${r.defeito}</div>`).join('')
+            : '<p style="font-size:12px;color:var(--muted)">Sem detalhes de defeitos salvos pra esse laudo.</p>'}
+          <button onclick="baixarPdfHistorico('${encodeURIComponent(l.arquivo)}')" style="width:100%;margin-top:10px;background:#C0392B;color:#fff;border:none;border-radius:8px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer"><i class="ti ti-file-type-pdf"></i> Ver PDF do laudo</button>
+          <button onclick="iniciarRevistoriaComDefeitos(${i})" style="width:100%;margin-top:8px;background:#7B4FA0;color:#fff;border:none;border-radius:8px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer"><i class="ti ti-player-play"></i> Iniciar revistoria com estes defeitos</button>
+        </div>
+      </div>`).join('');
+  } catch (e) {
+    conteudo.innerHTML = '<p style="color:var(--danger);font-size:12px;text-align:center;padding:16px 0">Erro ao buscar. Tente de novo.</p>';
+  }
+}
+
+function toggleConsultaDefeitos(i) {
+  const div = document.getElementById('defeitosConsulta' + i);
+  const chevron = document.getElementById('chevronConsulta' + i);
+  const aberto = div.style.display === 'block';
+  div.style.display = aberto ? 'none' : 'block';
+  chevron.style.transform = aberto ? 'rotate(0deg)' : 'rotate(180deg)';
+}
+
+function fecharConsultaRevistoria() {
+  document.getElementById('modalConsultaRevistoria').style.display = 'none';
+  consultaAgendamentoId = null;
+}
+
+async function iniciarRevistoriaComDefeitos(laudoIdx) {
+  const item = agendaCache.find(a => a.id === consultaAgendamentoId);
+  const laudo = laudosConsultaRevistoria[laudoIdx];
+  if (!item || !laudo) return;
+  preencherFormularioDados(item.dados);
+  state.plantaBase64 = item.plantaBase64 || null;
+  state.plantaMediaType = item.plantaMediaType || null;
+  state.mapaBase64 = item.mapaBase64 || null;
+  state.mapaMediaType = item.mapaMediaType || null;
+  document.getElementById('plantaPreview').innerHTML = state.plantaBase64 ? `<div class="single-thumb"><img src="data:${state.plantaMediaType};base64,${state.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>` : '';
+  document.getElementById('mapaPreview').innerHTML = state.mapaBase64 ? `<div class="single-thumb"><img src="data:${state.mapaMediaType};base64,${state.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>` : '';
+  state.modoAgenda = false;
+  resetarBotaoDados();
+  dadosContexto = 'novo';
+  atualizarBotaoCancelarDados();
+  state.defeitosPendentes = (laudo.registros || []).map(r => ({ ambiente: r.ambiente, defeito: r.defeito }));
+  const idAgendamento = item.id;
+  fecharConsultaRevistoria();
+  try { await fetch(`/agenda?id=${encodeURIComponent(idAgendamento)}`, { method: 'DELETE' }); } catch (e) { /* segue mesmo assim */ }
+  switchTab('vistoria');
+  irParaAmbiente();
+}
+
+// Checklist de defeitos pendentes de conferência, visível na tela de ambientes
+// quando a revistoria foi iniciada a partir de um laudo anterior.
+function renderDefeitosPendentes() {
+  const secao = document.getElementById('defeitosPendentesSecao');
+  const lista = document.getElementById('defeitosPendentesLista');
+  if (!state.defeitosPendentes || state.defeitosPendentes.length === 0) { secao.style.display = 'none'; return; }
+  secao.style.display = 'block';
+  lista.innerHTML = state.defeitosPendentes.map((p, i) => `
+    <div style="background:#F3E9DD;border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+      <div style="flex:1;font-size:12px"><strong>${p.ambiente}:</strong> ${p.defeito}</div>
+      <button onclick="fotografarDefeitoPendente(${i})" style="background:#7B4FA0;color:#fff;border:none;border-radius:7px;padding:7px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"><i class="ti ti-camera"></i> Fotografar</button>
+      <button onclick="removerDefeitoPendente(${i})" style="background:#fff;border:1px solid #7B4FA0;color:#7B4FA0;border-radius:7px;padding:7px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">✓ Corrigido</button>
+    </div>`).join('');
+}
+
+function removerDefeitoPendente(i) {
+  state.defeitosPendentes.splice(i, 1);
+  renderDefeitosPendentes();
+  salvarRascunho();
+}
+
+// Leva direto pra tela de fotos daquele ambiente, já lembrando qual defeito
+// pré-preencher no próximo passo (economiza ter que digitar/escolher de novo).
+function fotografarDefeitoPendente(i) {
+  const pendente = state.defeitosPendentes[i];
+  if (!pendente) return;
+  defeitoPreSelecionado = pendente.defeito;
+  defeitoPendenteIdxAtual = i;
+  selecionarAmbiente(pendente.ambiente);
+}
+
+async function iniciarVistoriaDoAgendamento(id) {
+  const item = agendaCache.find(a => a.id === id);
+  if (!item) return;
+  preencherFormularioDados(item.dados);
+  state.plantaBase64 = item.plantaBase64 || null;
+  state.plantaMediaType = item.plantaMediaType || null;
+  state.mapaBase64 = item.mapaBase64 || null;
+  state.mapaMediaType = item.mapaMediaType || null;
+  document.getElementById('plantaPreview').innerHTML = state.plantaBase64 ? `<div class="single-thumb"><img src="data:${state.plantaMediaType};base64,${state.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>` : '';
+  document.getElementById('mapaPreview').innerHTML = state.mapaBase64 ? `<div class="single-thumb"><img src="data:${state.mapaMediaType};base64,${state.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>` : '';
+  state.modoAgenda = false;
+  resetarBotaoDados();
+  dadosContexto = 'novo';
+  atualizarBotaoCancelarDados();
+  if (item.dados.tipo === 'Revistoria') buscarVistoriaAnterior();
+  try { await fetch(`/agenda?id=${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (e) { /* segue mesmo assim, não trava a vistoria */ }
+  switchTab('vistoria');
+  irParaAmbiente();
+}
+
+async function excluirAgendamento(id) {
+  if (!confirm('Excluir esse agendamento?')) return;
+  try {
+    await fetch(`/agenda?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    carregarAgenda();
+  } catch (e) {
+    alert('Não foi possível excluir agora. Tente de novo.');
+  }
+}
+
+// Abre o formulário de Dados pra completar ou corrigir um agendamento já salvo
+// (ex: você só tinha nome/endereço/data e agora quer preencher o resto com calma,
+// ou o cliente mudou a data/horário da vistoria).
+function editarAgendamento(id) {
+  const item = agendaCache.find(a => a.id === id);
+  if (!item) return;
+  preencherFormularioDados(item.dados);
+  document.getElementById('plantaPreview').innerHTML = item.plantaBase64 ? `<div class="single-thumb"><img src="data:${item.plantaMediaType};base64,${item.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>` : '';
+  document.getElementById('mapaPreview').innerHTML = item.mapaBase64 ? `<div class="single-thumb"><img src="data:${item.mapaMediaType};base64,${item.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>` : '';
+  state.plantaBase64 = item.plantaBase64 || null;
+  state.plantaMediaType = item.plantaMediaType || null;
+  state.mapaBase64 = item.mapaBase64 || null;
+  state.mapaMediaType = item.mapaMediaType || null;
+  const btn = document.getElementById('btnAcaoDados');
+  btn.innerHTML = '<i class="ti ti-device-floppy"></i> Salvar no agendamento';
+  btn.onclick = () => salvarEdicaoAgendamento(id);
+  dadosContexto = 'agenda-edicao';
+  atualizarBotaoCancelarDados();
+  switchTab('vistoria');
+  mostrarScreen('screen-dados');
+}
+
+async function salvarEdicaoAgendamento(id) {
+  const dados = {
+    tipo: document.getElementById('tipoAgendamento').value,
+    nome: document.getElementById('nomeCliente').value.trim(),
+    cpf: document.getElementById('cpf').value.trim(),
+    telefone: document.getElementById('telefone').value.trim(),
+    empreendimento: document.getElementById('empreendimento').value.trim(),
+    construtora: document.getElementById('construtora').value.trim(),
+    valor: document.getElementById('valorVistoria').value,
+    formaPagamento: document.getElementById('formaPagamento').value,
+    endereco: document.getElementById('endereco').value.trim(),
+    bloco: document.getElementById('bloco').value.trim(),
+    apto: document.getElementById('apto').value.trim(),
+    cep: document.getElementById('cep').value.trim(),
+    cidade: document.getElementById('cidade').value.trim(),
+    metragem: document.getElementById('metragem').value.trim(),
+    data: document.getElementById('dataVistoria').value,
+    hora: document.getElementById('horaVistoria').value,
+    comodos: document.getElementById('comodos').value.trim()
+  };
+  if (!dados.nome) { alert('Informe pelo menos o nome do cliente.'); return; }
+  try {
+    await fetch(`/agenda?id=${encodeURIComponent(id)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dados, plantaBase64: state.plantaBase64, plantaMediaType: state.plantaMediaType, mapaBase64: state.mapaBase64, mapaMediaType: state.mapaMediaType })
+    });
+    resetarBotaoDados();
+    dadosContexto = 'novo';
+    atualizarBotaoCancelarDados();
+    switchTab('agenda');
+  } catch (e) {
+    console.error('Falha ao salvar alterações do agendamento:', e);
+    alert('Não foi possível salvar agora. Verifique sua internet e tente de novo.');
+  }
+}
+
+
+function novaVistoria() {
+  limparRascunho();
+  Object.assign(state,{dados:{},tipoVistoria:'',registros:[],ambienteAtual:'',fotosAtuais:[],defeitoAtual:'',obsGeral:'',obsRapidas:[],defeitosPendentes:[],plantaBase64:null,plantaMediaType:null,mapaBase64:null,mapaMediaType:null,conclusaoIA:'',modoAgenda:false});
+  resetarBotaoDados();
+  dadosContexto = 'novo';
+  atualizarBotaoCancelarDados();
+  ['nomeCliente','cpf','telefone','empreendimento','construtora','endereco','bloco','apto','cep','cidade','metragem','comodos','obsGeral','valorVistoria'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('dataVistoria').value=new Date().toISOString().split('T')[0];
+  document.getElementById('horaVistoria').value='';
+  document.getElementById('formaPagamento').value='';
+  selecionarTipoAgendamento('Vistoria');
+  document.getElementById('btnSimObs').classList.remove('selected');
+  document.getElementById('btnNaoObs').classList.remove('selected');
+  document.getElementById('obsField').style.display='none';
+  document.getElementById('registroList').innerHTML='';
+  document.getElementById('resumoRegistros').style.display='none';
+  document.getElementById('plantaPreview').innerHTML='';
+  document.getElementById('mapaPreview').innerHTML='';
+  mostrarScreen('screen-dados');
+}
+
+document.getElementById('fileInputGallery').addEventListener('change', e => { handleFiles(e.target.files); document.getElementById('fileInputGallery').value=''; });
+
+async function baixarPdfHistorico(arquivo) {
+  try {
+    const res = await fetch(`/download-pdf/${arquivo}`);
+    const blob = await res.blob();
+    const nomeArquivo = decodeURIComponent(arquivo).replace('.docx', '.pdf');
+    await baixarArquivo(blob, nomeArquivo, 'application/pdf');
+  } catch (e) {
+    console.error('Falha ao baixar PDF do histórico:', e);
+    alert('Não foi possível baixar o PDF agora. Tente novamente.');
+  }
+}
+
+async function baixarWordHistorico(arquivo) {
+  try {
+    const res = await fetch(`/download/${arquivo}`);
+    const blob = await res.blob();
+    const nomeArquivo = decodeURIComponent(arquivo);
+    await baixarArquivo(blob, nomeArquivo, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  } catch (e) {
+    console.error('Falha ao baixar Word do histórico:', e);
+    alert('Não foi possível baixar o Word agora. Tente novamente.');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// FINANCEIRO — total ganho e quantidade de vistorias por mês.
+// ══════════════════════════════════════════════════════════════
+let financeiroDataRef = new Date();
+let laudosFinanceiro = [];
+
+function formatarBRL(valor) {
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function parseValorBR(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  const n = parseFloat(String(v).replace(',', '.'));
+  return isNaN(n) ? 0 : n;
+}
+
+async function carregarFinanceiro() {
+  document.getElementById('financeiroLista').innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p>';
+  try {
+    const res = await fetch('/historico');
+    laudosFinanceiro = await res.json();
+    renderFinanceiro();
+  } catch (e) {
+    document.getElementById('financeiroLista').innerHTML = '<p style="color:var(--danger);font-size:13px;text-align:center;padding:20px">Erro ao carregar.</p>';
+  }
+}
+
+function navegarFinanceiro(delta) {
+  financeiroDataRef.setMonth(financeiroDataRef.getMonth() + delta);
+  renderFinanceiro();
+}
+
+function laudosDoMes(ano, mes) {
+  return laudosFinanceiro.filter(l => {
+    const d = new Date(l.ts);
+    return d.getFullYear() === ano && d.getMonth() === mes;
+  });
+}
+
+function renderFinanceiro() {
+  const ano = financeiroDataRef.getFullYear(), mes = financeiroDataRef.getMonth();
+  document.getElementById('financeiroMesTitulo').textContent = `${NOMES_MES[mes]} de ${ano}`;
+
+  const doMes = laudosDoMes(ano, mes);
+  const total = doMes.reduce((soma, l) => soma + parseValorBR(l.valor), 0);
+  const qtdVistoria = doMes.filter(l => l.tipo !== 'Revistoria').length;
+  const qtdRevistoria = doMes.filter(l => l.tipo === 'Revistoria').length;
+
+  document.getElementById('financeiroTotalValor').textContent = formatarBRL(total);
+  document.getElementById('financeiroTotalQtd').textContent = doMes.length;
+  document.getElementById('financeiroTotalQtdDetalhe').textContent = `${qtdVistoria} vistoria${qtdVistoria === 1 ? '' : 's'} · ${qtdRevistoria} revistoria${qtdRevistoria === 1 ? '' : 's'}`;
+
+  // Por forma de pagamento
+  const porForma = {};
+  doMes.forEach(l => {
+    const f = l.formaPagamento || 'Não informado';
+    porForma[f] = (porForma[f] || 0) + parseValorBR(l.valor);
+  });
+  const formaEntries = Object.entries(porForma).sort((a, b) => b[1] - a[1]);
+  const contFormas = document.getElementById('financeiroPorForma');
+  contFormas.innerHTML = formaEntries.length === 0
+    ? '<p style="color:var(--muted);font-size:12px;text-align:center;padding:10px 0">Sem dados nesse mês.</p>'
+    : formaEntries.map(([forma, valor]) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--light);font-size:12.5px">
+        <span style="font-weight:600">${forma}</span>
+        <span style="font-weight:700;color:var(--brand)">${formatarBRL(valor)}</span>
+      </div>`).join('');
+
+  // Gráfico simples dos últimos 6 meses
+  const meses = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(ano, mes - i, 1);
+    const itens = laudosDoMes(d.getFullYear(), d.getMonth());
+    meses.push({ label: NOMES_MES[d.getMonth()].slice(0, 3), totalMes: itens.reduce((s, l) => s + parseValorBR(l.valor), 0) });
+  }
+  const maxValor = Math.max(...meses.map(m => m.totalMes), 1);
+  document.getElementById('financeiroGraficoMensal').innerHTML = meses.map(m => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="width:32px;font-size:10.5px;font-weight:700;color:var(--muted);flex-shrink:0">${m.label}</span>
+      <div style="flex:1;background:var(--light);border-radius:5px;height:16px;overflow:hidden">
+        <div style="background:var(--accent);height:100%;width:${(m.totalMes / maxValor * 100).toFixed(0)}%;border-radius:5px"></div>
+      </div>
+      <span style="width:78px;text-align:right;font-size:10.5px;font-weight:700;color:var(--text);flex-shrink:0">${formatarBRL(m.totalMes)}</span>
+    </div>`).join('');
+
+  // Lista das vistorias desse mês
+  const lista = document.getElementById('financeiroLista');
+  if (doMes.length === 0) {
+    lista.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nenhuma vistoria nesse mês.</p>';
+    return;
+  }
+  lista.innerHTML = doMes.sort((a, b) => b.ts - a.ts).map(l => `
+    <div class="hist-item">
+      <i class="ti ti-file-text" style="font-size:24px;color:var(--brand)"></i>
+      <div class="info">
+        <strong>${l.nome}${badgeTipo(l.tipo)}</strong>
+        <span style="display:block">${l.empreendimento || 'Sem empreendimento'} · ${l.data ? l.data.split('-').reverse().join('/') : ''}</span>
+        <span style="display:block">${l.formaPagamento || 'Forma não informada'}</span>
+      </div>
+      <div style="font-weight:800;color:var(--brand);font-size:14px;flex-shrink:0">${formatarBRL(parseValorBR(l.valor))}</div>
+    </div>`).join('');
+}
+
+// Apaga TODOS os laudos do histórico de uma vez — inclui os arquivos de verdade
+// no servidor (libera espaço), não só a lista. Ação irreversível, por isso a
+// confirmação é bem explícita.
+async function limparHistorico() {
+  const qtd = todosLaudos.length;
+  if (qtd === 0) { alert('O histórico já está vazio.'); return; }
+  const confirmado = confirm(`Isso vai apagar TODOS os ${qtd} laudo${qtd === 1 ? '' : 's'} do histórico, incluindo os arquivos Word/PDF guardados no servidor.\n\nEssa ação NÃO PODE ser desfeita — os laudos que você já baixou no celular continuam salvos, mas os que estão só no servidor serão perdidos.\n\nTem certeza que quer continuar?`);
+  if (!confirmado) return;
+  try {
+    await fetch('/historico', { method: 'DELETE' });
+    carregarHistorico();
+  } catch (e) {
+    alert('Não foi possível limpar o histórico agora. Verifique sua internet e tente de novo.');
+  }
+}
+
+// Apaga só UM laudo específico do histórico (e o arquivo dele no servidor),
+// mantendo todo o resto intacto.
+async function excluirLaudoHistorico(arquivo, nome) {
+  const confirmado = confirm(`Excluir o laudo de "${nome || 'cliente'}"?\n\nIsso apaga o arquivo do servidor. Se você já baixou esse laudo no celular, a cópia baixada continua salva — só não vai mais aparecer aqui no Histórico.\n\nEssa ação não pode ser desfeita.`);
+  if (!confirmado) return;
+  try {
+    await fetch(`/historico?arquivo=${arquivo}`, { method: 'DELETE' });
+    carregarHistorico();
+  } catch (e) {
+    alert('Não foi possível excluir agora. Verifique sua internet e tente de novo.');
+  }
+}
+
+async function carregarHistorico() {
+  document.getElementById('historicoList').innerHTML='<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p>';
+  try { const res=await fetch('/historico'); todosLaudos=await res.json(); renderHistorico(todosLaudos); }
+  catch { document.getElementById('historicoList').innerHTML='<p style="color:var(--danger);font-size:13px;text-align:center;padding:20px">Erro ao carregar.</p>'; }
+  carregarArmazenamento();
+}
+
+async function carregarArmazenamento() {
+  const painel = document.getElementById('armazenamentoPainel');
+  try {
+    const res = await fetch('/armazenamento');
+    const data = await res.json();
+    if (data.erro || data.percentual == null) { painel.style.display = 'none'; return; }
+    painel.style.display = 'block';
+    document.getElementById('armazenamentoTexto').textContent = `${data.percentual}% (${data.usadoMB} MB de ${data.totalMB} MB)`;
+    const barra = document.getElementById('armazenamentoBarra');
+    barra.style.width = `${Math.min(data.percentual, 100)}%`;
+    barra.style.background = data.percentual >= 90 ? 'var(--danger)' : (data.percentual >= 70 ? 'var(--accent)' : 'var(--success)');
+  } catch (e) {
+    painel.style.display = 'none';
+  }
+}
+
+function filtrarHistorico() {
+  const q=document.getElementById('searchInput').value.toLowerCase();
+  renderHistorico(todosLaudos.filter(l=>l.nome.toLowerCase().includes(q)||l.data.includes(q)));
+}
+
+function renderHistorico(lista) {
+  if(!lista.length){document.getElementById('historicoList').innerHTML='<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nenhum laudo encontrado.</p>';return;}
+  document.getElementById('historicoList').innerHTML=lista.map(l=>`
+    <div class="hist-item">
+      <i class="ti ti-file-text" style="font-size:26px;color:var(--brand)"></i>
+      <div class="info"><strong>${l.nome}${l.empreendimento?' - '+l.empreendimento:''}</strong>${l.compactado?' <i class="ti ti-box" style="font-size:12px;color:var(--muted)" title="Compactado (economiza espaço)"></i>':''}<span>${l.data}</span></div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <button class="hist-btn" style="width:100%" onclick="baixarWordHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-word"></i> Word</button>
+        <button class="hist-btn" style="background:#C0392B;width:100%" onclick="baixarPdfHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-type-pdf"></i> PDF</button>
+        <button class="hist-btn" style="background:#fff;border:1px solid #f0c4c0;color:var(--danger);width:100%" onclick="excluirLaudoHistorico('${encodeURIComponent(l.arquivo)}','${(l.nome||'').replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i> Excluir</button>
+      </div>
+    </div>`).join('');
+}
+
+// Ao abrir o app, verifica se existe uma vistoria em andamento salva localmente
+carregarCorConfig();
+carregarCarimboConfig();
+atualizarBotaoCancelarDados();
+
+// A checagem do rascunho salvo só roda depois que a pessoa fecha a tela de
+// boas-vindas, pra não misturar o aviso de "vistoria em andamento" com a splash.
+function fecharSplash() {
+  const splash = document.getElementById('splashWelcome');
+  if (splash) splash.style.display = 'none';
+  verificarRascunhoAoAbrir();
+}
+
+// Fila de reenvio automático: verifica ao abrir, tenta reenviar de novo a cada 30s,
+// e também assim que o celular recuperar a conexão com a internet.
+atualizarBannerFila();
+tentarReenviarFila();
+setInterval(tentarReenviarFila, 30000);
+window.addEventListener('online', tentarReenviarFila);
+
+// ══════════════════════════════════════════════════════════════
+// PWA — instalar o app na tela inicial do celular
+// ══════════════════════════════════════════════════════════════
+let deferredInstallPrompt = null;
+
+function estaEmModoStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
+function bannerFoiDispensadoRecentemente() {
+  try {
+    const ts = localStorage.getItem('instalarBannerDispensado');
+    if (!ts) return false;
+    return (Date.now() - parseInt(ts, 10)) < 7 * 24 * 60 * 60 * 1000; // não incomoda de novo por 7 dias
+  } catch (e) { return false; }
+}
+
+function dispensarInstalarBanner() {
+  document.getElementById('instalarBanner').style.display = 'none';
+  try { localStorage.setItem('instalarBannerDispensado', Date.now().toString()); } catch (e) {}
+}
+
+async function instalarApp() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  document.getElementById('instalarBanner').style.display = 'none';
+}
+
+// Chrome/Android: dispara esse evento quando o app pode ser instalado direto
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if (!estaEmModoStandalone() && !bannerFoiDispensadoRecentemente()) {
+    document.getElementById('instalarBanner').style.display = 'flex';
+    document.getElementById('instalarBtn').style.display = 'inline-block';
+  }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n✅ Servidor rodando em http://localhost:${PORT}`);
-  console.log(`   Acesse no celular: descubra seu IP com "ipconfig" e use http://SEU_IP:${PORT}\n`);
+window.addEventListener('appinstalled', () => {
+  document.getElementById('instalarBanner').style.display = 'none';
 });
+
+// iPhone (Safari) não tem instalação automática — mostra o passo a passo manual
+function sugerirInstalacaoIOS() {
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (isIOS && !estaEmModoStandalone() && !bannerFoiDispensadoRecentemente()) {
+    document.getElementById('instalarBannerTexto').textContent = '📲 No iPhone: toque em Compartilhar e depois em "Adicionar à Tela de Início" pra instalar o app.';
+    document.getElementById('instalarBanner').style.display = 'flex';
+  }
+}
+sugerirInstalacaoIOS();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js').catch(e => console.error('Falha ao registrar service worker:', e));
+  });
+}
+
+</script>
+</body>
+</html>
