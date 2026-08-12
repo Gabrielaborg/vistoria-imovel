@@ -431,6 +431,12 @@
 
 <!-- HISTÓRICO -->
 <div id="historico-screen" style="display:none;max-width:520px;margin:0 auto;padding:0 16px 80px">
+  <div id="naoFinalizadasSecao" style="display:none;margin-bottom:20px">
+    <div class="section-label" style="display:flex;align-items:center;gap:6px;color:var(--accent)"><i class="ti ti-clock-pause"></i> Vistorias não finalizadas</div>
+    <p style="font-size:10.5px;color:var(--muted);margin-bottom:10px">Ainda sendo preenchidas, ou já geradas mas aguardando internet pra enviar. Assim que concluídas, aparecem embaixo, no Histórico normal.</p>
+    <div id="naoFinalizadasLista"></div>
+  </div>
+
   <div id="armazenamentoPainel" style="display:none;background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)"><i class="ti ti-server-2"></i> Espaço usado no servidor</span>
@@ -440,6 +446,7 @@
       <div id="armazenamentoBarra" style="background:var(--accent);height:100%;width:0%;transition:width .3s"></div>
     </div>
   </div>
+  <div class="section-label">Laudos concluídos</div>
   <div class="search-bar">
     <input type="text" id="searchInput" placeholder="Buscar por nome ou data..." oninput="filtrarHistorico()" />
     <button class="btn btn-primary" style="flex:0 0 auto;padding:10px 14px" onclick="carregarHistorico()"><i class="ti ti-refresh"></i></button>
@@ -530,16 +537,17 @@
 </div>
 
 <script>
-const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', obsGeral:'', obsRapidas:[], defeitosPendentes:[], plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'', modoAgenda:false };
+const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', obsGeral:'', obsRapidas:[], defeitosPendentes:[], plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'', modoAgenda:false, rascunhoId:null };
 let todosLaudos = [];
 
 // ══════════════════════════════════════════════════════════════
 // SALVAMENTO AUTOMÁTICO (IndexedDB) — pra vistoria nunca se perder
 // ══════════════════════════════════════════════════════════════
 const DB_NOME = 'vistoria_db';
-const DB_VERSAO = 2;
+const DB_VERSAO = 3;
 const LOJA = 'rascunho';
 const LOJA_FILA = 'fila_envio';
+const LOJA_RASCUNHOS = 'rascunhos_vistorias'; // várias vistorias em andamento ao mesmo tempo, cada uma com id próprio
 const CHAVE_RASCUNHO = 'vistoria_em_andamento';
 
 function abrirDB() {
@@ -549,43 +557,60 @@ function abrirDB() {
       const db = req.result;
       if (!db.objectStoreNames.contains(LOJA)) db.createObjectStore(LOJA);
       if (!db.objectStoreNames.contains(LOJA_FILA)) db.createObjectStore(LOJA_FILA, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(LOJA_RASCUNHOS)) db.createObjectStore(LOJA_RASCUNHOS, { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
 
+// Salva a vistoria ATUAL (state) na sua própria "gaveta", identificada por um ID.
+// Na primeira vez que salva, gera um ID novo e mantém ele pelo resto da vida dessa
+// vistoria — assim, várias vistorias diferentes podem estar em andamento ao mesmo
+// tempo, cada uma preservada separadamente, sem uma sobrescrever a outra.
 async function salvarRascunho() {
   try {
+    if (!state.rascunhoId) state.rascunhoId = 'r_' + Date.now() + Math.random().toString(36).slice(2);
     const db = await abrirDB();
-    const tx = db.transaction(LOJA, 'readwrite');
-    // IndexedDB já faz uma cópia interna sozinho (structured clone nativo, bem mais
-    // leve). Fazer JSON.stringify + JSON.parse aqui só duplicava tudo na memória do
-    // JavaScript à toa — com várias fotos acumuladas, isso pesava bastante.
-    tx.objectStore(LOJA).put(state, CHAVE_RASCUNHO);
+    const tx = db.transaction(LOJA_RASCUNHOS, 'readwrite');
+    tx.objectStore(LOJA_RASCUNHOS).put({ id: state.rascunhoId, atualizadoEm: Date.now(), state: state });
     return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
   } catch (e) { console.error('Falha ao salvar rascunho local:', e); }
 }
 
-async function lerRascunho() {
+// Lista todas as vistorias em andamento (não finalizadas), mais recente primeiro.
+async function listarRascunhos() {
   try {
     const db = await abrirDB();
-    const tx = db.transaction(LOJA, 'readonly');
+    const tx = db.transaction(LOJA_RASCUNHOS, 'readonly');
     return new Promise(res => {
-      const req = tx.objectStore(LOJA).get(CHAVE_RASCUNHO);
-      req.onsuccess = () => res(req.result || null);
-      req.onerror = () => res(null);
+      const req = tx.objectStore(LOJA_RASCUNHOS).getAll();
+      req.onsuccess = () => res((req.result || []).sort((a, b) => b.atualizadoEm - a.atualizadoEm));
+      req.onerror = () => res([]);
     });
-  } catch (e) { return null; }
+  } catch (e) { return []; }
 }
 
+// Apaga só a vistoria atual (chamado quando o laudo dela é gerado com sucesso, ou
+// quando a pessoa exclui manualmente um item da lista de "não finalizadas").
 async function limparRascunho() {
   try {
+    if (!state.rascunhoId) return;
     const db = await abrirDB();
-    const tx = db.transaction(LOJA, 'readwrite');
-    tx.objectStore(LOJA).delete(CHAVE_RASCUNHO);
+    const tx = db.transaction(LOJA_RASCUNHOS, 'readwrite');
+    tx.objectStore(LOJA_RASCUNHOS).delete(state.rascunhoId);
   } catch (e) { console.error('Falha ao limpar rascunho local:', e); }
 }
+
+async function excluirRascunhoPorId(id) {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA_RASCUNHOS, 'readwrite');
+    tx.objectStore(LOJA_RASCUNHOS).delete(id);
+    return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+  } catch (e) { console.error('Falha ao excluir rascunho:', e); }
+}
+
 
 // ══════════════════════════════════════════════════════════════
 // FILA DE REENVIO AUTOMÁTICO — se o envio do laudo falhar (sem
@@ -715,38 +740,41 @@ async function tentarReenviarFila() {
 }
 
 // Verifica, ao abrir o app, se existe uma vistoria salva e não finalizada
-async function verificarRascunhoAoAbrir() {
-  const salvo = await lerRascunho();
-  if (!salvo || (!salvo.dados?.nome && (!salvo.registros || salvo.registros.length===0))) return;
+// Com várias vistorias podendo estar em andamento ao mesmo tempo, não faz mais
+// sentido perguntar "continuar ou não?" com uma caixinha de confirmação ao abrir o
+// app — a pessoa escolhe qual retomar (se alguma) na lista de "Não finalizadas",
+// dentro da aba Histórico. Essa função só existe pra manter compatibilidade com a
+// chamada em fecharSplash().
+async function verificarRascunhoAoAbrir() { /* ver seção "Não finalizadas" na aba Histórico */ }
 
-  const nomeCliente = salvo.dados?.nome || 'sem nome';
-  const qtdRegistros = (salvo.registros || []).length;
-  const continuar = confirm(`Encontramos uma vistoria não finalizada de "${nomeCliente}" (${qtdRegistros} registro${qtdRegistros===1?'':'s'} salvos).\n\nDeseja continuar de onde parou?\n\nOK = Continuar\nCancelar = Começar vistoria nova (apaga o rascunho salvo)`);
+// Carrega uma vistoria específica (por ID) de volta pro estado atual, preenchendo
+// os campos da tela de Dados e levando pra tela de ambientes — usado pelo botão
+// "Continuar" na lista de vistorias não finalizadas.
+async function carregarRascunhoPorId(id) {
+  const registro = (await listarRascunhos()).find(r => r.id === id);
+  if (!registro) { alert('Não foi possível encontrar essa vistoria salva.'); return; }
+  const salvo = registro.state;
 
-  if (!continuar) { await limparRascunho(); return; }
-
-  // Restaura o estado salvo
   Object.assign(state, salvo);
+  state.rascunhoId = id; // garante que continua salvando nesse mesmo slot, não cria um novo
 
-  // Restaura os campos do formulário de dados do cliente
   const campos = { nomeCliente:'nome', cpf:'cpf', telefone:'telefone', empreendimento:'empreendimento', construtora:'construtora', endereco:'endereco', bloco:'bloco', apto:'apto', cep:'cep', cidade:'cidade', metragem:'metragem', comodos:'comodos', valorVistoria:'valor', formaPagamento:'formaPagamento' };
   Object.entries(campos).forEach(([idCampo, chaveState]) => {
     const el = document.getElementById(idCampo);
-    if (el && state.dados[chaveState]) el.value = state.dados[chaveState];
+    if (el) el.value = state.dados[chaveState] || '';
   });
-  if (state.dados.data) document.getElementById('dataVistoria').value = state.dados.data;
-  if (state.dados.hora) document.getElementById('horaVistoria').value = state.dados.hora;
+  document.getElementById('dataVistoria').value = state.dados.data || '';
+  document.getElementById('horaVistoria').value = state.dados.hora || '';
   selecionarTipoAgendamento(state.dados.tipo === 'Revistoria' ? 'Revistoria' : 'Vistoria');
 
-  // Restaura pré-visualização da planta e do mapa, se houver
-  if (state.plantaBase64) {
-    document.getElementById('plantaPreview').innerHTML = `<div class="single-thumb"><img src="data:${state.plantaMediaType};base64,${state.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>`;
-  }
-  if (state.mapaBase64) {
-    document.getElementById('mapaPreview').innerHTML = `<div class="single-thumb"><img src="data:${state.mapaMediaType};base64,${state.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>`;
-  }
+  document.getElementById('plantaPreview').innerHTML = state.plantaBase64 ? `<div class="single-thumb"><img src="data:${state.plantaMediaType};base64,${state.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>` : '';
+  document.getElementById('mapaPreview').innerHTML = state.mapaBase64 ? `<div class="single-thumb"><img src="data:${state.mapaMediaType};base64,${state.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>` : '';
 
-  // Leva o usuário direto pra tela de ambientes, já com o resumo dos registros salvos
+  resetarBotaoDados();
+  dadosContexto = 'novo';
+  atualizarBotaoCancelarDados();
+
+  switchTab('vistoria');
   atualizarResumo();
   mostrarScreen('screen-ambiente');
 }
@@ -836,6 +864,21 @@ function mostrarScreen(id) {
 function selectTipo(el, val) {
   
   el.classList.add('selected'); state.tipoVistoria = val;
+}
+
+// Zera só os dados "de conteúdo" da vistoria (registros, fotos, id do rascunho),
+// sem mexer nos campos do formulário na tela. Usado antes de carregar um
+// agendamento diferente, pra nunca misturar com uma vistoria que já estava em
+// andamento na aba Vistoria (ex: você estava no meio de uma, foi na Agenda e
+// tocou em "Iniciar" outra — sem isso, os registros de uma vazariam pra outra).
+function resetarConteudoVistoria() {
+  Object.assign(state, {
+    registros: [], ambienteAtual: '', fotosAtuais: [], defeitoAtual: '',
+    obsGeral: '', obsRapidas: [], defeitosPendentes: [], conclusaoIA: '',
+    rascunhoId: null
+  });
+  document.getElementById('registroList').innerHTML = '';
+  document.getElementById('resumoRegistros').style.display = 'none';
 }
 
 function selecionarTipoAgendamento(tipo) {
@@ -982,8 +1025,9 @@ function salvarEdicaoDados() {
 
 // Descarta a vistoria em andamento (ambientes, fotos e defeitos já registrados)
 // e volta pra tela inicial em branco, sem precisar fechar e reabrir o app.
-function descartarVistoria() {
+async function descartarVistoria() {
   if (!confirm('Descartar essa vistoria? Todos os ambientes e fotos registrados até agora serão perdidos — essa ação não pode ser desfeita.')) return;
+  await limparRascunho(); // apaga de vez esse rascunho específico (diferente de "Nova vistoria", que preserva)
   novaVistoria();
 }
 
@@ -2286,6 +2330,7 @@ async function iniciarRevistoriaComDefeitos(laudoIdx) {
   const item = agendaCache.find(a => a.id === consultaAgendamentoId);
   const laudo = laudosConsultaRevistoria[laudoIdx];
   if (!item || !laudo) return;
+  resetarConteudoVistoria();
   preencherFormularioDados(item.dados);
   state.plantaBase64 = item.plantaBase64 || null;
   state.plantaMediaType = item.plantaMediaType || null;
@@ -2339,6 +2384,7 @@ function fotografarDefeitoPendente(i) {
 async function iniciarVistoriaDoAgendamento(id) {
   const item = agendaCache.find(a => a.id === id);
   if (!item) return;
+  resetarConteudoVistoria();
   preencherFormularioDados(item.dados);
   state.plantaBase64 = item.plantaBase64 || null;
   state.plantaMediaType = item.plantaMediaType || null;
@@ -2426,8 +2472,9 @@ async function salvarEdicaoAgendamento(id) {
 
 
 function novaVistoria() {
-  limparRascunho();
-  Object.assign(state,{dados:{},tipoVistoria:'',registros:[],ambienteAtual:'',fotosAtuais:[],defeitoAtual:'',obsGeral:'',obsRapidas:[],defeitosPendentes:[],plantaBase64:null,plantaMediaType:null,mapaBase64:null,mapaMediaType:null,conclusaoIA:'',modoAgenda:false});
+  // Não apaga o rascunho da vistoria anterior — ela continua salva, disponível
+  // na lista de "Não finalizadas" (aba Histórico), pra retomar quando quiser.
+  Object.assign(state,{dados:{},tipoVistoria:'',registros:[],ambienteAtual:'',fotosAtuais:[],defeitoAtual:'',obsGeral:'',obsRapidas:[],defeitosPendentes:[],plantaBase64:null,plantaMediaType:null,mapaBase64:null,mapaMediaType:null,conclusaoIA:'',modoAgenda:false,rascunhoId:null});
   resetarBotaoDados();
   dadosContexto = 'novo';
   atualizarBotaoCancelarDados();
@@ -2609,6 +2656,51 @@ async function carregarHistorico() {
   try { const res=await fetch('/historico'); todosLaudos=await res.json(); renderHistorico(todosLaudos); }
   catch { document.getElementById('historicoList').innerHTML='<p style="color:var(--danger);font-size:13px;text-align:center;padding:20px">Erro ao carregar.</p>'; }
   carregarArmazenamento();
+  carregarNaoFinalizadas();
+}
+
+// Mostra, no topo da aba Histórico, as vistorias ainda não concluídas: as que
+// estão sendo preenchidas (rascunhos) e as que já foram geradas mas ainda estão
+// esperando internet pra enviar (fila de reenvio automático).
+async function carregarNaoFinalizadas() {
+  const [rascunhos, fila] = await Promise.all([listarRascunhos(), listarFila()]);
+  const secao = document.getElementById('naoFinalizadasSecao');
+  const lista = document.getElementById('naoFinalizadasLista');
+  if (rascunhos.length === 0 && fila.length === 0) { secao.style.display = 'none'; return; }
+  secao.style.display = 'block';
+
+  const cardsRascunhos = rascunhos.map(r => {
+    const d = r.state.dados || {};
+    const qtdRegistros = (r.state.registros || []).length;
+    return `<div class="hist-item">
+      <i class="ti ti-pencil" style="font-size:24px;color:var(--accent)"></i>
+      <div class="info">
+        <strong>${d.nome || 'Sem nome ainda'}${badgeTipo(d.tipo)}</strong>
+        <span style="display:block">${qtdRegistros} registro${qtdRegistros === 1 ? '' : 's'} salvo${qtdRegistros === 1 ? '' : 's'} · em edição</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <button class="hist-btn" style="width:100%" onclick="carregarRascunhoPorId('${r.id}')"><i class="ti ti-player-play"></i> Continuar</button>
+        <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirRascunhoUI('${r.id}')"><i class="ti ti-trash"></i> Excluir</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  const cardsFila = fila.map(f => `
+    <div class="hist-item">
+      <i class="ti ti-cloud-upload" style="font-size:24px;color:var(--brand2)"></i>
+      <div class="info">
+        <strong>${f.nome}</strong>
+        <span style="display:block">Gerado, aguardando internet pra enviar (${f.tipo.toUpperCase()})</span>
+      </div>
+    </div>`).join('');
+
+  lista.innerHTML = cardsRascunhos + cardsFila;
+}
+
+async function excluirRascunhoUI(id) {
+  if (!confirm('Excluir essa vistoria não finalizada? Os ambientes e fotos já registrados serão perdidos — essa ação não pode ser desfeita.')) return;
+  await excluirRascunhoPorId(id);
+  carregarNaoFinalizadas();
 }
 
 async function carregarArmazenamento() {
