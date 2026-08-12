@@ -1324,7 +1324,7 @@ const CORES_DISPONIVEIS = [
   {id:'marrom', nome:'marrom', label:'Marrom', hex:'#6B4226', emoji:'🟤'}
 ];
 
-let corConfig = { A: 'laranja', B: 'verde', C: 'azul' };
+let corConfig = { A: 'laranja', B: 'verde', C: 'azul', D: 'roxo' };
 
 function getCor(grupo) {
   return CORES_DISPONIVEIS.find(c => c.id === corConfig[grupo]) || CORES_DISPONIVEIS[0];
@@ -1334,7 +1334,8 @@ function substituirCores(texto) {
   return texto
     .replace(/\{CORA\}/g, getCor('A').nome)
     .replace(/\{CORB\}/g, getCor('B').nome)
-    .replace(/\{CORC\}/g, getCor('C').nome);
+    .replace(/\{CORC\}/g, getCor('C').nome)
+    .replace(/\{CORD\}/g, getCor('D').nome);
 }
 
 async function salvarCorConfig() {
@@ -1598,7 +1599,8 @@ function validarImagemCarregavel(dataUrl) {
 function renderFitaColorida() {
   const grupos = [
     { grupo: 'A', texto: 'Peça oca, lascada ou trincada', label: 'Peça oca/lascada/trincada' },
-    { grupo: 'B', texto: 'Falha de rejunte ou falha na pintura', label: 'Rejunte/pintura' },
+    { grupo: 'B', texto: 'Falha de rejunte', label: 'Rejunte' },
+    { grupo: 'D', texto: 'Falha na pintura, mancha na pintura ou ondulação', label: 'Pintura (mancha/ondulação)' },
     { grupo: 'C', texto: 'Fissura na parede, piso ou teto', label: 'Fissura parede/piso/teto' }
   ];
   document.getElementById('fitaColoridaGrid').innerHTML = grupos.map(g => {
@@ -1612,7 +1614,8 @@ function toggleConfigCores() {
   if (painel.style.display === 'block') { painel.style.display = 'none'; return; }
   const grupos = [
     { grupo: 'A', label: 'Peça oca/lascada/trincada' },
-    { grupo: 'B', label: 'Falha de rejunte/pintura' },
+    { grupo: 'B', label: 'Falha de rejunte' },
+    { grupo: 'D', label: 'Pintura (mancha/ondulação)' },
     { grupo: 'C', label: 'Fissura' }
   ];
   painel.innerHTML = `<div class="section-label" style="margin-top:0">Configurar cores das fitas</div>` + grupos.map(g => `
@@ -1650,12 +1653,12 @@ const LEGENDAS = {
     {t:"Cerâmica manchada (diferença de lote)", d:"Há variações de tonalidade entre as peças cerâmicas, possivelmente decorrentes do uso de lotes diferentes, resultando em um aspecto visual inconsistente."}
   ],
   "Pintura": [
-    {t:"Mancha na pintura", d:"Foram identificadas manchas na pintura, sinalizadas com adesivo {CORB}, comprometendo a uniformidade e a vedação das superfícies."},
-    {t:"Falha na pintura (manchas/ondulações)", d:"Observa-se falhas na pintura, sinalizadas com adesivo {CORB}, com presença de manchas e ondulações visíveis nas superfícies de parede e teto, comprometendo o acabamento estético do ambiente."},
+    {t:"Mancha na pintura", d:"Foram identificadas manchas na pintura, sinalizadas com adesivo {CORD}, comprometendo a uniformidade e a vedação das superfícies."},
+    {t:"Falha na pintura (manchas/ondulações)", d:"Observa-se falhas na pintura, sinalizadas com adesivo {CORD}, com presença de manchas e ondulações visíveis nas superfícies de parede e teto, comprometendo o acabamento estético do ambiente."},
     {t:"Microfissura", d:"Foi verificado a presença de fissura linear na superfície da parede, sinalizada com adesivo {CORC}, com abertura estimada inferior a 1 mm. Pode estar relacionado à movimentação da edificação, retração de materiais ou variações térmicas. Recomenda-se o reparo com materiais adequados e o monitoramento da área."},
     {t:"Falha na textura", d:"Foi identificada falha na textura, comprometendo o acabamento e a estética da superfície."},
     {t:"Mancha de umidade", d:"Evidências de umidade foram observadas na superfície, podendo estar relacionadas a infiltrações, condensação ou falhas na impermeabilização."},
-    {t:"Falha no recorte teto/parede", d:"O acabamento da pintura na transição entre o teto e a parede apresenta irregularidades, sinalizado com adesivo {CORB}, resultando em um aspecto visual desalinhado e comprometendo a estética do ambiente."}
+    {t:"Falha no recorte teto/parede", d:"O acabamento da pintura na transição entre o teto e a parede apresenta irregularidades, sinalizado com adesivo {CORD}, resultando em um aspecto visual desalinhado e comprometendo a estética do ambiente."}
   ],
   "Porta": [
     {t:"Porta quebrada", d:"A porta apresenta danos estruturais que comprometem sua funcionalidade e estética, podendo necessitar de reparo ou substituição."},
