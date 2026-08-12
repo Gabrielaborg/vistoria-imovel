@@ -125,6 +125,26 @@ function lerCorpoJSON(req) {
   });
 }
 
+// Gera, por ambiente: (1) um parágrafo único consolidando todos os defeitos daquele
+// cômodo numa narrativa técnica fluida (citando normas ABNT quando pertinente), e
+// (2) uma legenda curta pra cada grupo de defeito, usada embaixo de cada foto —
+// no estilo de laudo mais organizado (parágrafo geral + legendas objetivas por imagem).
+async function gerarResumoAmbiente(ambiente, defeitos, inicioImg, fimImg) {
+  const listaTexto = defeitos.map((d, i) => `${i + 1}. ${d}`).join('\n');
+  const faixaTexto = fimImg > inicioImg ? `nº ${inicioImg} a ${fimImg}` : `nº ${inicioImg}`;
+  const texto = await chamarClaude({
+    maxTokens: 900,
+    system: 'Você é um(a) engenheiro(a) civil redigindo a seção de um ambiente específico dentro de um laudo técnico de vistoria de imóvel, seguindo o estilo formal de normas ABNT (NBR 15575, NBR 13753, NBR 13755 e correlatas) e do IBAPE Nacional. Responda SOMENTE com um JSON válido, sem markdown, sem texto antes ou depois, no formato exato: {"paragrafo": "...", "legendas": ["...", "..."]}. O campo "paragrafo" deve ser um único parágrafo fluido (não uma lista, não repita os textos originais colados um atrás do outro) sintetizando TODOS os defeitos informados, citando a norma ABNT mais pertinente quando fizer sentido, e mencionando que as não conformidades estão registradas nas imagens indicadas, que integram o laudo. O campo "legendas" deve ter EXATAMENTE um item por defeito informado, na mesma ordem, cada um uma legenda curta (até 8 palavras) descrevendo objetivamente aquele defeito específico — se o texto original mencionar uma cor de adesivo/fita, a legenda deve citar essa cor (ex: "Adesivo verde indica cerâmica oca").',
+    messages: [{ role: 'user', content: `Ambiente: ${ambiente}\n\nDefeitos identificados nesse ambiente:\n${listaTexto}\n\nEssas não conformidades estão registradas nas imagens ${faixaTexto} do laudo.` }]
+  });
+  const limpo = texto.trim().replace(/^```json\s*/i, '').replace(/```\s*$/, '');
+  const json = JSON.parse(limpo);
+  if (!json.paragrafo || !Array.isArray(json.legendas) || json.legendas.length !== defeitos.length) {
+    throw new Error('Resposta da IA em formato inesperado.');
+  }
+  return json;
+}
+
 async function gerarDocx(payload) {
   const { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, Footer } = require('docx');
   const { dados, tipoVistoria, obsGeral, registros, plantaBase64, plantaMediaType, mapaBase64, mapaMediaType, conclusaoIA } = payload;
@@ -194,23 +214,48 @@ async function gerarDocx(payload) {
       if (!porDefeito[item.defeito]) { porDefeito[item.defeito] = []; ordemDefeitos.push(item.defeito); }
       porDefeito[item.defeito].push(...item.fotos);
     }
+    const totalFotosAmbiente = ordemDefeitos.reduce((soma, d) => soma + porDefeito[d].length, 0);
+    const inicioAmbiente = imgCounter;
+    const fimAmbiente = imgCounter + totalFotosAmbiente - 1;
+
+    // Tenta gerar o parágrafo único + legendas curtas com IA. Se falhar por qualquer
+    // motivo (sem chave configurada, sem internet, IA fora do ar), cai automaticamente
+    // pro formato antigo (texto completo de cada defeito, sem travar o laudo).
+    let resumoIA = null;
+    try {
+      resumoIA = await gerarResumoAmbiente(ambiente, ordemDefeitos, inicioAmbiente, fimAmbiente);
+    } catch (e) {
+      console.error(`Falha ao gerar resumo do ambiente "${ambiente}", usando formato padrão:`, e.message);
+    }
+
+    if (resumoIA) {
+      registrosParagraphs.push(new Paragraph({
+        children: [N(resumoIA.paragrafo, 20)], indent, spacing: { after: 140 }, alignment: AlignmentType.JUSTIFIED
+      }));
+    }
+
+    let idxDefeito = 0;
     for (const defeito of ordemDefeitos) {
       const fotosDoGrupo = porDefeito[defeito];
-      // Texto completo do defeito aparece UMA VEZ por grupo (não repete por foto nem por registro separado)
-      registrosParagraphs.push(new Paragraph({
-        children: [N(defeito, 20)], indent, spacing: { after: 80 }, alignment: AlignmentType.JUSTIFIED
-      }));
-      const totalFotos = fotosDoGrupo.length;
-      const inicio = imgCounter;
-      const fim = imgCounter + totalFotos - 1;
-      const referencia = totalFotos > 1 ? `Evidenciado nas imagens ${inicio} a ${fim}.` : `Evidenciado na imagem ${inicio}.`;
-      registrosParagraphs.push(new Paragraph({
-        children: [N(referencia, 18)], indent, spacing: { after: 100 }
-      }));
-      for (let i = 0; i < totalFotos; i++) {
-        const foto = fotosDoGrupo[i];
+      const legendaCurta = resumoIA ? resumoIA.legendas[idxDefeito] : null;
+
+      if (!resumoIA) {
+        // Formato antigo (sem IA): texto completo do defeito, uma vez por grupo
         registrosParagraphs.push(new Paragraph({
-          children: [N(`Imagem ${imgCounter}`, 20)], alignment: AlignmentType.CENTER, spacing: { after: 60 }
+          children: [N(defeito, 20)], indent, spacing: { after: 80 }, alignment: AlignmentType.JUSTIFIED
+        }));
+        const totalFotos = fotosDoGrupo.length;
+        const referencia = totalFotos > 1 ? `Evidenciado nas imagens ${imgCounter} a ${imgCounter + totalFotos - 1}.` : `Evidenciado na imagem ${imgCounter}.`;
+        registrosParagraphs.push(new Paragraph({
+          children: [N(referencia, 18)], indent, spacing: { after: 100 }
+        }));
+      }
+
+      for (let i = 0; i < fotosDoGrupo.length; i++) {
+        const foto = fotosDoGrupo[i];
+        const rotulo = legendaCurta ? `Imagem ${imgCounter} - ${legendaCurta}` : `Imagem ${imgCounter}`;
+        registrosParagraphs.push(new Paragraph({
+          children: [N(rotulo, 20)], alignment: AlignmentType.CENTER, spacing: { after: 60 }
         }));
         try {
           const imgBuf = Buffer.from(foto.base64, 'base64');
@@ -222,6 +267,7 @@ async function gerarDocx(payload) {
         } catch(e) { console.error('Img error:', e.message); }
         imgCounter++;
       }
+      idxDefeito++;
     }
     registrosParagraphs.push(br());
   }
