@@ -130,6 +130,11 @@ function lerCorpoJSON(req) {
 // (2) uma legenda curta pra cada grupo de defeito, usada embaixo de cada foto —
 // no estilo de laudo mais organizado (parágrafo geral + legendas objetivas por imagem).
 async function gerarResumoAmbiente(ambiente, defeitos, inicioImg, fimImg) {
+  // Ambiente sem nenhum defeito pra resumir — não faz sentido chamar a IA pra isso.
+  if (!defeitos || defeitos.length === 0) {
+    return { paragrafo: `Não foram identificadas não conformidades no ambiente ${ambiente} durante a vistoria.`, legendas: [] };
+  }
+
   const listaTexto = defeitos.map((d, i) => `${i + 1}. ${d}`).join('\n');
   const faixaTexto = fimImg > inicioImg ? `nº ${inicioImg} a ${fimImg}` : `nº ${inicioImg}`;
   const system = 'Você é um(a) engenheiro(a) civil redigindo a seção de um ambiente específico dentro de um laudo técnico de vistoria de imóvel, seguindo o estilo formal de normas ABNT (NBR 15575, NBR 13753, NBR 13755 e correlatas) e do IBAPE Nacional. Responda SOMENTE com um JSON válido, sem markdown, sem texto antes ou depois, no formato exato: {"paragrafo": "...", "legendas": ["...", "..."]}. O campo "paragrafo" deve ser um único parágrafo fluido (não uma lista, não repita os textos originais colados um atrás do outro) sintetizando TODOS os defeitos informados, citando a norma ABNT mais pertinente quando fizer sentido, e mencionando que as não conformidades estão registradas nas imagens indicadas, que integram o laudo. O campo "legendas" deve ter EXATAMENTE um item por defeito informado, na mesma ordem, cada um uma legenda curta (até 8 palavras) descrevendo objetivamente aquele defeito específico — se o texto original mencionar uma cor de adesivo/fita, a legenda deve citar essa cor (ex: "Adesivo verde indica cerâmica oca").';
@@ -137,8 +142,9 @@ async function gerarResumoAmbiente(ambiente, defeitos, inicioImg, fimImg) {
 
   let ultimoErro = null;
   for (let tentativa = 1; tentativa <= 2; tentativa++) {
+    let texto = '';
     try {
-      const texto = await chamarClaude({ maxTokens: 900, system, messages: [{ role: 'user', content: mensagem }] });
+      texto = await chamarClaude({ maxTokens: 900, system, messages: [{ role: 'user', content: mensagem }] });
       // Extrai só o trecho entre a primeira { e a última } — tolera qualquer texto
       // extra que a IA acidentalmente adicione antes/depois do JSON.
       const inicio = texto.indexOf('{');
@@ -154,7 +160,9 @@ async function gerarResumoAmbiente(ambiente, defeitos, inicioImg, fimImg) {
       return json;
     } catch (e) {
       ultimoErro = e;
-      console.error(`Tentativa ${tentativa} de gerar resumo do ambiente "${ambiente}" falhou:`, e.message);
+      // Loga a resposta bruta da IA (cortada) — essencial pra entender falhas
+      // repetidas que não são simples instabilidade passageira.
+      console.error(`Tentativa ${tentativa} de gerar resumo do ambiente "${ambiente}" falhou:`, e.message, '| Resposta bruta da IA:', texto.slice(0, 500));
     }
   }
   throw ultimoErro;
