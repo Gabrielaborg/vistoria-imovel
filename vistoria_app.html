@@ -559,7 +559,19 @@ function abrirDB() {
       if (!db.objectStoreNames.contains(LOJA_FILA)) db.createObjectStore(LOJA_FILA, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(LOJA_RASCUNHOS)) db.createObjectStore(LOJA_RASCUNHOS, { keyPath: 'id' });
     };
-    req.onsuccess = () => resolve(req.result);
+    // Se uma versão antiga do app ficou aberta em segundo plano (comum em app
+    // instalado no celular), ela pode "segurar" o banco de dados e impedir a
+    // atualização pra versão nova. Nesse caso, avisamos a pessoa a recarregar.
+    req.onblocked = () => {
+      console.error('Atualização do banco de dados local bloqueada por outra aba/instância do app aberta.');
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      // Se OUTRA aba tentar abrir uma versão mais nova depois, fecha essa conexão
+      // automaticamente pra não travar a atualização dela (efeito cascata do problema acima).
+      db.onversionchange = () => db.close();
+      resolve(db);
+    };
     req.onerror = () => reject(req.error);
   });
 }
