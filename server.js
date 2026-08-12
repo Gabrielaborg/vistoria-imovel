@@ -132,17 +132,32 @@ function lerCorpoJSON(req) {
 async function gerarResumoAmbiente(ambiente, defeitos, inicioImg, fimImg) {
   const listaTexto = defeitos.map((d, i) => `${i + 1}. ${d}`).join('\n');
   const faixaTexto = fimImg > inicioImg ? `nº ${inicioImg} a ${fimImg}` : `nº ${inicioImg}`;
-  const texto = await chamarClaude({
-    maxTokens: 900,
-    system: 'Você é um(a) engenheiro(a) civil redigindo a seção de um ambiente específico dentro de um laudo técnico de vistoria de imóvel, seguindo o estilo formal de normas ABNT (NBR 15575, NBR 13753, NBR 13755 e correlatas) e do IBAPE Nacional. Responda SOMENTE com um JSON válido, sem markdown, sem texto antes ou depois, no formato exato: {"paragrafo": "...", "legendas": ["...", "..."]}. O campo "paragrafo" deve ser um único parágrafo fluido (não uma lista, não repita os textos originais colados um atrás do outro) sintetizando TODOS os defeitos informados, citando a norma ABNT mais pertinente quando fizer sentido, e mencionando que as não conformidades estão registradas nas imagens indicadas, que integram o laudo. O campo "legendas" deve ter EXATAMENTE um item por defeito informado, na mesma ordem, cada um uma legenda curta (até 8 palavras) descrevendo objetivamente aquele defeito específico — se o texto original mencionar uma cor de adesivo/fita, a legenda deve citar essa cor (ex: "Adesivo verde indica cerâmica oca").',
-    messages: [{ role: 'user', content: `Ambiente: ${ambiente}\n\nDefeitos identificados nesse ambiente:\n${listaTexto}\n\nEssas não conformidades estão registradas nas imagens ${faixaTexto} do laudo.` }]
-  });
-  const limpo = texto.trim().replace(/^```json\s*/i, '').replace(/```\s*$/, '');
-  const json = JSON.parse(limpo);
-  if (!json.paragrafo || !Array.isArray(json.legendas) || json.legendas.length !== defeitos.length) {
-    throw new Error('Resposta da IA em formato inesperado.');
+  const system = 'Você é um(a) engenheiro(a) civil redigindo a seção de um ambiente específico dentro de um laudo técnico de vistoria de imóvel, seguindo o estilo formal de normas ABNT (NBR 15575, NBR 13753, NBR 13755 e correlatas) e do IBAPE Nacional. Responda SOMENTE com um JSON válido, sem markdown, sem texto antes ou depois, no formato exato: {"paragrafo": "...", "legendas": ["...", "..."]}. O campo "paragrafo" deve ser um único parágrafo fluido (não uma lista, não repita os textos originais colados um atrás do outro) sintetizando TODOS os defeitos informados, citando a norma ABNT mais pertinente quando fizer sentido, e mencionando que as não conformidades estão registradas nas imagens indicadas, que integram o laudo. O campo "legendas" deve ter EXATAMENTE um item por defeito informado, na mesma ordem, cada um uma legenda curta (até 8 palavras) descrevendo objetivamente aquele defeito específico — se o texto original mencionar uma cor de adesivo/fita, a legenda deve citar essa cor (ex: "Adesivo verde indica cerâmica oca").';
+  const mensagem = `Ambiente: ${ambiente}\n\nDefeitos identificados nesse ambiente:\n${listaTexto}\n\nEssas não conformidades estão registradas nas imagens ${faixaTexto} do laudo.`;
+
+  let ultimoErro = null;
+  for (let tentativa = 1; tentativa <= 2; tentativa++) {
+    try {
+      const texto = await chamarClaude({ maxTokens: 900, system, messages: [{ role: 'user', content: mensagem }] });
+      // Extrai só o trecho entre a primeira { e a última } — tolera qualquer texto
+      // extra que a IA acidentalmente adicione antes/depois do JSON.
+      const inicio = texto.indexOf('{');
+      const fim = texto.lastIndexOf('}');
+      if (inicio === -1 || fim === -1) throw new Error('Resposta não contém um JSON reconhecível.');
+      const json = JSON.parse(texto.slice(inicio, fim + 1));
+      if (!json.paragrafo || typeof json.paragrafo !== 'string') throw new Error('Campo "paragrafo" ausente ou inválido.');
+      if (!Array.isArray(json.legendas)) json.legendas = [];
+      // Se a quantidade de legendas não bater exatamente, ajusta em vez de descartar
+      // o parágrafo inteiro (que já veio bom) — preenche faltantes com null.
+      while (json.legendas.length < defeitos.length) json.legendas.push(null);
+      json.legendas = json.legendas.slice(0, defeitos.length);
+      return json;
+    } catch (e) {
+      ultimoErro = e;
+      console.error(`Tentativa ${tentativa} de gerar resumo do ambiente "${ambiente}" falhou:`, e.message);
+    }
   }
-  return json;
+  throw ultimoErro;
 }
 
 async function gerarDocx(payload) {
@@ -218,38 +233,22 @@ async function gerarDocx(payload) {
     const inicioAmbiente = imgCounter;
     const fimAmbiente = imgCounter + totalFotosAmbiente - 1;
 
-    // Tenta gerar o parágrafo único + legendas curtas com IA. Se falhar por qualquer
-    // motivo (sem chave configurada, sem internet, IA fora do ar), cai automaticamente
-    // pro formato antigo (texto completo de cada defeito, sem travar o laudo).
-    let resumoIA = null;
-    try {
-      resumoIA = await gerarResumoAmbiente(ambiente, ordemDefeitos, inicioAmbiente, fimAmbiente);
-    } catch (e) {
-      console.error(`Falha ao gerar resumo do ambiente "${ambiente}", usando formato padrão:`, e.message);
-    }
+    // Gera o parágrafo único + legendas curtas com IA. A pedido da cliente, o laudo
+    // NUNCA deve sair no formato antigo (parágrafos repetidos) — se a IA não
+    // conseguir gerar o resumo desse ambiente (mesmo depois de tentar 2 vezes,
+    // dentro de gerarResumoAmbiente), a geração do laudo INTEIRO é interrompida
+    // aqui. O app do celular já trata isso: guarda a vistoria na fila de reenvio
+    // automático e tenta de novo sozinho mais tarde — nunca perde nada.
+    const resumoIA = await gerarResumoAmbiente(ambiente, ordemDefeitos, inicioAmbiente, fimAmbiente);
 
-    if (resumoIA) {
-      registrosParagraphs.push(new Paragraph({
-        children: [N(resumoIA.paragrafo, 20)], indent, spacing: { after: 140 }, alignment: AlignmentType.JUSTIFIED
-      }));
-    }
+    registrosParagraphs.push(new Paragraph({
+      children: [N(resumoIA.paragrafo, 20)], indent, spacing: { after: 140 }, alignment: AlignmentType.JUSTIFIED
+    }));
 
     let idxDefeito = 0;
     for (const defeito of ordemDefeitos) {
       const fotosDoGrupo = porDefeito[defeito];
-      const legendaCurta = resumoIA ? resumoIA.legendas[idxDefeito] : null;
-
-      if (!resumoIA) {
-        // Formato antigo (sem IA): texto completo do defeito, uma vez por grupo
-        registrosParagraphs.push(new Paragraph({
-          children: [N(defeito, 20)], indent, spacing: { after: 80 }, alignment: AlignmentType.JUSTIFIED
-        }));
-        const totalFotos = fotosDoGrupo.length;
-        const referencia = totalFotos > 1 ? `Evidenciado nas imagens ${imgCounter} a ${imgCounter + totalFotos - 1}.` : `Evidenciado na imagem ${imgCounter}.`;
-        registrosParagraphs.push(new Paragraph({
-          children: [N(referencia, 18)], indent, spacing: { after: 100 }
-        }));
-      }
+      const legendaCurta = resumoIA.legendas[idxDefeito];
 
       for (let i = 0; i < fotosDoGrupo.length; i++) {
         const foto = fotosDoGrupo[i];
