@@ -668,7 +668,7 @@ async function removerDaFila(id) {
   } catch (e) { console.error('Falha ao remover item da fila:', e); }
 }
 
-async function marcarTentativaFila(id) {
+async function marcarTentativaFila(id, mensagemErro) {
   try {
     const db = await abrirDB();
     const tx = db.transaction(LOJA_FILA, 'readwrite');
@@ -676,7 +676,7 @@ async function marcarTentativaFila(id) {
     const getReq = store.get(id);
     getReq.onsuccess = () => {
       const item = getReq.result;
-      if (item) { item.tentativas = (item.tentativas || 0) + 1; store.put(item); }
+      if (item) { item.tentativas = (item.tentativas || 0) + 1; item.ultimoErro = mensagemErro || null; store.put(item); }
     };
     return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
   } catch (e) { /* ignora */ }
@@ -719,11 +719,13 @@ async function baixarArquivo(blob, filename, mimeType) {
 }
 
 // Tenta reenviar tudo que estiver na fila. Chamado ao abrir o app, periodicamente,
-// e sempre que o celular voltar a ter internet.
+// e sempre que o celular voltar a ter internet. Também pode ser chamado manualmente
+// (botão "Tentar agora"), passando forcar=true pra ignorar a checagem de navigator.onLine
+// (que às vezes fica desatualizada e diz "sem internet" mesmo com internet de verdade).
 let reenviandoFila = false;
-async function tentarReenviarFila() {
+async function tentarReenviarFila(forcar) {
   if (reenviandoFila) return;
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  if (!forcar && typeof navigator !== 'undefined' && navigator.onLine === false) return;
   reenviandoFila = true;
   try {
     const fila = await listarFila();
@@ -734,7 +736,13 @@ async function tentarReenviarFila() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(item.payload)
         });
-        if (!res.ok) throw new Error('Servidor respondeu erro ao reenviar');
+        if (!res.ok) {
+          // Captura o motivo real do erro que o servidor devolveu, em vez de um
+          // texto genérico — assim dá pra saber exatamente por que está travando.
+          let detalhe = `HTTP ${res.status}`;
+          try { const corpo = await res.json(); if (corpo.error) detalhe = corpo.error; } catch (e) {}
+          throw new Error(detalhe);
+        }
         const blob = await res.blob();
         const nomeArquivo = `Laudo_${(item.payload.dados.nome || 'cliente').split(' ')[0]}_${item.payload.dados.data || 'vistoria'}.${item.tipo}`;
         const mimeType = item.tipo === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -742,13 +750,30 @@ async function tentarReenviarFila() {
         await removerDaFila(item.id);
       } catch (e) {
         console.error('Reenvio ainda falhou, vai tentar de novo depois:', e.message);
-        await marcarTentativaFila(item.id);
+        await marcarTentativaFila(item.id, e.message);
       }
     }
     await atualizarBannerFila();
+    await carregarNaoFinalizadas();
   } finally {
     reenviandoFila = false;
   }
+}
+
+// Tenta reenviar SÓ um item específico da fila agora, e mostra o resultado na
+// hora (sucesso ou o motivo exato da falha) — usado pelo botão "Tentar agora".
+async function tentarReenviarAgora(id) {
+  await tentarReenviarFila(true);
+  const aindaNaFila = (await listarFila()).find(f => f.id === id);
+  if (!aindaNaFila) { alert('Consegui enviar agora! ✅ O download deve ter iniciado.'); return; }
+  alert(`Ainda não consegui enviar.\n\nMotivo: ${aindaNaFila.ultimoErro || 'desconhecido'}\n\nO app vai continuar tentando sozinho. Se o motivo parecer um problema real (não só falta de internet), me avisa que a gente investiga.`);
+}
+
+async function excluirDaFilaUI(id) {
+  if (!confirm('Excluir esse laudo da fila de envio? Ele já foi gerado, mas você vai perder essa cópia — não vai mais tentar enviar sozinho.')) return;
+  await removerDaFila(id);
+  await atualizarBannerFila();
+  await carregarNaoFinalizadas();
 }
 
 // Verifica, ao abrir o app, se existe uma vistoria salva e não finalizada
@@ -2712,7 +2737,12 @@ async function carregarNaoFinalizadas() {
       <i class="ti ti-cloud-upload" style="font-size:24px;color:var(--brand2)"></i>
       <div class="info">
         <strong>${f.nome}</strong>
-        <span style="display:block">Gerado, aguardando internet pra enviar (${f.tipo.toUpperCase()})</span>
+        <span style="display:block">Gerado, aguardando envio (${f.tipo.toUpperCase()})${f.tentativas ? ` · ${f.tentativas} tentativa${f.tentativas === 1 ? '' : 's'}` : ''}</span>
+        ${f.ultimoErro ? `<span style="display:block;color:var(--danger);font-size:10.5px">Motivo: ${f.ultimoErro}</span>` : ''}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <button class="hist-btn" style="width:100%" onclick="tentarReenviarAgora('${f.id}')"><i class="ti ti-refresh"></i> Tentar agora</button>
+        <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirDaFilaUI('${f.id}')"><i class="ti ti-trash"></i> Excluir</button>
       </div>
     </div>`).join('');
 
