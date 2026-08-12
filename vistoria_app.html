@@ -1380,7 +1380,7 @@ const CORES_DISPONIVEIS = [
   {id:'marrom', nome:'marrom', label:'Marrom', hex:'#6B4226', emoji:'🟤'}
 ];
 
-let corConfig = { A: 'laranja', B: 'verde', C: 'azul', D: 'roxo' };
+let corConfig = { A: 'laranja', B: 'verde', C: 'azul', D: 'roxo', E: 'amarelo', F: 'vermelho', G: 'marrom' };
 
 function getCor(grupo) {
   return CORES_DISPONIVEIS.find(c => c.id === corConfig[grupo]) || CORES_DISPONIVEIS[0];
@@ -1391,7 +1391,10 @@ function substituirCores(texto) {
     .replace(/\{CORA\}/g, getCor('A').nome)
     .replace(/\{CORB\}/g, getCor('B').nome)
     .replace(/\{CORC\}/g, getCor('C').nome)
-    .replace(/\{CORD\}/g, getCor('D').nome);
+    .replace(/\{CORD\}/g, getCor('D').nome)
+    .replace(/\{CORE\}/g, getCor('E').nome)
+    .replace(/\{CORF\}/g, getCor('F').nome)
+    .replace(/\{CORG\}/g, getCor('G').nome);
 }
 
 async function salvarCorConfig() {
@@ -1654,10 +1657,13 @@ function validarImagemCarregavel(dataUrl) {
 
 function renderFitaColorida() {
   const grupos = [
-    { grupo: 'A', texto: 'Peça oca, lascada ou trincada', label: 'Peça oca/lascada/trincada' },
-    { grupo: 'B', texto: 'Falha de rejunte', label: 'Rejunte' },
-    { grupo: 'D', texto: 'Falha na pintura, mancha na pintura ou ondulação', label: 'Pintura (mancha/ondulação)' },
-    { grupo: 'C', texto: 'Fissura na parede, piso ou teto', label: 'Fissura parede/piso/teto' }
+    { grupo: 'A', texto: 'Cerâmica oca', label: 'Cerâmica oca' },
+    { grupo: 'E', texto: 'Cerâmica lascada', label: 'Cerâmica lascada' },
+    { grupo: 'F', texto: 'Cerâmica trincada', label: 'Cerâmica trincada' },
+    { grupo: 'B', texto: 'Falha no rejunte', label: 'Rejunte' },
+    { grupo: 'D', texto: 'Falha na pintura (manchas, calafete sem finalizar e outros)', label: 'Pintura (manchas/calafete)' },
+    { grupo: 'G', texto: 'Ondulação na parede', label: 'Ondulação na parede' },
+    { grupo: 'C', texto: 'Fissura na parede ou teto', label: 'Fissura (parede/teto)' }
   ];
   document.getElementById('fitaColoridaGrid').innerHTML = grupos.map(g => {
     const cor = getCor(g.grupo);
@@ -1669,9 +1675,12 @@ function toggleConfigCores() {
   const painel = document.getElementById('configCoresPainel');
   if (painel.style.display === 'block') { painel.style.display = 'none'; return; }
   const grupos = [
-    { grupo: 'A', label: 'Peça oca/lascada/trincada' },
-    { grupo: 'B', label: 'Falha de rejunte' },
-    { grupo: 'D', label: 'Pintura (mancha/ondulação)' },
+    { grupo: 'A', label: 'Cerâmica oca' },
+    { grupo: 'E', label: 'Cerâmica lascada' },
+    { grupo: 'F', label: 'Cerâmica trincada' },
+    { grupo: 'B', label: 'Rejunte' },
+    { grupo: 'D', label: 'Pintura (manchas/calafete)' },
+    { grupo: 'G', label: 'Ondulação na parede' },
     { grupo: 'C', label: 'Fissura' }
   ];
   painel.innerHTML = `<div class="section-label" style="margin-top:0">Configurar cores das fitas</div>` + grupos.map(g => `
@@ -1701,16 +1710,17 @@ const LEGENDAS = {
     {t:"Cerâmica oca (som cavo)", d:"Durante a vistoria, foi identificada manifestação patológica caracterizada por som cavo (oco) em peças de revestimento cerâmico, sinalizada com adesivo {CORA}. Essa condição indica falha de aderência entre a cerâmica e a base, podendo resultar em descolamento futuro das peças e redução do desempenho do sistema de revestimento. Recomenda-se a remoção e reinstalação das peças afetadas, com preparo adequado do substrato e utilização de argamassa colante compatível, conforme procedimentos estabelecidos na ABNT NBR 13753:1996."},
     {t:"Falha no rejunte", d:"Foram identificadas falhas e descontinuidades no rejunte, sinalizadas com adesivo {CORB}, comprometendo o acabamento e podendo permitir a infiltração de água e o acúmulo de sujeira. Recomenda-se a correção com reaplicação adequada do rejunte."},
     {t:"Cerâmica oca e falha no rejunte", d:"Verifica-se revestimento cerâmico com peças ocas (adesivo {CORA}) e ausência ou falhas no rejuntamento (adesivo {CORB}), comprometendo a aderência, a uniformidade e o acabamento estético do revestimento. Recomenda-se correção das peças e execução adequada do rejunte para garantir durabilidade e padrão visual adequado."},
-    {t:"Cerâmica trincada", d:"Foi identificada cerâmica trincada, sinalizada com adesivo {CORA}, comprometendo a integridade e a estética do revestimento. Possivelmente causada por movimentação do substrato ou impacto. Recomenda-se substituição da peça para restabelecer o acabamento e evitar infiltrações."},
-    {t:"Cerâmica lascada", d:"Verifica-se a presença de lascamentos no revestimento cerâmico, sinalizados com adesivo {CORA}, comprometendo o acabamento, a estética e a durabilidade do material."},
-    {t:"Cerâmica lascada e oca", d:"Foi constatada a presença de peça cerâmica lascada e com som cavo (oco), sinalizada com adesivo {CORA}. Essa condição pode estar associada a falhas no assentamento, utilização inadequada de argamassa colante ou movimentações do substrato. Recomenda-se a substituição da peça afetada e verificação das demais áreas para evitar recorrências."},
+    {t:"Cerâmica trincada", d:"Foi identificada cerâmica trincada, sinalizada com adesivo {CORF}, comprometendo a integridade e a estética do revestimento. Possivelmente causada por movimentação do substrato ou impacto. Recomenda-se substituição da peça para restabelecer o acabamento e evitar infiltrações."},
+    {t:"Cerâmica lascada", d:"Verifica-se a presença de lascamentos no revestimento cerâmico, sinalizados com adesivo {CORE}, comprometendo o acabamento, a estética e a durabilidade do material."},
+    {t:"Cerâmica lascada e oca", d:"Foi constatada a presença de peça cerâmica lascada (adesivo {CORE}) e com som cavo (oco, adesivo {CORA}). Essa condição pode estar associada a falhas no assentamento, utilização inadequada de argamassa colante ou movimentações do substrato. Recomenda-se a substituição da peça afetada e verificação das demais áreas para evitar recorrências."},
     {t:"Rodapé oco", d:"Ao realizar a inspeção por percussão, foi constatado som cavo no rodapé, sinalizado com adesivo {CORA}, indicando falta de aderência adequada ao substrato, com risco de desplacamento. Recomenda-se a remoção e a correta reinstalação do rodapé, garantindo a adequada fixação e acabamento."},
     {t:"Piso sujo", d:"Observa-se revestimento cerâmico com acúmulo de sujeira e resíduos de obra, comprometendo a aparência e o acabamento final da superfície. Recomenda-se a limpeza adequada e remoção dos resíduos."},
     {t:"Cerâmica manchada (diferença de lote)", d:"Há variações de tonalidade entre as peças cerâmicas, possivelmente decorrentes do uso de lotes diferentes, resultando em um aspecto visual inconsistente."}
   ],
   "Pintura": [
     {t:"Mancha na pintura", d:"Foram identificadas manchas na pintura, sinalizadas com adesivo {CORD}, comprometendo a uniformidade e a vedação das superfícies."},
-    {t:"Falha na pintura (manchas/ondulações)", d:"Observa-se falhas na pintura, sinalizadas com adesivo {CORD}, com presença de manchas e ondulações visíveis nas superfícies de parede e teto, comprometendo o acabamento estético do ambiente."},
+    {t:"Falha na pintura (manchas/calafete sem finalizar)", d:"Observa-se falhas na pintura, sinalizadas com adesivo {CORD}, com presença de manchas, calafetamento sem finalização e outras irregularidades visíveis nas superfícies de parede e teto, comprometendo o acabamento estético do ambiente."},
+    {t:"Ondulação na parede", d:"Foi identificada ondulação na superfície da parede, sinalizada com adesivo {CORG}, comprometendo a planeza e o acabamento estético do ambiente. Pode estar relacionada a falhas na aplicação do reboco/massa ou na execução da pintura. Recomenda-se avaliação e correção da superfície antes de nova aplicação de acabamento."},
     {t:"Microfissura", d:"Foi verificado a presença de fissura linear na superfície da parede, sinalizada com adesivo {CORC}, com abertura estimada inferior a 1 mm. Pode estar relacionado à movimentação da edificação, retração de materiais ou variações térmicas. Recomenda-se o reparo com materiais adequados e o monitoramento da área."},
     {t:"Falha na textura", d:"Foi identificada falha na textura, comprometendo o acabamento e a estética da superfície."},
     {t:"Mancha de umidade", d:"Evidências de umidade foram observadas na superfície, podendo estar relacionadas a infiltrações, condensação ou falhas na impermeabilização."},
@@ -1736,7 +1746,7 @@ const LEGENDAS = {
     {t:"Janela quebrada", d:"A estrutura da janela apresenta danos, comprometendo sua funcionalidade e segurança."},
     {t:"Falha na movimentação", d:"Foi identificado que a janela apresenta dificuldade ao abrir, ficando travada, o que compromete seu funcionamento adequado."},
     {t:"Trinco não funciona", d:"O trinco da janela não está operando corretamente, dificultando seu fechamento seguro."},
-    {t:"Peitoril lascado", d:"O peitoril apresenta danos na superfície, sinalizados com adesivo {CORA}, afetando sua estética e podendo comprometer sua resistência."},
+    {t:"Peitoril lascado", d:"O peitoril apresenta danos na superfície, sinalizados com adesivo {CORE}, afetando sua estética e podendo comprometer sua resistência."},
     {t:"Falha na vedação do PU", d:"A vedação com PU apresenta falhas, o que pode comprometer a impermeabilização e permitir infiltrações."},
     {t:"Peitoril oco e falha rejunte", d:"O peitoril apresenta som cavo (adesivo {CORA}), comprometendo a estabilidade e segurança, além de falha no rejuntamento (adesivo {CORB}) entre peças prejudicando a vedação."},
     {t:"Alizar mal encaixado", d:"Constatou-se que o alizar não apresenta bom encaixe no encontro com o marco da janela, resultando em frestas e desnível no acabamento. A situação compromete a estética, facilita o acúmulo de sujeira e pode permitir a passagem de ar e água. Recomenda-se o reposicionamento e fixação correta do alizar, com vedação adequada."},
