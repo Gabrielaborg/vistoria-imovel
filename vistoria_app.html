@@ -722,42 +722,51 @@ async function baixarArquivo(blob, filename, mimeType) {
 // e sempre que o celular voltar a ter internet. Também pode ser chamado manualmente
 // (botão "Tentar agora"), passando forcar=true pra ignorar a checagem de navigator.onLine
 // (que às vezes fica desatualizada e diz "sem internet" mesmo com internet de verdade).
-let reenviandoFila = false;
-async function tentarReenviarFila(forcar) {
-  if (reenviandoFila) return;
-  if (!forcar && typeof navigator !== 'undefined' && navigator.onLine === false) return;
-  reenviandoFila = true;
-  try {
-    const fila = await listarFila();
-    await atualizarBannerFila();
-    for (const item of fila) {
-      try {
-        const res = await fetch('/gerar-laudo', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(item.payload)
-        });
-        if (!res.ok) {
-          // Captura o motivo real do erro que o servidor devolveu, em vez de um
-          // texto genérico — assim dá pra saber exatamente por que está travando.
-          let detalhe = `HTTP ${res.status}`;
-          try { const corpo = await res.json(); if (corpo.error) detalhe = corpo.error; } catch (e) {}
-          throw new Error(detalhe);
+//
+// Se já tiver uma tentativa em andamento (ex: o ciclo automático de 30 em 30
+// segundos), NÃO ignora silenciosamente — espera essa tentativa em andamento
+// terminar de verdade, e devolve o resultado dela. Antes disso não acontecia,
+// e o botão "Tentar agora" podia mostrar um resultado antigo/desatualizado.
+let reenviandoFilaPromise = null;
+function tentarReenviarFila(forcar) {
+  if (reenviandoFilaPromise) return reenviandoFilaPromise;
+  if (!forcar && typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve();
+
+  reenviandoFilaPromise = (async () => {
+    try {
+      const fila = await listarFila();
+      await atualizarBannerFila();
+      for (const item of fila) {
+        try {
+          const res = await fetch('/gerar-laudo', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(item.payload)
+          });
+          if (!res.ok) {
+            // Captura o motivo real do erro que o servidor devolveu, em vez de um
+            // texto genérico — assim dá pra saber exatamente por que está travando.
+            let detalhe = `HTTP ${res.status}`;
+            try { const corpo = await res.json(); if (corpo.error) detalhe = corpo.error; } catch (e) {}
+            throw new Error(detalhe);
+          }
+          const blob = await res.blob();
+          const nomeArquivo = `Laudo_${(item.payload.dados.nome || 'cliente').split(' ')[0]}_${item.payload.dados.data || 'vistoria'}.${item.tipo}`;
+          const mimeType = item.tipo === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+          await baixarArquivo(blob, nomeArquivo, mimeType);
+          await removerDaFila(item.id);
+        } catch (e) {
+          console.error('Reenvio ainda falhou, vai tentar de novo depois:', e.message);
+          await marcarTentativaFila(item.id, e.message);
         }
-        const blob = await res.blob();
-        const nomeArquivo = `Laudo_${(item.payload.dados.nome || 'cliente').split(' ')[0]}_${item.payload.dados.data || 'vistoria'}.${item.tipo}`;
-        const mimeType = item.tipo === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-        await baixarArquivo(blob, nomeArquivo, mimeType);
-        await removerDaFila(item.id);
-      } catch (e) {
-        console.error('Reenvio ainda falhou, vai tentar de novo depois:', e.message);
-        await marcarTentativaFila(item.id, e.message);
       }
+      await atualizarBannerFila();
+      await carregarNaoFinalizadas();
+    } finally {
+      reenviandoFilaPromise = null;
     }
-    await atualizarBannerFila();
-    await carregarNaoFinalizadas();
-  } finally {
-    reenviandoFila = false;
-  }
+  })();
+
+  return reenviandoFilaPromise;
 }
 
 // Tenta reenviar SÓ um item específico da fila agora, e mostra o resultado na
