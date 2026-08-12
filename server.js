@@ -110,7 +110,12 @@ async function chamarClaude({ system, messages, maxTokens = 300 }) {
     throw new Error(`Anthropic API respondeu ${res.status}: ${errText}`);
   }
   const data = await res.json();
-  return data.content?.[0]?.text || '';
+  // Importante: NÃO presumir que o primeiro bloco da resposta é sempre o texto —
+  // o Claude às vezes manda um bloco de "raciocínio interno" antes do texto real,
+  // e pegar só o content[0] nesses casos pegava um bloco vazio/errado, fazendo a
+  // IA "parecer" que não respondeu nada. Filtra especificamente os blocos de texto.
+  const blocosDeTexto = (data.content || []).filter(b => b.type === 'text').map(b => b.text);
+  return blocosDeTexto.join('\n').trim();
 }
 
 // Lê o corpo (body) de uma requisição POST como JSON
