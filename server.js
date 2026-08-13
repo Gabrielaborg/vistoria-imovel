@@ -89,7 +89,7 @@ setTimeout(() => { try { compactarLaudosAntigos(); } catch (e) { console.error('
 setInterval(() => { try { compactarLaudosAntigos(); } catch (e) { console.error('Erro na rotina de compactação:', e.message); } }, 24 * 60 * 60 * 1000);
 
 // ── Chamada central à API da Anthropic (roda só no servidor, chave nunca exposta) ──
-async function chamarClaude({ system, messages, maxTokens = 300 }) {
+async function chamarClaude({ system, messages, maxTokens = 300, model = 'claude-sonnet-5' }) {
   if (!ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY não configurada no servidor.');
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -99,7 +99,7 @@ async function chamarClaude({ system, messages, maxTokens = 300 }) {
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-5',
+      model,
       max_tokens: maxTokens,
       system,
       messages
@@ -134,40 +134,57 @@ function lerCorpoJSON(req) {
 // cômodo numa narrativa técnica fluida (citando normas ABNT quando pertinente), e
 // (2) uma legenda curta pra cada grupo de defeito, usada embaixo de cada foto —
 // no estilo de laudo mais organizado (parágrafo geral + legendas objetivas por imagem).
-async function gerarResumoAmbiente(ambiente, defeitos, inicioImg, fimImg) {
-  // Ambiente sem nenhum defeito pra resumir — não faz sentido chamar a IA pra isso.
-  if (!defeitos || defeitos.length === 0) {
-    return { paragrafo: `Não foram identificadas não conformidades no ambiente ${ambiente} durante a vistoria.`, legendas: [] };
-  }
+// Gera, numa ÚNICA chamada de IA (independente de quantos ambientes a vistoria
+// tenha), o parágrafo consolidado + legendas curtas de TODOS os ambientes de
+// uma vez. Antes disso era uma chamada por ambiente — com uma vistoria de 8
+// cômodos, eram 8 chamadas separadas só pra essa parte. Consolidar tudo numa
+// chamada só, usando o modelo mais econômico (Haiku, que já dá conta bem desse
+// tipo de tarefa de organizar texto), reduz bastante o custo por laudo.
+async function gerarResumosDosAmbientes(listaAmbientes) {
+  // listaAmbientes: [{ ambiente, defeitos, inicioImg, fimImg }, ...]
+  const comDefeitos = listaAmbientes.filter(a => a.defeitos && a.defeitos.length > 0);
+  const resultado = {};
+  listaAmbientes.forEach((a, i) => {
+    if (!a.defeitos || a.defeitos.length === 0) {
+      resultado[i] = { paragrafo: `Não foram identificadas não conformidades no ambiente ${a.ambiente} durante a vistoria.`, legendas: [] };
+    }
+  });
+  if (comDefeitos.length === 0) return resultado;
 
-  const listaTexto = defeitos.map((d, i) => `${i + 1}. ${d}`).join('\n');
-  const faixaTexto = fimImg > inicioImg ? `nº ${inicioImg} a ${fimImg}` : `nº ${inicioImg}`;
-  const system = 'Você é um(a) engenheiro(a) civil redigindo a seção de um ambiente específico dentro de um laudo técnico de vistoria de imóvel, seguindo o estilo formal de normas ABNT (NBR 15575, NBR 13753, NBR 13755 e correlatas) e do IBAPE Nacional. Responda SOMENTE com um JSON válido, sem markdown, sem texto antes ou depois, no formato exato: {"paragrafo": "...", "legendas": ["...", "..."]}. O campo "paragrafo" deve ser um único parágrafo fluido (não uma lista, não repita os textos originais colados um atrás do outro) sintetizando TODOS os defeitos informados, citando a norma ABNT mais pertinente quando fizer sentido, e mencionando que as não conformidades estão registradas nas imagens indicadas, que integram o laudo. O campo "legendas" deve ter EXATAMENTE um item por defeito informado, na mesma ordem, cada um uma legenda curta (até 8 palavras) descrevendo objetivamente aquele defeito específico — se o texto original mencionar uma cor de adesivo/fita, a legenda deve citar essa cor (ex: "Adesivo verde indica cerâmica oca").';
-  const mensagem = `Ambiente: ${ambiente}\n\nDefeitos identificados nesse ambiente:\n${listaTexto}\n\nEssas não conformidades estão registradas nas imagens ${faixaTexto} do laudo.`;
+  const blocos = comDefeitos.map((a, idx) => {
+    const listaTexto = a.defeitos.map((d, i) => `  ${i + 1}. ${d}`).join('\n');
+    const faixaTexto = a.fimImg > a.inicioImg ? `nº ${a.inicioImg} a ${a.fimImg}` : `nº ${a.inicioImg}`;
+    return `### Ambiente ${idx} — ${a.ambiente} (imagens ${faixaTexto})\n${listaTexto}`;
+  }).join('\n\n');
+
+  const system = 'Você é um(a) engenheiro(a) civil redigindo as seções de ambientes de um laudo técnico de vistoria de imóvel, seguindo o estilo formal de normas ABNT (NBR 15575, NBR 13753, NBR 13755 e correlatas) e do IBAPE Nacional. Você vai receber VÁRIOS ambientes de uma vez, cada um com seus defeitos numerados. Responda SOMENTE com um JSON válido, sem markdown, sem texto antes ou depois, no formato exato: {"ambientes": [{"paragrafo": "...", "legendas": ["...", "..."]}, ...]}. O array "ambientes" deve ter EXATAMENTE um item por ambiente informado, NA MESMA ORDEM em que foram apresentados. Em cada item: "paragrafo" é um único parágrafo fluido (não uma lista, não repita os textos originais colados um atrás do outro) sintetizando TODOS os defeitos daquele ambiente, citando a norma ABNT mais pertinente quando fizer sentido, e mencionando que as não conformidades estão registradas nas imagens indicadas daquele ambiente, que integram o laudo. "legendas" deve ter EXATAMENTE um item por defeito daquele ambiente, na mesma ordem, cada um uma legenda curta (até 8 palavras) descrevendo objetivamente aquele defeito específico — se o texto original mencionar uma cor de adesivo/fita, a legenda deve citar essa cor (ex: "Adesivo verde indica cerâmica oca").';
+  const mensagem = `Ambientes da vistoria:\n\n${blocos}`;
+  const maxTokens = Math.min(8000, 500 + comDefeitos.length * 350);
 
   let ultimoErro = null;
   for (let tentativa = 1; tentativa <= 2; tentativa++) {
     let texto = '';
     try {
-      texto = await chamarClaude({ maxTokens: 900, system, messages: [{ role: 'user', content: mensagem }] });
-      // Extrai só o trecho entre a primeira { e a última } — tolera qualquer texto
-      // extra que a IA acidentalmente adicione antes/depois do JSON.
+      texto = await chamarClaude({ model: 'claude-haiku-4-5-20251001', maxTokens, system, messages: [{ role: 'user', content: mensagem }] });
       const inicio = texto.indexOf('{');
       const fim = texto.lastIndexOf('}');
       if (inicio === -1 || fim === -1) throw new Error('Resposta não contém um JSON reconhecível.');
       const json = JSON.parse(texto.slice(inicio, fim + 1));
-      if (!json.paragrafo || typeof json.paragrafo !== 'string') throw new Error('Campo "paragrafo" ausente ou inválido.');
-      if (!Array.isArray(json.legendas)) json.legendas = [];
-      // Se a quantidade de legendas não bater exatamente, ajusta em vez de descartar
-      // o parágrafo inteiro (que já veio bom) — preenche faltantes com null.
-      while (json.legendas.length < defeitos.length) json.legendas.push(null);
-      json.legendas = json.legendas.slice(0, defeitos.length);
-      return json;
+      if (!Array.isArray(json.ambientes) || json.ambientes.length !== comDefeitos.length) {
+        throw new Error(`Quantidade de ambientes na resposta (${json.ambientes?.length}) não bate com o esperado (${comDefeitos.length}).`);
+      }
+      comDefeitos.forEach((a, idx) => {
+        const item = json.ambientes[idx] || {};
+        if (!item.paragrafo || typeof item.paragrafo !== 'string') throw new Error(`Ambiente "${a.ambiente}" sem parágrafo válido na resposta.`);
+        if (!Array.isArray(item.legendas)) item.legendas = [];
+        while (item.legendas.length < a.defeitos.length) item.legendas.push(null);
+        item.legendas = item.legendas.slice(0, a.defeitos.length);
+        resultado[a._indiceOriginal] = item;
+      });
+      return resultado;
     } catch (e) {
       ultimoErro = e;
-      // Loga a resposta bruta da IA (cortada) — essencial pra entender falhas
-      // repetidas que não são simples instabilidade passageira.
-      console.error(`Tentativa ${tentativa} de gerar resumo do ambiente "${ambiente}" falhou:`, e.message, '| Resposta bruta da IA:', texto.slice(0, 500));
+      console.error(`Tentativa ${tentativa} de gerar resumo dos ambientes falhou:`, e.message, '| Resposta bruta da IA:', texto.slice(0, 800));
     }
   }
   throw ultimoErro;
@@ -226,16 +243,14 @@ async function gerarDocx(payload) {
 
   // ─── Registros ──────────────────────────────────────────
   const registrosParagraphs = [];
-  let imgCounter = 1; // numeração contínua por TODO o laudo (não reinicia a cada ambiente/defeito)
   const byAmbiente = {};
   registros.forEach(r => { if (!byAmbiente[r.ambiente]) byAmbiente[r.ambiente] = []; byAmbiente[r.ambiente].push(r); });
 
+  // 1ª passagem: só organiza os dados (agrupa defeitos, calcula intervalo de
+  // imagens de cada ambiente) — ainda sem chamar a IA nem montar o documento.
+  let imgCounter = 1; // numeração contínua por TODO o laudo (não reinicia a cada ambiente/defeito)
+  const ambientesInfo = [];
   for (const [ambiente, items] of Object.entries(byAmbiente)) {
-    registrosParagraphs.push(new Paragraph({
-      children: [B(ambiente, 20)], indent, spacing: { before: 200, after: 100 }
-    }));
-    // Agrupa registros com o MESMO texto de defeito dentro do mesmo ambiente,
-    // mesmo que tenham sido salvos em momentos separados durante a vistoria.
     const porDefeito = {};
     const ordemDefeitos = [];
     for (const item of items) {
@@ -245,14 +260,27 @@ async function gerarDocx(payload) {
     const totalFotosAmbiente = ordemDefeitos.reduce((soma, d) => soma + porDefeito[d].length, 0);
     const inicioAmbiente = imgCounter;
     const fimAmbiente = imgCounter + totalFotosAmbiente - 1;
+    imgCounter += totalFotosAmbiente;
+    ambientesInfo.push({ ambiente, porDefeito, ordemDefeitos, inicioImg: inicioAmbiente, fimImg: fimAmbiente, defeitos: ordemDefeitos, _indiceOriginal: ambientesInfo.length });
+  }
 
-    // Gera o parágrafo único + legendas curtas com IA. A pedido da cliente, o laudo
-    // NUNCA deve sair no formato antigo (parágrafos repetidos) — se a IA não
-    // conseguir gerar o resumo desse ambiente (mesmo depois de tentar 2 vezes,
-    // dentro de gerarResumoAmbiente), a geração do laudo INTEIRO é interrompida
-    // aqui. O app do celular já trata isso: guarda a vistoria na fila de reenvio
-    // automático e tenta de novo sozinho mais tarde — nunca perde nada.
-    const resumoIA = await gerarResumoAmbiente(ambiente, ordemDefeitos, inicioAmbiente, fimAmbiente);
+  // Uma ÚNICA chamada de IA cobrindo TODOS os ambientes de uma vez (em vez de
+  // uma por ambiente) — bem mais barato. A pedido da cliente, o laudo NUNCA deve
+  // sair no formato antigo (parágrafos repetidos); se a IA falhar mesmo depois
+  // de tentar 2 vezes, a geração do laudo INTEIRO é interrompida aqui, e o app
+  // do celular já trata isso (fila de reenvio automático) — nunca perde nada.
+  const resumosPorAmbiente = await gerarResumosDosAmbientes(ambientesInfo);
+
+  // 2ª passagem: agora sim monta o documento de verdade, usando os parágrafos e
+  // legendas já prontos, na mesma ordem/numeração calculada na 1ª passagem.
+  for (const info of ambientesInfo) {
+    const { ambiente, porDefeito, ordemDefeitos } = info;
+    const resumoIA = resumosPorAmbiente[info._indiceOriginal];
+    let imgAtual = info.inicioImg;
+
+    registrosParagraphs.push(new Paragraph({
+      children: [B(ambiente, 20)], indent, spacing: { before: 200, after: 100 }
+    }));
 
     registrosParagraphs.push(new Paragraph({
       children: [N(resumoIA.paragrafo, 20)], indent, spacing: { after: 140 }, alignment: AlignmentType.JUSTIFIED
@@ -265,7 +293,7 @@ async function gerarDocx(payload) {
 
       for (let i = 0; i < fotosDoGrupo.length; i++) {
         const foto = fotosDoGrupo[i];
-        const rotulo = legendaCurta ? `Imagem ${imgCounter} - ${legendaCurta}` : `Imagem ${imgCounter}`;
+        const rotulo = legendaCurta ? `Imagem ${imgAtual} - ${legendaCurta}` : `Imagem ${imgAtual}`;
         registrosParagraphs.push(new Paragraph({
           children: [N(rotulo, 20)], alignment: AlignmentType.CENTER, spacing: { after: 60 }
         }));
@@ -277,7 +305,7 @@ async function gerarDocx(payload) {
             alignment: AlignmentType.CENTER, spacing: { before: 80, after: 160 }
           }));
         } catch(e) { console.error('Img error:', e.message); }
-        imgCounter++;
+        imgAtual++;
       }
       idxDefeito++;
     }
@@ -792,6 +820,7 @@ const server = http.createServer(async (req, res) => {
         .join('\n') || 'Nenhum defeito registrado.';
       const outrosProblemas = (obsGeral || '').trim();
       const texto = await chamarClaude({
+        model: 'claude-haiku-4-5-20251001',
         maxTokens: 700,
         system: 'Você é um(a) engenheiro(a) civil redigindo a seção de CONCLUSÃO de um laudo técnico de vistoria de imóvel, seguindo ABNT NBR 16747:2020, ABNT NBR 5674:2024 e conceitos do IBAPE Nacional. Escreva 3 a 4 parágrafos técnicos, objetivos e formais, em português, baseados nos defeitos e observações fornecidos, recomendando a correção antes da entrega/aceitação do imóvel. Retorne SOMENTE os parágrafos de texto, separados por uma linha em branco, sem títulos, sem markdown, sem numeração.',
         messages: [{ role: 'user', content: `Tipo de vistoria: ${tipoVistoria || 'não informado'}\n\nDefeitos registrados (por legenda escolhida em cada foto):\n${listaDefeitos}\n\nOutros problemas observados:\n${outrosProblemas || 'Nenhum'}\n\nRedija a conclusão do laudo.` }]
@@ -812,6 +841,7 @@ const server = http.createServer(async (req, res) => {
       const { ambiente, textoCurto } = await lerCorpoJSON(req);
       if (!textoCurto || !textoCurto.trim()) throw new Error('Texto do defeito vazio.');
       const texto = await chamarClaude({
+        model: 'claude-haiku-4-5-20251001',
         maxTokens: 200,
         system: 'Você é um(a) engenheiro(a) civil redigindo a descrição técnica de UM defeito construtivo específico, pra entrar na seção de registros fotográficos de um laudo de vistoria de imóvel. Use o mesmo estilo formal e objetivo de normas ABNT e do IBAPE Nacional. Escreva de 1 a 2 frases apenas, descrevendo o defeito de forma técnica, e se fizer sentido, uma recomendação breve de correção. NÃO use saudações, títulos, aspas, markdown ou numeração — retorne SOMENTE o texto final, pronto pra ser colado no laudo, como neste exemplo de estilo: "Foram identificados danos na superfície da parede, comprometendo a integridade e o acabamento do revestimento. Recomenda-se reparo com massa adequada e repintura do trecho afetado."',
         messages: [{ role: 'user', content: `Ambiente: ${ambiente || 'não informado'}\nDefeito descrito de forma resumida pelo usuário: "${textoCurto.trim()}"\n\nRedija a descrição técnica formal desse defeito, pronta pra entrar no laudo.` }]
