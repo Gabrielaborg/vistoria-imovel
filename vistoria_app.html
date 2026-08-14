@@ -507,7 +507,7 @@
     <button onclick="navegarFinanceiro(1)" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--brand);padding:4px"><i class="ti ti-chevron-right"></i></button>
   </div>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
     <div style="background:var(--brand);border-radius:12px;padding:16px;color:#fff">
       <div style="font-size:10px;font-weight:700;opacity:.75;text-transform:uppercase;letter-spacing:.4px">Total recebido</div>
       <div id="financeiroTotalValor" style="font-size:22px;font-weight:800;margin-top:4px">R$ 0,00</div>
@@ -517,6 +517,12 @@
       <div id="financeiroTotalQtd" style="font-size:22px;font-weight:800;color:var(--brand);margin-top:4px">0</div>
       <div id="financeiroTotalQtdDetalhe" style="font-size:10.5px;color:var(--muted);margin-top:2px"></div>
     </div>
+  </div>
+
+  <div style="background:#FDF0E4;border:1.5px solid #EDCFAD;border-radius:12px;padding:16px;margin-bottom:16px">
+    <div style="font-size:10px;font-weight:700;color:#7A3D10;text-transform:uppercase;letter-spacing:.4px"><i class="ti ti-calendar-time"></i> Previsto pro mês (agendado, ainda não feito)</div>
+    <div id="financeiroPrevistoMesValor" style="font-size:22px;font-weight:800;color:#7A3D10;margin-top:4px">R$ 0,00</div>
+    <div id="financeiroPrevistoMesDetalhe" style="font-size:10.5px;color:#7A3D10;opacity:.8;margin-top:2px"></div>
   </div>
 
   <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">
@@ -2687,6 +2693,7 @@ async function baixarWordHistorico(arquivo) {
 // ══════════════════════════════════════════════════════════════
 let financeiroDataRef = new Date();
 let laudosFinanceiro = [];
+let agendaFinanceiro = [];
 
 function formatarBRL(valor) {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -2701,8 +2708,9 @@ function parseValorBR(v) {
 async function carregarFinanceiro() {
   document.getElementById('financeiroLista').innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p>';
   try {
-    const res = await fetch('/historico');
-    laudosFinanceiro = await res.json();
+    const [resHist, resAgenda] = await Promise.all([fetch('/historico'), fetch('/agenda')]);
+    laudosFinanceiro = await resHist.json();
+    agendaFinanceiro = await resAgenda.json();
     renderFinanceiro();
   } catch (e) {
     document.getElementById('financeiroLista').innerHTML = '<p style="color:var(--danger);font-size:13px;text-align:center;padding:20px">Erro ao carregar.</p>';
@@ -2731,6 +2739,17 @@ function laudosDoMes(ano, mes) {
   });
 }
 
+// Agendamentos (ainda não realizados) cuja data marcada cai dentro do mês
+// sendo visualizado — pra saber quanto ainda deve entrar naquele mês.
+function agendaDoMes(ano, mes) {
+  return agendaFinanceiro.filter(a => {
+    const data = a.dados && a.dados.data;
+    if (!data || !/^\d{4}-\d{2}-\d{2}/.test(data)) return false;
+    const [anoData, mesData] = data.split('-').map(Number);
+    return anoData === ano && (mesData - 1) === mes;
+  });
+}
+
 function renderFinanceiro() {
   const ano = financeiroDataRef.getFullYear(), mes = financeiroDataRef.getMonth();
   document.getElementById('financeiroMesTitulo').textContent = `${NOMES_MES[mes]} de ${ano}`;
@@ -2743,6 +2762,16 @@ function renderFinanceiro() {
   document.getElementById('financeiroTotalValor').textContent = formatarBRL(total);
   document.getElementById('financeiroTotalQtd').textContent = doMes.length;
   document.getElementById('financeiroTotalQtdDetalhe').textContent = `${qtdVistoria} vistoria${qtdVistoria === 1 ? '' : 's'} · ${qtdRevistoria} revistoria${qtdRevistoria === 1 ? '' : 's'}`;
+
+  // Previsto pro mês — agendamentos com data marcada dentro do mês visualizado
+  const agendaMes = agendaDoMes(ano, mes);
+  const comValor = agendaMes.filter(a => parseValorBR(a.dados.valor) > 0);
+  const semValor = agendaMes.length - comValor.length;
+  const totalPrevisto = comValor.reduce((soma, a) => soma + parseValorBR(a.dados.valor), 0);
+  document.getElementById('financeiroPrevistoMesValor').textContent = formatarBRL(totalPrevisto);
+  document.getElementById('financeiroPrevistoMesDetalhe').textContent = agendaMes.length === 0
+    ? 'Nenhuma vistoria agendada pra esse mês.'
+    : `${agendaMes.length} agendada${agendaMes.length === 1 ? '' : 's'}${semValor > 0 ? ` (${semValor} sem valor preenchido)` : ''}`;
 
   // Por forma de pagamento
   const porForma = {};
