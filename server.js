@@ -88,6 +88,34 @@ function compactarLaudosAntigos() {
 setTimeout(() => { try { compactarLaudosAntigos(); } catch (e) { console.error('Erro na rotina de compactação:', e.message); } }, 30 * 1000);
 setInterval(() => { try { compactarLaudosAntigos(); } catch (e) { console.error('Erro na rotina de compactação:', e.message); } }, 24 * 60 * 60 * 1000);
 
+// Roda periodicamente: apaga DE VEZ (arquivo + registro) os laudos que estão
+// na lixeira há mais de 30 dias. Antes disso, o laudo excluído fica guardado
+// como segunda chance — só depois desse prazo é removido sem volta.
+const TRINTA_DIAS_MS = 30 * 24 * 60 * 60 * 1000;
+function limparLixeiraAntiga() {
+  const hist = lerHistorico();
+  const agora = Date.now();
+  const permanece = [];
+  let removidos = 0;
+  for (const item of hist) {
+    if (item.excluidoEm && (agora - item.excluidoEm) >= TRINTA_DIAS_MS) {
+      const docxPath = path.join(OUTPUT_DIR, item.arquivo);
+      const pdfPath = docxPath.replace('.docx', '.pdf');
+      [docxPath, docxPath + '.gz', pdfPath, pdfPath + '.gz'].forEach(p => {
+        try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e) { /* segue mesmo se algum arquivo já não existir */ }
+      });
+      removidos++;
+      console.log(`✓ Laudo removido definitivamente da lixeira (30 dias): ${item.arquivo}`);
+    } else {
+      permanece.push(item);
+    }
+  }
+  if (removidos > 0) salvarHistorico(permanece);
+}
+
+setTimeout(() => { try { limparLixeiraAntiga(); } catch (e) { console.error('Erro na rotina de limpeza da lixeira:', e.message); } }, 45 * 1000);
+setInterval(() => { try { limparLixeiraAntiga(); } catch (e) { console.error('Erro na rotina de limpeza da lixeira:', e.message); } }, 24 * 60 * 60 * 1000);
+
 // ── Chamada central à API da Anthropic (roda só no servidor, chave nunca exposta) ──
 async function chamarClaude({ system, messages, maxTokens = 300, model = 'claude-sonnet-5' }) {
   if (!ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY não configurada no servidor.');
@@ -741,30 +769,65 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'GET' && req.url === '/historico') {
+  if (req.method === 'GET' && req.url.startsWith('/historico')) {
+    const urlObj = new URL(req.url, `http://${req.headers.host}`);
+    const verLixeira = urlObj.searchParams.get('lixeira') === '1';
+    const hist = lerHistorico();
+    const filtrado = verLixeira ? hist.filter(h => h.excluidoEm) : hist.filter(h => !h.excluidoEm);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify(lerHistorico().reverse()));
+    return res.end(JSON.stringify(filtrado.reverse()));
   }
 
-  // Apaga TODOS os laudos do histórico — inclui apagar os arquivos de verdade
-  // do servidor (Word/PDF, compactados ou não), não só a lista. Ação irreversível.
+  // Restaura um laudo que estava na lixeira, tirando ele de lá — volta a
+  // aparecer no Histórico normal, como se nunca tivesse sido excluído.
+  if (req.method === 'POST' && req.url.startsWith('/historico/restaurar')) {
+    try {
+      const urlObj = new URL(req.url, `http://${req.headers.host}`);
+      const arquivoAlvo = urlObj.searchParams.get('arquivo');
+      const hist = lerHistorico();
+      const item = hist.find(h => h.arquivo === arquivoAlvo);
+      if (!item) throw new Error('Laudo não encontrado.');
+      delete item.excluidoEm;
+      salvarHistorico(hist);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ erro: e.message }));
+    }
+  }
+
+  // "Excluir" agora é uma exclusão SUAVE — o laudo some do Histórico normal e
+  // vai pra uma lixeira, mas o arquivo continua guardado no servidor por 30
+  // dias, dando uma segunda chance em caso de exclusão sem querer. Só depois
+  // desses 30 dias (ou se a pessoa esvaziar a lixeira manualmente) o arquivo é
+  // apagado de vez, sem volta.
   if (req.method === 'DELETE' && req.url.startsWith('/historico')) {
     try {
       const urlObj = new URL(req.url, `http://${req.headers.host}`);
-      const arquivoAlvo = urlObj.searchParams.get('arquivo'); // se vier, apaga só esse; senão, apaga tudo
+      const arquivoAlvo = urlObj.searchParams.get('arquivo'); // se vier, mexe só nesse; senão, em tudo
+      const permanente = urlObj.searchParams.get('permanente') === '1'; // apaga de vez, sem passar pela lixeira
       const hist = lerHistorico();
       const alvos = arquivoAlvo ? hist.filter(h => h.arquivo === arquivoAlvo) : hist;
-      for (const item of alvos) {
-        const docxPath = path.join(OUTPUT_DIR, item.arquivo);
-        const pdfPath = docxPath.replace('.docx', '.pdf');
-        [docxPath, docxPath + '.gz', pdfPath, pdfPath + '.gz'].forEach(p => {
-          try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e) { /* segue mesmo se algum arquivo já não existir */ }
-        });
+
+      if (permanente) {
+        for (const item of alvos) {
+          const docxPath = path.join(OUTPUT_DIR, item.arquivo);
+          const pdfPath = docxPath.replace('.docx', '.pdf');
+          [docxPath, docxPath + '.gz', pdfPath, pdfPath + '.gz'].forEach(p => {
+            try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e) { /* segue mesmo se algum arquivo já não existir */ }
+          });
+        }
+        const alvosArquivos = new Set(alvos.map(a => a.arquivo));
+        salvarHistorico(hist.filter(h => !alvosArquivos.has(h.arquivo)));
+      } else {
+        const agora = Date.now();
+        alvos.forEach(item => { item.excluidoEm = agora; });
+        salvarHistorico(hist);
       }
-      const restante = arquivoAlvo ? hist.filter(h => h.arquivo !== arquivoAlvo) : [];
-      salvarHistorico(restante);
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, removidos: alvos.length }));
+      return res.end(JSON.stringify({ ok: true, removidos: alvos.length, permanente }));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ erro: e.message }));
