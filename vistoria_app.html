@@ -2716,6 +2716,16 @@ function navegarFinanceiro(delta) {
 
 function laudosDoMes(ano, mes) {
   return laudosFinanceiro.filter(l => {
+    // Agrupa pela data REAL da vistoria (preenchida no formulário), não pela
+    // data em que o laudo foi gerado/enviado no servidor — se a vistoria foi
+    // feita num mês mas o laudo só foi enviado depois (ex: ficou na fila por
+    // falta de internet), ela precisa continuar contando no mês certo.
+    if (l.data && l.data !== '—' && /^\d{4}-\d{2}-\d{2}/.test(l.data)) {
+      const [anoData, mesData] = l.data.split('-').map(Number);
+      return anoData === ano && (mesData - 1) === mes;
+    }
+    // Se por algum motivo não tiver a data da vistoria salva, usa a data de
+    // envio como último recurso (melhor que sumir da lista sem explicação).
     const d = new Date(l.ts);
     return d.getFullYear() === ano && d.getMonth() === mes;
   });
