@@ -1184,6 +1184,9 @@ function renderModalRegistro() {
     <textarea id="modalRegistroDefeitoInput" style="width:100%;min-height:60px;border:1.5px solid var(--border);border-radius:8px;padding:8px;font-family:var(--font);font-size:12px;color:var(--text);margin-top:4px" oninput="salvarTextoDefeitoRegistro()">${r.defeito}</textarea>
     <button type="button" onclick="gerarTextoDefeitoRegistroIA()" id="btnGerarDefeitoRegistroIA" style="width:100%;margin-top:6px;background:var(--brand2);color:#fff;border:none;border-radius:8px;padding:8px;font-family:var(--font);font-size:11.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px">
       <i class="ti ti-sparkles"></i> Gerar/melhorar texto com IA
+    </button>
+    <button type="button" onclick="compartilharFotos(state.registros[${registroAbertoIdx}].fotos)" style="width:100%;margin-top:6px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px;font-family:var(--font);font-size:11.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px">
+      <i class="ti ti-device-mobile-share"></i> Salvar todas as ${r.fotos.length} fotos no álbum
     </button>`;
   document.getElementById('modalRegistroFotos').innerHTML = r.fotos.map((f, i) => `
     <div style="display:flex;align-items:center;gap:10px;background:var(--light);border-radius:10px;padding:8px">
@@ -1193,6 +1196,7 @@ function renderModalRegistro() {
         <button onclick="moverFotoRegistro(${i},-1)" ${i === 0 ? 'disabled style="opacity:.3"' : ''} style="background:#fff;border:1px solid var(--border);border-radius:6px;width:28px;height:24px;cursor:pointer"><i class="ti ti-chevron-up"></i></button>
         <button onclick="moverFotoRegistro(${i},1)" ${i === r.fotos.length - 1 ? 'disabled style="opacity:.3"' : ''} style="background:#fff;border:1px solid var(--border);border-radius:6px;width:28px;height:24px;cursor:pointer"><i class="ti ti-chevron-down"></i></button>
       </div>
+      <button onclick="compartilharFotos([state.registros[${registroAbertoIdx}].fotos[${i}]])" style="background:#EEF4FB;border:none;color:var(--brand2);border-radius:6px;width:28px;height:52px;cursor:pointer"><i class="ti ti-device-mobile-share" style="font-size:14px"></i></button>
       <button onclick="removerFotoRegistro(${i})" style="background:#fdecea;border:none;color:var(--danger);border-radius:6px;width:28px;height:52px;cursor:pointer"><i class="ti ti-trash"></i></button>
     </div>`).join('');
 }
@@ -1569,11 +1573,23 @@ function atualizarToggleSalvarAlbumUI() {
   dot.style.left = salvarNoAlbumAtivo ? '16px' : '2px';
 }
 
-// Oferece as fotos de um registro recém-salvo pro menu nativo de compartilhar,
-// com a opção de guardar direto no álbum de fotos do celular. Silenciosa se o
-// navegador não suportar, ou se a pessoa cancelar o menu — nunca trava a vistoria.
+// Oferece a PRIMEIRA foto de um registro recém-salvo pro menu nativo de
+// compartilhar, com a opção de guardar no álbum. Importante: o celular só
+// permite abrir esse menu sozinho (sem toque extra da pessoa) pra UMA foto
+// de cada vez — tentar várias de uma vez, automaticamente, falha silenciosa
+// no iPhone. Por isso aqui só a primeira foto é oferecida automaticamente;
+// pra garantir TODAS as fotos de um registro, use o botão "Salvar no álbum"
+// dentro da revisão do registro (toque no card do registro salvo).
 function ofertarSalvarNoAlbum(fotos) {
   if (!salvarNoAlbumAtivo || !navigator.canShare || !fotos || fotos.length === 0) return;
+  compartilharFotos([fotos[0]]);
+}
+
+// Converte fotos (no formato { src, mediaType }) em File e tenta abrir o menu
+// nativo de compartilhar/salvar. Silenciosa se o navegador não suportar, ou
+// se a pessoa cancelar — nunca trava a vistoria.
+function compartilharFotos(fotos) {
+  if (!navigator.canShare || !fotos || fotos.length === 0) return;
   try {
     const files = fotos.map((f, i) => {
       const [, base64] = f.src.split(',');
