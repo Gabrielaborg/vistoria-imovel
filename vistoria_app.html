@@ -150,6 +150,13 @@
   </div>
   <span class="badge">IA</span>
   <div style="flex:1"></div>
+  <label id="salvarAlbumToggleLabel" title="Salvar fotos no álbum do celular" style="display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;cursor:pointer;user-select:none;margin-right:10px">
+    <i class="ti ti-device-mobile-share" style="font-size:14px"></i>
+    <input type="checkbox" id="salvarAlbumToggle" checked onchange="toggleSalvarAlbum(this.checked)" style="display:none">
+    <span id="salvarAlbumToggleTrack" style="width:32px;height:18px;background:var(--accent);border-radius:20px;position:relative;transition:background .15s;flex-shrink:0">
+      <span id="salvarAlbumToggleDot" style="position:absolute;top:2px;left:16px;width:14px;height:14px;background:#fff;border-radius:50%;transition:left .15s"></span>
+    </span>
+  </label>
   <label id="carimboToggleLabel" title="Carimbo de data/hora/local nas fotos" style="display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;cursor:pointer;user-select:none;margin-right:10px">
     <i class="ti ti-map-pin-filled" style="font-size:14px"></i>
     <input type="checkbox" id="carimboToggle" checked onchange="toggleCarimbo(this.checked)" style="display:none">
@@ -446,16 +453,31 @@
       <div id="armazenamentoBarra" style="background:var(--accent);height:100%;width:0%;transition:width .3s"></div>
     </div>
   </div>
-  <div class="section-label">Laudos concluídos</div>
-  <div class="search-bar">
-    <input type="text" id="searchInput" placeholder="Buscar por nome ou data..." oninput="filtrarHistorico()" />
-    <button class="btn btn-primary" style="flex:0 0 auto;padding:10px 14px" onclick="carregarHistorico()"><i class="ti ti-refresh"></i></button>
+  <div id="historicoNormalView">
+    <div class="section-label">Laudos concluídos</div>
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="Buscar por nome ou data..." oninput="filtrarHistorico()" />
+      <button class="btn btn-primary" style="flex:0 0 auto;padding:10px 14px" onclick="carregarHistorico()"><i class="ti ti-refresh"></i></button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button type="button" onclick="limparHistorico()" style="flex:1;background:#fff;border:1.5px solid #f0c4c0;color:var(--danger);border-radius:9px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <i class="ti ti-trash"></i> Mover tudo pra lixeira
+      </button>
+      <button type="button" onclick="toggleLixeira()" style="flex:1;background:#fff;border:1.5px solid var(--border);color:var(--muted);border-radius:9px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <i class="ti ti-recycle"></i> Ver lixeira
+      </button>
+    </div>
+    <p style="font-size:10.5px;color:var(--muted);text-align:center;margin-bottom:12px"><i class="ti ti-share-2"></i> Toque em Word ou PDF pra baixar ou compartilhar direto por WhatsApp/E-mail</p>
+    <div id="historicoList"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p></div>
   </div>
-  <button type="button" onclick="limparHistorico()" style="width:100%;background:#fff;border:1.5px solid #f0c4c0;color:var(--danger);border-radius:9px;padding:9px;font-family:var(--font);font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:14px">
-    <i class="ti ti-trash"></i> Limpar histórico
-  </button>
-  <p style="font-size:10.5px;color:var(--muted);text-align:center;margin-bottom:12px"><i class="ti ti-share-2"></i> Toque em Word ou PDF pra baixar ou compartilhar direto por WhatsApp/E-mail</p>
-  <div id="historicoList"><p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p></div>
+
+  <div id="lixeiraSecao" style="display:none">
+    <button type="button" onclick="toggleLixeira()" style="background:none;border:none;color:var(--brand);font-family:var(--font);font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;padding:0;margin-bottom:14px">
+      <i class="ti ti-arrow-left"></i> Voltar ao Histórico
+    </button>
+    <div class="section-label" style="color:var(--muted)"><i class="ti ti-clock-pause"></i> Lixeira (some de vez em 30 dias)</div>
+    <div id="lixeiraList"></div>
+  </div>
 </div>
 
 <div id="agenda-screen" style="display:none;max-width:520px;margin:0 auto;padding:0 16px 80px">
@@ -1499,6 +1521,73 @@ function atualizarToggleCarimboUI() {
   dot.style.left = carimboAtivo ? '16px' : '2px';
 }
 
+// ══════════════════════════════════════════════════════════════
+// SALVAR FOTOS NO ÁLBUM DO CELULAR — liga/desliga no cabeçalho, ligado por
+// padrão. Como o navegador não consegue gravar direto na Galeria sem o
+// usuário confirmar (trava de segurança do celular), o jeito possível é abrir
+// o menu nativo de compartilhar assim que um registro é salvo, com a opção
+// "Salvar Imagem"/"Salvar em Fotos" já disponível ali — garante uma cópia das
+// fotos fora do app, independente do que acontecer com o laudo depois.
+// ══════════════════════════════════════════════════════════════
+let salvarNoAlbumAtivo = true;
+
+async function salvarConfigSalvarAlbum() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA, 'readwrite');
+    tx.objectStore(LOJA).put(salvarNoAlbumAtivo, 'config_salvar_album');
+  } catch (e) { console.error('Falha ao salvar configuração de salvar no álbum:', e); }
+}
+
+async function carregarConfigSalvarAlbum() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA, 'readonly');
+    const salvo = await new Promise(res => {
+      const req = tx.objectStore(LOJA).get('config_salvar_album');
+      req.onsuccess = () => res(req.result);
+      req.onerror = () => res(undefined);
+    });
+    if (salvo === true || salvo === false) salvarNoAlbumAtivo = salvo;
+  } catch (e) { /* mantém padrão (ligado) se der erro */ }
+  atualizarToggleSalvarAlbumUI();
+}
+
+function toggleSalvarAlbum(ligado) {
+  salvarNoAlbumAtivo = ligado;
+  atualizarToggleSalvarAlbumUI();
+  salvarConfigSalvarAlbum();
+}
+
+function atualizarToggleSalvarAlbumUI() {
+  const track = document.getElementById('salvarAlbumToggleTrack');
+  const dot = document.getElementById('salvarAlbumToggleDot');
+  const checkbox = document.getElementById('salvarAlbumToggle');
+  if (!track || !dot || !checkbox) return;
+  checkbox.checked = salvarNoAlbumAtivo;
+  track.style.background = salvarNoAlbumAtivo ? 'var(--accent)' : 'rgba(255,255,255,.25)';
+  dot.style.left = salvarNoAlbumAtivo ? '16px' : '2px';
+}
+
+// Oferece as fotos de um registro recém-salvo pro menu nativo de compartilhar,
+// com a opção de guardar direto no álbum de fotos do celular. Silenciosa se o
+// navegador não suportar, ou se a pessoa cancelar o menu — nunca trava a vistoria.
+function ofertarSalvarNoAlbum(fotos) {
+  if (!salvarNoAlbumAtivo || !navigator.canShare || !fotos || fotos.length === 0) return;
+  try {
+    const files = fotos.map((f, i) => {
+      const [, base64] = f.src.split(',');
+      const bytes = atob(base64);
+      const arr = new Uint8Array(bytes.length);
+      for (let j = 0; j < bytes.length; j++) arr[j] = bytes.charCodeAt(j);
+      return new File([arr], `vistoria_${Date.now()}_${i}.jpg`, { type: f.mediaType || 'image/jpeg' });
+    });
+    if (navigator.canShare({ files })) {
+      navigator.share({ files }).catch(() => { /* pessoa cancelou o menu, sem problema */ });
+    }
+  } catch (e) { console.error('Não foi possível oferecer salvar no álbum:', e); }
+}
+
 // Pega a localização atual (GPS) e o endereço aproximado (rua/bairro/cidade).
 // Reaproveita a última localização se foi obtida há menos de 5 minutos, pra
 // não ficar pedindo GPS e endereço de novo a cada foto do mesmo ambiente.
@@ -1952,11 +2041,13 @@ function salvarRegistro() {
   let defeito = state.defeitoAtual;
   if (defeito==='Outro defeito') defeito=document.getElementById('outroDefeitoInput').value.trim()||'Outro defeito';
   if (!defeito) { alert('Selecione o tipo de defeito.'); return false; }
-  state.registros.push({ ambiente:state.ambienteAtual, fotos:[...state.fotosAtuais], defeito });
+  const fotosDoRegistro = [...state.fotosAtuais];
+  state.registros.push({ ambiente:state.ambienteAtual, fotos:fotosDoRegistro, defeito });
   if (defeitoPendenteIdxAtual !== null) {
     state.defeitosPendentes.splice(defeitoPendenteIdxAtual, 1);
     defeitoPendenteIdxAtual = null;
   }
+  ofertarSalvarNoAlbum(fotosDoRegistro);
   state.fotosAtuais=[]; atualizarResumo(); salvarRascunho(); return true;
 }
 
@@ -2684,7 +2775,7 @@ function renderFinanceiro() {
 async function limparHistorico() {
   const qtd = todosLaudos.length;
   if (qtd === 0) { alert('O histórico já está vazio.'); return; }
-  const confirmado = confirm(`Isso vai apagar TODOS os ${qtd} laudo${qtd === 1 ? '' : 's'} do histórico, incluindo os arquivos Word/PDF guardados no servidor.\n\nEssa ação NÃO PODE ser desfeita — os laudos que você já baixou no celular continuam salvos, mas os que estão só no servidor serão perdidos.\n\nTem certeza que quer continuar?`);
+  const confirmado = confirm(`Isso vai mover TODOS os ${qtd} laudo${qtd === 1 ? '' : 's'} do histórico pra Lixeira.\n\nEles ficam guardados lá por 30 dias antes de serem apagados de vez — dá pra restaurar qualquer um deles nesse período, na aba "Lixeira".\n\nQuer continuar?`);
   if (!confirmado) return;
   try {
     await fetch('/historico', { method: 'DELETE' });
@@ -2694,14 +2785,84 @@ async function limparHistorico() {
   }
 }
 
-// Apaga só UM laudo específico do histórico (e o arquivo dele no servidor),
-// mantendo todo o resto intacto.
+// Move um laudo específico pra Lixeira (não apaga de vez na hora — fica
+// guardado por 30 dias, dando uma segunda chance em caso de exclusão sem
+// querer, antes de ser removido definitivamente do servidor).
 async function excluirLaudoHistorico(arquivo, nome) {
-  const confirmado = confirm(`Excluir o laudo de "${nome || 'cliente'}"?\n\nIsso apaga o arquivo do servidor. Se você já baixou esse laudo no celular, a cópia baixada continua salva — só não vai mais aparecer aqui no Histórico.\n\nEssa ação não pode ser desfeita.`);
+  const confirmado = confirm(`Mover o laudo de "${nome || 'cliente'}" pra Lixeira?\n\nEle fica guardado lá por 30 dias (dá pra restaurar na aba "Lixeira") antes de ser apagado de vez do servidor.`);
   if (!confirmado) return;
   try {
     await fetch(`/historico?arquivo=${arquivo}`, { method: 'DELETE' });
     carregarHistorico();
+  } catch (e) {
+    alert('Não foi possível excluir agora. Verifique sua internet e tente de novo.');
+  }
+}
+
+// ── LIXEIRA — laudos excluídos, guardados por 30 dias antes de sumir de vez ──
+let itensLixeira = [];
+
+function toggleLixeira() {
+  const secaoLixeira = document.getElementById('lixeiraSecao');
+  const secaoNormal = document.getElementById('historicoNormalView');
+  const abrindoLixeira = secaoLixeira.style.display === 'none';
+  secaoLixeira.style.display = abrindoLixeira ? 'block' : 'none';
+  secaoNormal.style.display = abrindoLixeira ? 'none' : 'block';
+  if (abrindoLixeira) carregarLixeira();
+}
+
+async function carregarLixeira() {
+  const lista = document.getElementById('lixeiraList');
+  lista.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p>';
+  try {
+    const res = await fetch('/historico?lixeira=1');
+    itensLixeira = await res.json();
+    renderLixeira();
+  } catch (e) {
+    lista.innerHTML = '<p style="color:var(--danger);font-size:13px;text-align:center;padding:20px">Erro ao carregar.</p>';
+  }
+}
+
+function renderLixeira() {
+  const lista = document.getElementById('lixeiraList');
+  if (itensLixeira.length === 0) {
+    lista.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">A lixeira está vazia.</p>';
+    return;
+  }
+  lista.innerHTML = itensLixeira.map(l => {
+    const diasRestantes = Math.max(0, 30 - Math.floor((Date.now() - l.excluidoEm) / (24 * 60 * 60 * 1000)));
+    return `<div class="hist-item">
+      <i class="ti ti-trash" style="font-size:26px;color:var(--muted)"></i>
+      <div class="info">
+        <strong>${l.nome}${l.empreendimento ? ' - ' + l.empreendimento : ''}</strong>
+        <span style="display:block">${l.data} · some de vez em ${diasRestantes} dia${diasRestantes === 1 ? '' : 's'}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <button class="hist-btn" style="background:var(--success);width:100%" onclick="restaurarLaudo('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-arrow-back-up"></i> Restaurar</button>
+        <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirDefinitivo('${encodeURIComponent(l.arquivo)}','${(l.nome||'').replace(/'/g,"\\'")}')"><i class="ti ti-trash-x"></i> Apagar de vez</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function restaurarLaudo(arquivo) {
+  try {
+    await fetch(`/historico/restaurar?arquivo=${arquivo}`, { method: 'POST' });
+    carregarLixeira();
+    carregarHistorico();
+  } catch (e) {
+    alert('Não foi possível restaurar agora. Verifique sua internet e tente de novo.');
+  }
+}
+
+async function excluirDefinitivo(arquivo, nome) {
+  const confirmado1 = confirm(`Apagar o laudo de "${nome || 'cliente'}" DE VEZ, agora mesmo?\n\nIsso não espera os 30 dias — o arquivo é removido do servidor imediatamente.`);
+  if (!confirmado1) return;
+  const confirmado2 = confirm(`Tem certeza mesmo?\n\nDepois desse passo, NÃO tem mais como recuperar de jeito nenhum — nem pela Lixeira, nem por mim.`);
+  if (!confirmado2) return;
+  try {
+    await fetch(`/historico?arquivo=${arquivo}&permanente=1`, { method: 'DELETE' });
+    carregarLixeira();
   } catch (e) {
     alert('Não foi possível excluir agora. Verifique sua internet e tente de novo.');
   }
@@ -2802,6 +2963,7 @@ function renderHistorico(lista) {
 // Ao abrir o app, verifica se existe uma vistoria em andamento salva localmente
 carregarCorConfig();
 carregarCarimboConfig();
+carregarConfigSalvarAlbum();
 atualizarBotaoCancelarDados();
 
 // A checagem do rascunho salvo só roda depois que a pessoa fecha a tela de
