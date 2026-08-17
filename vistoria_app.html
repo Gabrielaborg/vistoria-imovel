@@ -150,13 +150,6 @@
   </div>
   <span class="badge">IA</span>
   <div style="flex:1"></div>
-  <label id="salvarAlbumToggleLabel" title="Salvar fotos no álbum do celular" style="display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;cursor:pointer;user-select:none;margin-right:10px">
-    <i class="ti ti-device-mobile-share" style="font-size:14px"></i>
-    <input type="checkbox" id="salvarAlbumToggle" checked onchange="toggleSalvarAlbum(this.checked)" style="display:none">
-    <span id="salvarAlbumToggleTrack" style="width:32px;height:18px;background:var(--accent);border-radius:20px;position:relative;transition:background .15s;flex-shrink:0">
-      <span id="salvarAlbumToggleDot" style="position:absolute;top:2px;left:16px;width:14px;height:14px;background:#fff;border-radius:50%;transition:left .15s"></span>
-    </span>
-  </label>
   <label id="carimboToggleLabel" title="Carimbo de data/hora/local nas fotos" style="display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;cursor:pointer;user-select:none;margin-right:10px">
     <i class="ti ti-map-pin-filled" style="font-size:14px"></i>
     <input type="checkbox" id="carimboToggle" checked onchange="toggleCarimbo(this.checked)" style="display:none">
@@ -608,14 +601,33 @@ function abrirDB() {
 // Na primeira vez que salva, gera um ID novo e mantém ele pelo resto da vida dessa
 // vistoria — assim, várias vistorias diferentes podem estar em andamento ao mesmo
 // tempo, cada uma preservada separadamente, sem uma sobrescrever a outra.
+// Avisa a pessoa (uma vez por sessão, pra não repetir o alerta a cada foto)
+// quando o celular não consegue mais salvar dados localmente — geralmente por
+// falta de espaço de armazenamento. Antes disso, esse tipo de falha ficava
+// silenciosa (só no console), e vistorias grandes podiam se perder sem aviso.
+let avisoErroRascunhoMostrado = false;
+function avisarFalhaAoSalvar(erro) {
+  if (avisoErroRascunhoMostrado) return;
+  avisoErroRascunhoMostrado = true;
+  const semEspaco = erro && (erro.name === 'QuotaExceededError' || /quota/i.test(erro.message || ''));
+  alert(`⚠ ATENÇÃO: não consegui salvar essa vistoria no celular${semEspaco ? ' (armazenamento do celular está cheio)' : ''}.\n\nAs fotos e ambientes registrados a PARTIR DE AGORA podem não estar sendo guardados de verdade. Recomendo:\n\n1) Finalizar essa vistoria e gerar o laudo o quanto antes, sem esperar.\n2) Depois, liberar espaço no celular (apagar fotos/apps que não usa) antes da próxima vistoria.`);
+}
+
 async function salvarRascunho() {
   try {
     if (!state.rascunhoId) state.rascunhoId = 'r_' + Date.now() + Math.random().toString(36).slice(2);
     const db = await abrirDB();
     const tx = db.transaction(LOJA_RASCUNHOS, 'readwrite');
     tx.objectStore(LOJA_RASCUNHOS).put({ id: state.rascunhoId, atualizadoEm: Date.now(), state: state });
-    return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
-  } catch (e) { console.error('Falha ao salvar rascunho local:', e); }
+    return new Promise(res => {
+      tx.oncomplete = () => res(true);
+      tx.onerror = () => { console.error('Falha ao salvar rascunho local (transação):', tx.error); avisarFalhaAoSalvar(tx.error); res(false); };
+    });
+  } catch (e) {
+    console.error('Falha ao salvar rascunho local:', e);
+    avisarFalhaAoSalvar(e);
+    return false;
+  }
 }
 
 // Lista todas as vistorias em andamento (não finalizadas), mais recente primeiro.
@@ -1190,9 +1202,6 @@ function renderModalRegistro() {
     <textarea id="modalRegistroDefeitoInput" style="width:100%;min-height:60px;border:1.5px solid var(--border);border-radius:8px;padding:8px;font-family:var(--font);font-size:12px;color:var(--text);margin-top:4px" oninput="salvarTextoDefeitoRegistro()">${r.defeito}</textarea>
     <button type="button" onclick="gerarTextoDefeitoRegistroIA()" id="btnGerarDefeitoRegistroIA" style="width:100%;margin-top:6px;background:var(--brand2);color:#fff;border:none;border-radius:8px;padding:8px;font-family:var(--font);font-size:11.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px">
       <i class="ti ti-sparkles"></i> Gerar/melhorar texto com IA
-    </button>
-    <button type="button" onclick="compartilharFotos(state.registros[${registroAbertoIdx}].fotos)" style="width:100%;margin-top:6px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px;font-family:var(--font);font-size:11.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px">
-      <i class="ti ti-device-mobile-share"></i> Salvar todas as ${r.fotos.length} fotos no álbum
     </button>`;
   document.getElementById('modalRegistroFotos').innerHTML = r.fotos.map((f, i) => `
     <div style="display:flex;align-items:center;gap:10px;background:var(--light);border-radius:10px;padding:8px">
@@ -1202,7 +1211,6 @@ function renderModalRegistro() {
         <button onclick="moverFotoRegistro(${i},-1)" ${i === 0 ? 'disabled style="opacity:.3"' : ''} style="background:#fff;border:1px solid var(--border);border-radius:6px;width:28px;height:24px;cursor:pointer"><i class="ti ti-chevron-up"></i></button>
         <button onclick="moverFotoRegistro(${i},1)" ${i === r.fotos.length - 1 ? 'disabled style="opacity:.3"' : ''} style="background:#fff;border:1px solid var(--border);border-radius:6px;width:28px;height:24px;cursor:pointer"><i class="ti ti-chevron-down"></i></button>
       </div>
-      <button onclick="compartilharFotos([state.registros[${registroAbertoIdx}].fotos[${i}]])" style="background:#EEF4FB;border:none;color:var(--brand2);border-radius:6px;width:28px;height:52px;cursor:pointer"><i class="ti ti-device-mobile-share" style="font-size:14px"></i></button>
       <button onclick="removerFotoRegistro(${i})" style="background:#fdecea;border:none;color:var(--danger);border-radius:6px;width:28px;height:52px;cursor:pointer"><i class="ti ti-trash"></i></button>
     </div>`).join('');
 }
@@ -1529,85 +1537,6 @@ function atualizarToggleCarimboUI() {
   checkbox.checked = carimboAtivo;
   track.style.background = carimboAtivo ? 'var(--accent)' : 'rgba(255,255,255,.25)';
   dot.style.left = carimboAtivo ? '16px' : '2px';
-}
-
-// ══════════════════════════════════════════════════════════════
-// SALVAR FOTOS NO ÁLBUM DO CELULAR — liga/desliga no cabeçalho, ligado por
-// padrão. Como o navegador não consegue gravar direto na Galeria sem o
-// usuário confirmar (trava de segurança do celular), o jeito possível é abrir
-// o menu nativo de compartilhar assim que um registro é salvo, com a opção
-// "Salvar Imagem"/"Salvar em Fotos" já disponível ali — garante uma cópia das
-// fotos fora do app, independente do que acontecer com o laudo depois.
-// ══════════════════════════════════════════════════════════════
-let salvarNoAlbumAtivo = true;
-
-async function salvarConfigSalvarAlbum() {
-  try {
-    const db = await abrirDB();
-    const tx = db.transaction(LOJA, 'readwrite');
-    tx.objectStore(LOJA).put(salvarNoAlbumAtivo, 'config_salvar_album');
-  } catch (e) { console.error('Falha ao salvar configuração de salvar no álbum:', e); }
-}
-
-async function carregarConfigSalvarAlbum() {
-  try {
-    const db = await abrirDB();
-    const tx = db.transaction(LOJA, 'readonly');
-    const salvo = await new Promise(res => {
-      const req = tx.objectStore(LOJA).get('config_salvar_album');
-      req.onsuccess = () => res(req.result);
-      req.onerror = () => res(undefined);
-    });
-    if (salvo === true || salvo === false) salvarNoAlbumAtivo = salvo;
-  } catch (e) { /* mantém padrão (ligado) se der erro */ }
-  atualizarToggleSalvarAlbumUI();
-}
-
-function toggleSalvarAlbum(ligado) {
-  salvarNoAlbumAtivo = ligado;
-  atualizarToggleSalvarAlbumUI();
-  salvarConfigSalvarAlbum();
-}
-
-function atualizarToggleSalvarAlbumUI() {
-  const track = document.getElementById('salvarAlbumToggleTrack');
-  const dot = document.getElementById('salvarAlbumToggleDot');
-  const checkbox = document.getElementById('salvarAlbumToggle');
-  if (!track || !dot || !checkbox) return;
-  checkbox.checked = salvarNoAlbumAtivo;
-  track.style.background = salvarNoAlbumAtivo ? 'var(--accent)' : 'rgba(255,255,255,.25)';
-  dot.style.left = salvarNoAlbumAtivo ? '16px' : '2px';
-}
-
-// Oferece a PRIMEIRA foto de um registro recém-salvo pro menu nativo de
-// compartilhar, com a opção de guardar no álbum. Importante: o celular só
-// permite abrir esse menu sozinho (sem toque extra da pessoa) pra UMA foto
-// de cada vez — tentar várias de uma vez, automaticamente, falha silenciosa
-// no iPhone. Por isso aqui só a primeira foto é oferecida automaticamente;
-// pra garantir TODAS as fotos de um registro, use o botão "Salvar no álbum"
-// dentro da revisão do registro (toque no card do registro salvo).
-function ofertarSalvarNoAlbum(fotos) {
-  if (!salvarNoAlbumAtivo || !navigator.canShare || !fotos || fotos.length === 0) return;
-  compartilharFotos([fotos[0]]);
-}
-
-// Converte fotos (no formato { src, mediaType }) em File e tenta abrir o menu
-// nativo de compartilhar/salvar. Silenciosa se o navegador não suportar, ou
-// se a pessoa cancelar — nunca trava a vistoria.
-function compartilharFotos(fotos) {
-  if (!navigator.canShare || !fotos || fotos.length === 0) return;
-  try {
-    const files = fotos.map((f, i) => {
-      const [, base64] = f.src.split(',');
-      const bytes = atob(base64);
-      const arr = new Uint8Array(bytes.length);
-      for (let j = 0; j < bytes.length; j++) arr[j] = bytes.charCodeAt(j);
-      return new File([arr], `vistoria_${Date.now()}_${i}.jpg`, { type: f.mediaType || 'image/jpeg' });
-    });
-    if (navigator.canShare({ files })) {
-      navigator.share({ files }).catch(() => { /* pessoa cancelou o menu, sem problema */ });
-    }
-  } catch (e) { console.error('Não foi possível oferecer salvar no álbum:', e); }
 }
 
 // Pega a localização atual (GPS) e o endereço aproximado (rua/bairro/cidade).
@@ -2069,7 +1998,6 @@ function salvarRegistro() {
     state.defeitosPendentes.splice(defeitoPendenteIdxAtual, 1);
     defeitoPendenteIdxAtual = null;
   }
-  ofertarSalvarNoAlbum(fotosDoRegistro);
   state.fotosAtuais=[]; atualizarResumo(); salvarRascunho(); return true;
 }
 
@@ -3018,7 +2946,6 @@ function renderHistorico(lista) {
 // Ao abrir o app, verifica se existe uma vistoria em andamento salva localmente
 carregarCorConfig();
 carregarCarimboConfig();
-carregarConfigSalvarAlbum();
 atualizarBotaoCancelarDados();
 
 // A checagem do rascunho salvo só roda depois que a pessoa fecha a tela de
@@ -3027,6 +2954,22 @@ function fecharSplash() {
   const splash = document.getElementById('splashWelcome');
   if (splash) splash.style.display = 'none';
   verificarRascunhoAoAbrir();
+  verificarEspacoArmazenamento();
+}
+
+// Checa proativamente o espaço de armazenamento local do celular. Se estiver
+// ficando cheio, avisa ANTES de perder alguma vistoria por falta de espaço —
+// vistorias com muitas fotos são as que mais correm risco disso.
+async function verificarEspacoArmazenamento() {
+  try {
+    if (!navigator.storage || !navigator.storage.estimate) return;
+    const { usage, quota } = await navigator.storage.estimate();
+    if (!quota) return;
+    const percentual = (usage / quota) * 100;
+    if (percentual >= 80) {
+      alert(`⚠ O armazenamento local do celular está ${percentual.toFixed(0)}% cheio.\n\nVistorias com muitas fotos podem não conseguir ser salvas corretamente nesse estado. Recomendo liberar espaço no celular (apagar fotos, apps ou arquivos que não usa) antes de continuar vistoriando.`);
+    }
+  } catch (e) { /* não trava o app se não conseguir checar */ }
 }
 
 // Fila de reenvio automático: verifica ao abrir, tenta reenviar de novo a cada 30s,
