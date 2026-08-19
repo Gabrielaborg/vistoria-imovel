@@ -244,7 +244,12 @@
     <div class="card-title"><i class="ti ti-layout-list"></i> Descrição do imóvel</div>
     <div class="field">
       <label>Cômodos (um por linha)</label>
-      <textarea id="comodos" placeholder="2 quartos, sendo 1 suíte;&#10;Sala em dois ambientes;&#10;Banheiro social;&#10;Cozinha;&#10;Lavanderia;&#10;Vaga de garagem."></textarea>
+      <textarea id="comodos">2 quartos, sendo 1 suíte;
+Sala em dois ambientes;
+Banheiro social;
+Cozinha;
+Área de serviço;
+Sacada;</textarea>
     </div>
     <div class="field"><label>Planta do imóvel</label></div>
     <div class="upload-zone" onclick="document.getElementById('plantaInput').click()">
@@ -474,7 +479,10 @@
 </div>
 
 <div id="agenda-screen" style="display:none;max-width:520px;margin:0 auto;padding:0 16px 80px">
-  <button class="btn btn-primary" style="width:100%;margin-bottom:14px" onclick="novoAgendamento()"><i class="ti ti-calendar-plus"></i> Nova vistoria agendada</button>
+  <div style="display:flex;gap:8px;margin-bottom:14px">
+    <button class="btn btn-primary" style="flex:1" onclick="novoAgendamento()"><i class="ti ti-calendar-plus"></i> Nova vistoria</button>
+    <button class="btn btn-outline" style="flex:1" onclick="abrirModalBloqueio()"><i class="ti ti-lock"></i> Bloquear horário</button>
+  </div>
 
   <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">
     <div style="display:flex;gap:4px;margin-bottom:14px;background:var(--light);padding:3px;border-radius:9px">
@@ -557,8 +565,33 @@
   </div>
 </div>
 
+<div id="modalBloqueio" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:150;align-items:flex-end;justify-content:center">
+  <div style="background:#fff;border-radius:16px 16px 0 0;max-width:520px;width:100%;padding:20px 20px 26px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div style="font-weight:700;color:var(--brand);font-size:15px"><i class="ti ti-lock"></i> Bloquear horário</div>
+      <button onclick="fecharModalBloqueio()" style="background:var(--light);border:none;width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;flex-shrink:0">✕</button>
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:14px">Pra reservar um horário na agenda com outro compromisso (não é uma vistoria) — fica marcado no calendário, mas não entra nos totais de vistoria.</p>
+    <div class="field"><label>Motivo</label><input type="text" id="bloqueioMotivo" placeholder="Ex: Consulta médica, reunião, compromisso pessoal..."></div>
+    <div class="grid2">
+      <div class="field"><label>Data</label><input type="date" id="bloqueioData"></div>
+      <div class="field"><label>Horário (opcional)</label><input type="time" id="bloqueioHora"></div>
+    </div>
+    <button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="salvarBloqueioHorario()"><i class="ti ti-device-floppy"></i> Salvar bloqueio</button>
+  </div>
+</div>
+
 <script>
 const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', obsGeral:'', obsRapidas:[], defeitosPendentes:[], plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'', modoAgenda:false, rascunhoId:null };
+// Texto padrão do campo Cômodos — já vem preenchido (editável, não é só um
+// "fantasma"/placeholder) pra facilitar, já que a maioria dos imóveis tem essa
+// configuração parecida. A pessoa edita ou apaga o que não se aplicar.
+const COMODOS_PADRAO = `2 quartos, sendo 1 suíte;
+Sala em dois ambientes;
+Banheiro social;
+Cozinha;
+Área de serviço;
+Sacada;`;
 let todosLaudos = [];
 
 // ══════════════════════════════════════════════════════════════
@@ -630,21 +663,36 @@ async function salvarRascunho() {
   }
 }
 
-// Lista todas as vistorias em andamento (não finalizadas), mais recente primeiro.
+// Lista as vistorias em andamento ATIVAS (não finalizadas, não excluídas),
+// mais recente primeiro.
 async function listarRascunhos() {
   try {
     const db = await abrirDB();
     const tx = db.transaction(LOJA_RASCUNHOS, 'readonly');
     return new Promise(res => {
       const req = tx.objectStore(LOJA_RASCUNHOS).getAll();
-      req.onsuccess = () => res((req.result || []).sort((a, b) => b.atualizadoEm - a.atualizadoEm));
+      req.onsuccess = () => res((req.result || []).filter(r => !r.excluidoEm).sort((a, b) => b.atualizadoEm - a.atualizadoEm));
       req.onerror = () => res([]);
     });
   } catch (e) { return []; }
 }
 
-// Apaga só a vistoria atual (chamado quando o laudo dela é gerado com sucesso, ou
-// quando a pessoa exclui manualmente um item da lista de "não finalizadas").
+// Lista as vistorias em andamento que foram excluídas — ficam na Lixeira,
+// junto com os laudos concluídos excluídos, por 30 dias antes de sumir de vez.
+async function listarRascunhosLixeira() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA_RASCUNHOS, 'readonly');
+    return new Promise(res => {
+      const req = tx.objectStore(LOJA_RASCUNHOS).getAll();
+      req.onsuccess = () => res((req.result || []).filter(r => r.excluidoEm).sort((a, b) => b.excluidoEm - a.excluidoEm));
+      req.onerror = () => res([]);
+    });
+  } catch (e) { return []; }
+}
+
+// Apaga só a vistoria atual DE VERDADE (sem passar pela lixeira) — chamado só
+// quando o laudo dela é gerado com sucesso (não precisa mais do rascunho).
 async function limparRascunho() {
   try {
     if (!state.rascunhoId) return;
@@ -654,13 +702,59 @@ async function limparRascunho() {
   } catch (e) { console.error('Falha ao limpar rascunho local:', e); }
 }
 
+// Move uma vistoria não finalizada pra Lixeira (exclusão suave) — fica
+// guardada por 30 dias, com chance de restaurar, antes de ser apagada de vez.
 async function excluirRascunhoPorId(id) {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA_RASCUNHOS, 'readwrite');
+    const store = tx.objectStore(LOJA_RASCUNHOS);
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const item = getReq.result;
+      if (item) { item.excluidoEm = Date.now(); store.put(item); }
+    };
+    return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+  } catch (e) { console.error('Falha ao excluir rascunho:', e); }
+}
+
+// Restaura uma vistoria da Lixeira, tirando ela de lá — volta a aparecer em
+// "Não finalizadas", como se nunca tivesse sido excluída.
+async function restaurarRascunho(id) {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA_RASCUNHOS, 'readwrite');
+    const store = tx.objectStore(LOJA_RASCUNHOS);
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const item = getReq.result;
+      if (item) { delete item.excluidoEm; store.put(item); }
+    };
+    return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+  } catch (e) { console.error('Falha ao restaurar rascunho:', e); }
+}
+
+// Apaga uma vistoria da Lixeira DE VEZ, sem esperar os 30 dias.
+async function excluirRascunhoPermanente(id) {
   try {
     const db = await abrirDB();
     const tx = db.transaction(LOJA_RASCUNHOS, 'readwrite');
     tx.objectStore(LOJA_RASCUNHOS).delete(id);
     return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
-  } catch (e) { console.error('Falha ao excluir rascunho:', e); }
+  } catch (e) { console.error('Falha ao excluir rascunho definitivamente:', e); }
+}
+
+// Roda ao abrir o app: apaga de vez os rascunhos que estão na lixeira há mais
+// de 30 dias — mesma regra usada pros laudos concluídos no servidor.
+async function limparRascunhosLixeiraAntiga() {
+  try {
+    const TRINTA_DIAS_MS = 30 * 24 * 60 * 60 * 1000;
+    const agora = Date.now();
+    const lixeira = await listarRascunhosLixeira();
+    for (const item of lixeira) {
+      if ((agora - item.excluidoEm) >= TRINTA_DIAS_MS) await excluirRascunhoPermanente(item.id);
+    }
+  } catch (e) { console.error('Falha ao limpar lixeira de rascunhos antigos:', e); }
 }
 
 
@@ -1454,7 +1548,7 @@ const CORES_DISPONIVEIS = [
   {id:'marrom', nome:'marrom', label:'Marrom', hex:'#6B4226', emoji:'🟤'}
 ];
 
-let corConfig = { A: 'laranja', B: 'verde', C: 'azul', D: 'roxo', E: 'amarelo', F: 'vermelho', G: 'marrom' };
+let corConfig = { A: 'laranja', B: 'verde', C: 'azul', D: 'roxo', E: 'amarelo', F: 'vermelho', G: 'marrom', H: 'preto' };
 
 function getCor(grupo) {
   return CORES_DISPONIVEIS.find(c => c.id === corConfig[grupo]) || CORES_DISPONIVEIS[0];
@@ -1468,7 +1562,8 @@ function substituirCores(texto) {
     .replace(/\{CORD\}/g, getCor('D').nome)
     .replace(/\{CORE\}/g, getCor('E').nome)
     .replace(/\{CORF\}/g, getCor('F').nome)
-    .replace(/\{CORG\}/g, getCor('G').nome);
+    .replace(/\{CORG\}/g, getCor('G').nome)
+    .replace(/\{CORH\}/g, getCor('H').nome);
 }
 
 async function salvarCorConfig() {
@@ -1737,7 +1832,8 @@ function renderFitaColorida() {
     { grupo: 'B', texto: 'Falha no rejunte', label: 'Rejunte' },
     { grupo: 'D', texto: 'Falha na pintura (manchas, calafete sem finalizar e outros)', label: 'Pintura (manchas/calafete)' },
     { grupo: 'G', texto: 'Ondulação na parede', label: 'Ondulação na parede' },
-    { grupo: 'C', texto: 'Fissura na parede ou teto', label: 'Fissura (parede/teto)' }
+    { grupo: 'C', texto: 'Fissura na parede ou teto', label: 'Fissura (parede/teto)' },
+    { grupo: 'H', texto: 'Revestimento com tonalidade diferente', label: 'Revestimento tonalidade diferente' }
   ];
   document.getElementById('fitaColoridaGrid').innerHTML = grupos.map(g => {
     const cor = getCor(g.grupo);
@@ -1755,7 +1851,8 @@ function toggleConfigCores() {
     { grupo: 'B', label: 'Rejunte' },
     { grupo: 'D', label: 'Pintura (manchas/calafete)' },
     { grupo: 'G', label: 'Ondulação na parede' },
-    { grupo: 'C', label: 'Fissura' }
+    { grupo: 'C', label: 'Fissura' },
+    { grupo: 'H', label: 'Revestimento tonalidade diferente' }
   ];
   painel.innerHTML = `<div class="section-label" style="margin-top:0">Configurar cores das fitas</div>` + grupos.map(g => `
     <div class="field">
@@ -1789,7 +1886,10 @@ const LEGENDAS = {
     {t:"Cerâmica lascada e oca", d:"Foi constatada a presença de peça cerâmica lascada (adesivo {CORE}) e com som cavo (oco, adesivo {CORA}). Essa condição pode estar associada a falhas no assentamento, utilização inadequada de argamassa colante ou movimentações do substrato. Recomenda-se a substituição da peça afetada e verificação das demais áreas para evitar recorrências."},
     {t:"Rodapé oco", d:"Ao realizar a inspeção por percussão, foi constatado som cavo no rodapé, sinalizado com adesivo {CORA}, indicando falta de aderência adequada ao substrato, com risco de desplacamento. Recomenda-se a remoção e a correta reinstalação do rodapé, garantindo a adequada fixação e acabamento."},
     {t:"Piso sujo", d:"Observa-se revestimento cerâmico com acúmulo de sujeira e resíduos de obra, comprometendo a aparência e o acabamento final da superfície. Recomenda-se a limpeza adequada e remoção dos resíduos."},
-    {t:"Cerâmica manchada (diferença de lote)", d:"Há variações de tonalidade entre as peças cerâmicas, possivelmente decorrentes do uso de lotes diferentes, resultando em um aspecto visual inconsistente."}
+    {t:"Cerâmica manchada (diferença de lote)", d:"Há variações de tonalidade entre as peças cerâmicas, possivelmente decorrentes do uso de lotes diferentes, resultando em um aspecto visual inconsistente."},
+    {t:"Rejunte geral em todo o ambiente", d:"Foram identificadas falhas generalizadas no rejuntamento em todo o revestimento do ambiente, sinalizadas com adesivo {CORB}, comprometendo o acabamento e podendo permitir a infiltração de água e o acúmulo de sujeira. Recomenda-se a correção com reaplicação adequada do rejunte em toda a extensão do revestimento."},
+    {t:"Revestimento arranhado", d:"Foram identificados arranhões na superfície do revestimento, sinalizados com adesivo {CORE}, comprometendo o acabamento e a estética do ambiente."},
+    {t:"Revestimento com tonalidade diferente", d:"Verifica-se a presença de peças de revestimento com tonalidade diferente das demais, sinalizadas com adesivo {CORH}, possivelmente decorrentes do uso de lotes diferentes, resultando em um aspecto visual inconsistente. Recomenda-se avaliação quanto à substituição das peças para uniformização estética."}
   ],
   "Pintura": [
     {t:"Mancha na pintura", d:"Foram identificadas manchas na pintura, sinalizadas com adesivo {CORD}, comprometendo a uniformidade e a vedação das superfícies."},
@@ -1797,6 +1897,7 @@ const LEGENDAS = {
     {t:"Ondulação na parede", d:"Foi identificada ondulação na superfície da parede, sinalizada com adesivo {CORG}, comprometendo a planeza e o acabamento estético do ambiente. Pode estar relacionada a falhas na aplicação do reboco/massa ou na execução da pintura. Recomenda-se avaliação e correção da superfície antes de nova aplicação de acabamento."},
     {t:"Microfissura", d:"Foi verificado a presença de fissura linear na superfície da parede, sinalizada com adesivo {CORC}, com abertura estimada inferior a 1 mm. Pode estar relacionado à movimentação da edificação, retração de materiais ou variações térmicas. Recomenda-se o reparo com materiais adequados e o monitoramento da área."},
     {t:"Falha na textura", d:"Foi identificada falha na textura, comprometendo o acabamento e a estética da superfície."},
+    {t:"Falha e mancha na textura", d:"Foram identificadas falhas de aplicação e manchas na textura, comprometendo a uniformidade e o acabamento estético da superfície."},
     {t:"Mancha de umidade", d:"Evidências de umidade foram observadas na superfície, podendo estar relacionadas a infiltrações, condensação ou falhas na impermeabilização."},
     {t:"Falha no recorte teto/parede", d:"O acabamento da pintura na transição entre o teto e a parede apresenta irregularidades, sinalizado com adesivo {CORD}, resultando em um aspecto visual desalinhado e comprometendo a estética do ambiente."}
   ],
@@ -1808,13 +1909,16 @@ const LEGENDAS = {
     {t:"Faltando dobradiça", d:"A ausência de dobradiça compromete a estabilidade e o correto funcionamento da porta, podendo impactar sua fixação e segurança."},
     {t:"Batente e alizar lascado", d:"Foram identificados danos no batente e alizar, resultando em falhas na integridade e estética do acabamento."},
     {t:"Folha da porta lascada", d:"Foram identificados danos na folha da porta, resultando em falhas na integridade e estética do acabamento."},
-    {t:"Ruído na abertura", d:"Ao movimentar a porta, foi constatada a emissão de ruído nas dobradiças, indicando possível aperto excessivo, falta de lubrificação ou desalinhamento. Recomenda-se verificação, ajuste e lubrificação."}
+    {t:"Ruído na abertura", d:"Ao movimentar a porta, foi constatada a emissão de ruído nas dobradiças, indicando possível aperto excessivo, falta de lubrificação ou desalinhamento. Recomenda-se verificação, ajuste e lubrificação."},
+    {t:"Porta suja", d:"A porta apresenta sujeira acumulada em sua superfície, comprometendo a estética e a apresentação do ambiente. Recomenda-se limpeza adequada."},
+    {t:"Folha da porta com marcas de umidade na parte inferior", d:"Foram identificadas marcas de umidade na parte inferior da folha da porta, podendo comprometer a integridade do material e indicar contato prolongado com água ou umidade excessiva no ambiente. Recomenda-se avaliação da origem da umidade e tratamento adequado da peça."}
   ],
   "Porta de correr": [
     {t:"Não desliza", d:"A porta de correr apresenta dificuldades no deslizamento, possivelmente devido a desalinhamento, sujeira no trilho ou desgaste dos componentes."},
     {t:"Trilho amassado", d:"O trilho da porta de correr apresenta deformações, o que pode comprometer o deslizamento adequado da porta e exigir reparo ou substituição."},
     {t:"Vidro arranhado", d:"Vidro da porta de correr apresenta arranhões visíveis, comprometendo o acabamento e a estética. Recomenda-se substituição ou polimento, conforme viabilidade."},
-    {t:"Falha ao trancar", d:"O mecanismo de travamento da porta de correr não está operando corretamente, dificultando seu fechamento seguro."}
+    {t:"Falha ao trancar", d:"O mecanismo de travamento da porta de correr não está operando corretamente, dificultando seu fechamento seguro."},
+    {t:"Vidro mal fixado", d:"Foi constatado que o vidro da porta de correr apresenta fixação inadequada, com folga ou instabilidade na esquadria. Recomenda-se a verificação e correta fixação do vidro, garantindo segurança e estabilidade."}
   ],
   "Janela": [
     {t:"Janela quebrada", d:"A estrutura da janela apresenta danos, comprometendo sua funcionalidade e segurança."},
@@ -1834,7 +1938,11 @@ const LEGENDAS = {
     {t:"Vazamento no engate", d:"Foi identificado vazamento no engate, o que pode comprometer a vedação e causar infiltrações."},
     {t:"Vazamento na torneira", d:"A torneira da pia apresenta vazamento, podendo gerar desperdício de água e umidade excessiva na bancada."},
     {t:"Falha na vedação", d:"A vedação da pia apresenta irregularidades, o que pode permitir infiltrações e comprometer a impermeabilização do ambiente."},
-    {t:"Pia desnivelada", d:"Foi observado desnivelamento na instalação da pia, o que pode impactar o escoamento da água e a funcionalidade do conjunto."}
+    {t:"Pia desnivelada", d:"Foi observado desnivelamento na instalação da pia, o que pode impactar o escoamento da água e a funcionalidade do conjunto."},
+    {t:"Cuba da pia manchada", d:"Foi identificada mancha na cuba da pia, comprometendo o acabamento e a estética do conjunto. Recomenda-se limpeza adequada e, caso a mancha persista, avaliação para possível substituição da peça."},
+    {t:"Bancada arranhada", d:"Foram identificados arranhões na superfície da bancada, comprometendo o acabamento e a estética do ambiente."},
+    {t:"Falha na fixação da torneira", d:"Foi constatada falha na fixação da torneira, com instabilidade ou folga na base. Recomenda-se a verificação e correta fixação do componente."},
+    {t:"Vazamento na cuba por falha de vedação", d:"Foi identificado vazamento na região da cuba, decorrente de falha na vedação entre a cuba e a bancada. Recomenda-se a correção da vedação para evitar infiltrações e danos ao mobiliário."}
   ],
   "Elétrica": [
     {t:"Espelho quebrado", d:"O espelho da tomada e do interruptor apresenta danos, comprometendo a segurança e a estética do ambiente."},
@@ -1843,7 +1951,8 @@ const LEGENDAS = {
     {t:"QDC com falha na fixação", d:"O QDC não está devidamente fixado, o que pode comprometer sua estabilidade e segurança."},
     {t:"Espelho sujo", d:"O interruptor e as tomadas apresentam sujeira, comprometendo o acabamento e a apresentação estética."},
     {t:"Placa desalinhada", d:"Identificamos que a placa (tomada ou interruptor) está desalinhada e mal instalada, comprometendo a estética do ambiente."},
-    {t:"QDC com espaço/disjuntor exposto", d:"Constatada a existência de espaço aberto no QDC (Quadro de Distribuição de Circuitos), sem disjuntor instalado e sem proteção adequada, permitindo acesso à parte interna energizada. É necessária a instalação de tampa cega ou proteção plástica conforme normas de segurança."}
+    {t:"QDC com espaço/disjuntor exposto", d:"Constatada a existência de espaço aberto no QDC (Quadro de Distribuição de Circuitos), sem disjuntor instalado e sem proteção adequada, permitindo acesso à parte interna energizada. É necessária a instalação de tampa cega ou proteção plástica conforme normas de segurança."},
+    {t:"QDC sujo", d:"O QDC (Quadro de Distribuição de Circuitos) apresenta sujeira acumulada, comprometendo sua apresentação e podendo dificultar a identificação e manuseio dos disjuntores. Recomenda-se limpeza adequada."}
   ],
   "Bacia Sanitária": [
     {t:"Bacia quebrada", d:"A bacia sanitária apresenta danos estruturais, comprometendo sua funcionalidade e segurança."},
@@ -1851,7 +1960,9 @@ const LEGENDAS = {
     {t:"Falha no acionamento", d:"O sistema de acionamento da bacia sanitária não está operando corretamente, dificultando seu funcionamento adequado."},
     {t:"Vazamento no engate", d:"Foi identificado vazamento no engate do vaso sanitário, comprometendo o funcionamento adequado dos sistemas."},
     {t:"Vazamento no pé", d:"Foi identificado vazamento na base da bacia sanitária, possivelmente devido a falhas na vedação ou no sistema de escoamento."},
-    {t:"Vedação do pé com rejunte branco", d:"A vedação da base da bacia sanitária foi executada com rejunte na cor branca. Não se recomenda essa prática, pois o rejunte branco tende a apresentar mofo e encardimento ao longo do tempo devido à umidade constante na região, comprometendo o aspecto estético e a higiene do ambiente. Recomenda-se a utilização de rejunte em tonalidade mais escura, mais resistente ao mofo e ao encardimento."}
+    {t:"Vedação do pé com rejunte branco", d:"A vedação da base da bacia sanitária foi executada com rejunte na cor branca. Não se recomenda essa prática, pois o rejunte branco tende a apresentar mofo e encardimento ao longo do tempo devido à umidade constante na região, comprometendo o aspecto estético e a higiene do ambiente. Recomenda-se a utilização de rejunte em tonalidade mais escura, mais resistente ao mofo e ao encardimento."},
+    {t:"Vaso arranhado", d:"Foram identificados arranhões na superfície do vaso sanitário, comprometendo o acabamento e a estética da peça."},
+    {t:"Vaso com arruela do parafuso quebrada", d:"Foi constatado que a arruela do parafuso de fixação do vaso sanitário está quebrada, comprometendo a estabilidade e a fixação adequada da peça. Recomenda-se a substituição do componente."}
   ],
   "Ralo": [
     {t:"Obstruído / precisa limpeza", d:"O ralo apresenta acúmulo de resíduos, impedindo o escoamento adequado da água e necessitando de limpeza."},
@@ -1859,13 +1970,15 @@ const LEGENDAS = {
     {t:"Grelha quebrada", d:"A grelha do ralo apresenta danos, podendo comprometer sua funcionalidade e segurança."},
     {t:"Sem grelha", d:"O ralo está sem a grelha de proteção, podendo gerar risco de obstrução ou acidentes."},
     {t:"Retorno de água no ralo", d:"Verificou-se retorno de água no ralo, indicando possível obstrução parcial na tubulação ou ausência de declividade adequada no ponto de escoamento. Recomenda-se verificação e correção do sistema de drenagem, garantindo o fluxo adequado da água e evitando acúmulo ou refluxo."},
-    {t:"Fresta entre porta-grelha e tubulação", d:"Existe uma falha no encaixe da tubulação de esgoto com o porta-grelha, com fresta visível entre as peças, indicando que não estão devidamente encaixadas. Essa condição pode comprometer o escoamento da água, podendo gerar infiltração, e necessita reparo ou substituição."}
+    {t:"Fresta entre porta-grelha e tubulação", d:"Existe uma falha no encaixe da tubulação de esgoto com o porta-grelha, com fresta visível entre as peças, indicando que não estão devidamente encaixadas. Essa condição pode comprometer o escoamento da água, podendo gerar infiltração, e necessita reparo ou substituição."},
+    {t:"Com sujeira de obra", d:"O ralo apresenta acúmulo de sujeira e resíduos de obra, podendo comprometer o escoamento adequado da água. Recomenda-se limpeza adequada."}
   ],
   "Piso Laminado": [
     {t:"Lascado e falha no encaixe", d:"O piso laminado apresenta peças lascadas, falhas no encaixe com espaços visíveis entre as peças e pontos com instabilidade ao pisar."},
     {t:"Fresta entre placas", d:"O piso laminado apresenta falha no encaixe entre as placas, com fresta visível na junção, comprometendo o acabamento e podendo permitir acúmulo de sujeira ou umidade entre as peças."},
     {t:"Piso afundando", d:"Foi identificado que o piso laminado apresenta afundamento ao ser pisado em determinados pontos, indicando falha na base de apoio ou no assentamento das placas. Recomenda-se verificação da estrutura de suporte e correção do nivelamento."},
-    {t:"Piso estalando", d:"Foi constatado que o piso laminado apresenta estalos ao ser pisado em determinados pontos, podendo indicar má fixação das placas, folga na base de apoio ou falha no encaixe entre os componentes. Recomenda-se verificação do assentamento e correção conforme necessário."}
+    {t:"Piso estalando", d:"Foi constatado que o piso laminado apresenta estalos ao ser pisado em determinados pontos, podendo indicar má fixação das placas, folga na base de apoio ou falha no encaixe entre os componentes. Recomenda-se verificação do assentamento e correção conforme necessário."},
+    {t:"Falha no encaixe do rodapé", d:"Foi identificada falha no encaixe do rodapé do piso laminado, com fresta ou desalinhamento visível na junção entre as peças. Recomenda-se a correção do encaixe para garantir o acabamento adequado."}
   ],
   "Queda (caimento)": [
     {t:"Queda insuficiente", d:"O piso apresenta falha na queda, podendo comprometer o escoamento adequado da água."},
@@ -1875,15 +1988,22 @@ const LEGENDAS = {
     {t:"Fissura na placa", d:"Foi identificada fissura na placa de drywall, o defeito compromete o acabamento e pode indicar movimentação da estrutura, aplicação incorreta ou dilatação dos materiais. Recomenda-se análise detalhada e correção adequada."},
     {t:"Ondulação na emenda", d:"Foi identificada ondulação na região da emenda entre as placas de drywall, comprometendo a planeza e o acabamento da superfície. Essa condição pode estar relacionada a falhas no tratamento das juntas ou na aplicação da massa de rejunte. Recomenda-se o retrabalho da emenda para restabelecer o alinhamento adequado."}
   ],
-  "Registro": [
+  "Hidráulica": [
     {t:"Registro manchado", d:"Acabamento do registro apresenta manchas visíveis, comprometendo o aspecto estético do item. Recomenda-se a substituição da peça."},
     {t:"Registro longe da parede", d:"O registro foi instalado de forma recuada em relação ao revestimento, resultando em uma fresta visível entre a canopla e a parede. Recomenda-se o reposicionamento ou ajuste com canopla adequada."},
     {t:"Registro não fecha a água", d:"Foi constatado que o registro não realiza o fechamento adequado do fluxo de água, permanecendo com vazamento mesmo na posição fechada. Recomenda-se a verificação e substituição do componente para garantir o correto funcionamento."},
-    {t:"Registro sem acabamento", d:"Foi identificado que o registro está instalado sem o acabamento adequado (canopla/espelho), comprometendo a estética do ponto e deixando a tubulação aparente."}
+    {t:"Registro sem acabamento", d:"Foi identificado que o registro está instalado sem o acabamento adequado (canopla/espelho), comprometendo a estética do ponto e deixando a tubulação aparente."},
+    {t:"Ponto de água do chuveiro fundo", d:"Foi constatado que o ponto de água do chuveiro está instalado fundo em relação ao acabamento, necessitando de prolongador para o correto posicionamento e funcionamento do registro/acabamento."},
+    {t:"Ponto de água da ducha higiênica fundo", d:"Foi constatado que o ponto de água da ducha higiênica está fundo em relação ao acabamento, necessitando de prolongador para o correto posicionamento e funcionamento do registro/acabamento."},
+    {t:"Ponto de água da máquina de lavar fundo", d:"Foi constatado que o ponto de água da máquina de lavar está fundo em relação ao acabamento, necessitando de prolongador para o correto posicionamento e funcionamento do registro/acabamento."},
+    {t:"Ponto de água do filtro fundo", d:"Foi constatado que o ponto de água do filtro está fundo em relação ao acabamento, necessitando de prolongador para o correto posicionamento e funcionamento do registro/acabamento."},
+    {t:"Falha de rejunte do plug", d:"Foram identificadas falhas no rejuntamento ao redor do plug, comprometendo o acabamento e podendo permitir a infiltração de água. Recomenda-se a correção com reaplicação adequada do rejunte."}
   ],
   "Soleira": [
     {t:"Soleira trincada", d:"Foi identificada trinca na soleira. Pode estar relacionada a impactos, assentamento inadequado, movimentações da base ou sobrecarga localizada. Recomenda-se a substituição da peça e a verificação do assentamento e rejuntamento adjacente."},
-    {t:"Soleira sem desnível", d:"A soleira encontra-se instalada no mesmo nível do piso interno, sem o desnível obrigatório entre área seca e área molhada. Recomenda-se executar o rebaixamento do piso ou o alteamento da soleira."}
+    {t:"Soleira sem desnível", d:"A soleira encontra-se instalada no mesmo nível do piso interno, sem o desnível obrigatório entre área seca e área molhada. Recomenda-se executar o rebaixamento do piso ou o alteamento da soleira."},
+    {t:"Soleira suja", d:"A soleira apresenta sujeira acumulada em sua superfície, comprometendo a estética e a apresentação do ambiente. Recomenda-se limpeza adequada."},
+    {t:"Soleira manchada", d:"Foi identificada mancha na superfície da soleira, comprometendo o acabamento e a estética. Recomenda-se limpeza adequada e, caso a mancha persista, avaliação para possível substituição da peça."}
   ],
   "Alvenaria": [
     {t:"Fissura atravessando a parede", d:"Foi identificada fissura que atravessa a parede, sinalizada com adesivo {CORC}, indicando que a manifestação atinge também a alvenaria, não só o revestimento. Recomenda-se avaliação detalhada da origem, monitoramento da fissura e execução de reparos após a estabilização da causa."},
@@ -2103,7 +2223,7 @@ function preencherFormularioDados(d) {
   document.getElementById('metragem').value = d.metragem || '';
   document.getElementById('dataVistoria').value = d.data || '';
   document.getElementById('horaVistoria').value = d.hora || '';
-  document.getElementById('comodos').value = d.comodos || '';
+  document.getElementById('comodos').value = d.comodos || COMODOS_PADRAO;
 }
 
 function resetarBotaoDados() {
@@ -2115,7 +2235,8 @@ function resetarBotaoDados() {
 // Abre a tela de Dados do cliente em "modo agenda": preenchendo com calma agora,
 // vira um agendamento salvo, não uma vistoria em andamento.
 function novoAgendamento() {
-  ['nomeCliente','cpf','telefone','empreendimento','construtora','endereco','bloco','apto','cep','cidade','metragem','comodos','valorVistoria'].forEach(id => { document.getElementById(id).value = ''; });
+  ['nomeCliente','cpf','telefone','empreendimento','construtora','endereco','bloco','apto','cep','cidade','metragem','valorVistoria'].forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('comodos').value = COMODOS_PADRAO;
   document.getElementById('dataVistoria').value = '';
   document.getElementById('horaVistoria').value = '';
   document.getElementById('formaPagamento').value = '';
@@ -2184,6 +2305,7 @@ async function carregarAgenda() {
 }
 
 function badgeTipo(tipo) {
+  if (tipo === 'Compromisso') return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:#E8E8E8;color:#555;margin-left:6px;vertical-align:middle">COMPROMISSO</span>`;
   const ehRevistoria = tipo === 'Revistoria';
   return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:${ehRevistoria ? '#EDE3F5' : '#DCEAF7'};color:${ehRevistoria ? '#7B4FA0' : 'var(--brand2)'};margin-left:6px;vertical-align:middle">${ehRevistoria ? 'REVISTORIA' : 'VISTORIA'}</span>`;
 }
@@ -2192,32 +2314,87 @@ function renderAgenda() {
   const lista = document.getElementById('agendaList');
   renderAgendaTotais();
   if (!agendaCache.length) { lista.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nenhuma vistoria agendada ainda.</p>'; return; }
-  lista.innerHTML = agendaCache.map(a => `
+  lista.innerHTML = agendaCache.map(a => {
+    const ehCompromisso = a.dados.tipo === 'Compromisso';
+    return `
     <div class="hist-item">
-      <i class="ti ti-calendar-event" style="font-size:26px;color:var(--brand)"></i>
+      <i class="ti ${ehCompromisso ? 'ti-lock' : 'ti-calendar-event'}" style="font-size:26px;color:${ehCompromisso ? 'var(--muted)' : 'var(--brand)'}"></i>
       <div class="info">
         <strong>${a.dados.nome}${badgeTipo(a.dados.tipo)}</strong>
-        <span style="display:block">${a.dados.empreendimento || 'Empreendimento não informado'}${a.dados.construtora ? ' · ' + a.dados.construtora : ''}</span>
-        <span style="display:block">${a.dados.data ? a.dados.data.split('-').reverse().join('/') : 'Sem data'}${a.dados.hora ? ' às ' + a.dados.hora : ''} · ${a.dados.metragem ? a.dados.metragem + ' m²' : 'Metragem não informada'}</span>
+        ${ehCompromisso
+          ? `<span style="display:block">${a.dados.data ? a.dados.data.split('-').reverse().join('/') : 'Sem data'}${a.dados.hora ? ' às ' + a.dados.hora : ''}</span>`
+          : `<span style="display:block">${a.dados.empreendimento || 'Empreendimento não informado'}${a.dados.construtora ? ' · ' + a.dados.construtora : ''}</span>
+             <span style="display:block">${a.dados.data ? a.dados.data.split('-').reverse().join('/') : 'Sem data'}${a.dados.hora ? ' às ' + a.dados.hora : ''} · ${a.dados.metragem ? a.dados.metragem + ' m²' : 'Metragem não informada'}</span>`}
       </div>
       <div style="display:flex;flex-direction:column;gap:5px">
-        <button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>
+        ${ehCompromisso ? '' : `<button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>`}
         ${a.dados.tipo === 'Revistoria' ? `<button class="hist-btn" style="background:#7B4FA0;width:100%" onclick="abrirConsultaRevistoria('${a.id}')"><i class="ti ti-file-search"></i> Consultar</button>` : ''}
         <button class="hist-btn" style="background:var(--brand2);width:100%" onclick="editarAgendamento('${a.id}')"><i class="ti ti-edit"></i> Editar</button>
         <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirAgendamento('${a.id}')"><i class="ti ti-trash"></i> Excluir</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function renderAgendaTotais() {
-  const total = agendaCache.length;
-  const totalVistoria = agendaCache.filter(a => a.dados.tipo !== 'Revistoria').length;
-  const totalRevistoria = agendaCache.filter(a => a.dados.tipo === 'Revistoria').length;
+  const vistorias = agendaCache.filter(a => a.dados.tipo !== 'Compromisso');
+  const total = vistorias.length;
+  const totalVistoria = vistorias.filter(a => a.dados.tipo !== 'Revistoria').length;
+  const totalRevistoria = vistorias.filter(a => a.dados.tipo === 'Revistoria').length;
+  const totalCompromisso = agendaCache.length - vistorias.length;
   document.getElementById('agendaTotais').innerHTML = `
     <span style="background:var(--light);color:var(--text);padding:3px 8px;border-radius:20px">${total} agendado${total === 1 ? '' : 's'}</span>
     <span style="background:#DCEAF7;color:var(--brand2);padding:3px 8px;border-radius:20px">${totalVistoria} vistoria${totalVistoria === 1 ? '' : 's'}</span>
     <span style="background:#EDE3F5;color:#7B4FA0;padding:3px 8px;border-radius:20px">${totalRevistoria} revistoria${totalRevistoria === 1 ? '' : 's'}</span>
+    ${totalCompromisso > 0 ? `<span style="background:#E8E8E8;color:#555;padding:3px 8px;border-radius:20px">${totalCompromisso} compromisso${totalCompromisso === 1 ? '' : 's'}</span>` : ''}
   `;
+}
+
+let bloqueioEditandoId = null;
+
+function abrirModalBloqueio() {
+  bloqueioEditandoId = null;
+  document.getElementById('bloqueioMotivo').value = '';
+  document.getElementById('bloqueioData').value = new Date().toISOString().split('T')[0];
+  document.getElementById('bloqueioHora').value = '';
+  document.getElementById('modalBloqueio').style.display = 'flex';
+}
+
+function editarBloqueioHorario(id) {
+  const item = agendaCache.find(a => a.id === id);
+  if (!item) return;
+  bloqueioEditandoId = id;
+  document.getElementById('bloqueioMotivo').value = item.dados.nome || '';
+  document.getElementById('bloqueioData').value = item.dados.data || '';
+  document.getElementById('bloqueioHora').value = item.dados.hora || '';
+  document.getElementById('modalBloqueio').style.display = 'flex';
+}
+
+function fecharModalBloqueio() {
+  document.getElementById('modalBloqueio').style.display = 'none';
+  bloqueioEditandoId = null;
+}
+
+async function salvarBloqueioHorario() {
+  const motivo = document.getElementById('bloqueioMotivo').value.trim();
+  if (!motivo) { alert('Informe o motivo do compromisso.'); return; }
+  const dados = {
+    tipo: 'Compromisso',
+    nome: motivo,
+    data: document.getElementById('bloqueioData').value,
+    hora: document.getElementById('bloqueioHora').value
+  };
+  try {
+    if (bloqueioEditandoId) {
+      await fetch(`/agenda?id=${encodeURIComponent(bloqueioEditandoId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dados }) });
+    } else {
+      await fetch('/agenda', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dados }) });
+    }
+    fecharModalBloqueio();
+    carregarAgenda();
+  } catch (e) {
+    alert('Não foi possível salvar agora. Verifique sua internet e tente de novo.');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2329,7 +2506,7 @@ function renderCalSemana() {
     colunas += `<div onclick="abrirDiaAgenda('${dataISO}')" style="flex:1;min-width:0;border:1px solid var(--border);border-radius:8px;padding:6px 3px;cursor:pointer;background:${ehHoje ? '#F3E9DD' : '#fff'}">
       <div style="text-align:center;font-size:9px;font-weight:700;color:${ehHoje ? 'var(--accent)' : 'var(--muted)'}">${NOMES_DIA_CURTO[i]}</div>
       <div style="text-align:center;font-size:13px;font-weight:700;color:${ehHoje ? 'var(--accent)' : 'var(--text)'};margin-bottom:4px">${cursor.getDate()}</div>
-      ${itens.slice(0, 3).map(a => `<div style="font-size:8.5px;background:var(--light);border-radius:4px;padding:2px 3px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${a.dados.tipo === 'Revistoria' ? '#7B4FA0' : 'var(--brand2)'};margin-right:3px"></span>${a.dados.hora ? a.dados.hora + ' ' : ''}${(a.dados.nome || '').split(' ')[0]}</div>`).join('')}
+      ${itens.slice(0, 3).map(a => `<div style="font-size:8.5px;background:var(--light);border-radius:4px;padding:2px 3px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${a.dados.tipo === 'Compromisso' ? '#999' : (a.dados.tipo === 'Revistoria' ? '#7B4FA0' : 'var(--brand2)')};margin-right:3px"></span>${a.dados.hora ? a.dados.hora + ' ' : ''}${(a.dados.nome || '').split(' ')[0]}</div>`).join('')}
       ${itens.length > 3 ? `<div style="font-size:8.5px;color:var(--muted);text-align:center">+${itens.length - 3}</div>` : ''}
     </div>`;
     cursor.setDate(cursor.getDate() + 1);
@@ -2346,21 +2523,26 @@ function renderCalDia() {
   if (itens.length === 0) {
     return cabecalho + `<p style="color:var(--muted);font-size:13px;text-align:center;padding:16px 0 4px">Nenhuma vistoria agendada pra esse dia.</p>`;
   }
-  return cabecalho + `<div style="display:flex;flex-direction:column;gap:8px">${itens.map(a => `
+  return cabecalho + `<div style="display:flex;flex-direction:column;gap:8px">${itens.map(a => {
+    const ehCompromisso = a.dados.tipo === 'Compromisso';
+    return `
     <div class="hist-item">
-      <div style="width:46px;flex-shrink:0;text-align:center;font-size:12px;font-weight:700;color:var(--brand)">${a.dados.hora || '--:--'}</div>
+      <div style="width:46px;flex-shrink:0;text-align:center;font-size:12px;font-weight:700;color:${ehCompromisso ? 'var(--muted)' : 'var(--brand)'}">${a.dados.hora || '--:--'}</div>
       <div class="info">
         <strong>${a.dados.nome}${badgeTipo(a.dados.tipo)}</strong>
-        <span style="display:block">${a.dados.empreendimento || 'Empreendimento não informado'}${a.dados.construtora ? ' · ' + a.dados.construtora : ''}</span>
-        <span style="display:block">${a.dados.data ? a.dados.data.split('-').reverse().join('/') : 'Sem data'}${a.dados.hora ? ' às ' + a.dados.hora : ''} · ${a.dados.metragem ? a.dados.metragem + ' m²' : 'Metragem não informada'}</span>
+        ${ehCompromisso
+          ? `<span style="display:block">${a.dados.data ? a.dados.data.split('-').reverse().join('/') : 'Sem data'}${a.dados.hora ? ' às ' + a.dados.hora : ''}</span>`
+          : `<span style="display:block">${a.dados.empreendimento || 'Empreendimento não informado'}${a.dados.construtora ? ' · ' + a.dados.construtora : ''}</span>
+             <span style="display:block">${a.dados.data ? a.dados.data.split('-').reverse().join('/') : 'Sem data'}${a.dados.hora ? ' às ' + a.dados.hora : ''} · ${a.dados.metragem ? a.dados.metragem + ' m²' : 'Metragem não informada'}</span>`}
       </div>
       <div style="display:flex;flex-direction:column;gap:5px">
-        <button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>
+        ${ehCompromisso ? '' : `<button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>`}
         ${a.dados.tipo === 'Revistoria' ? `<button class="hist-btn" style="background:#7B4FA0;width:100%" onclick="abrirConsultaRevistoria('${a.id}')"><i class="ti ti-file-search"></i> Consultar</button>` : ''}
         <button class="hist-btn" style="background:var(--brand2);width:100%" onclick="editarAgendamento('${a.id}')"><i class="ti ti-edit"></i> Editar</button>
         <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirAgendamento('${a.id}')"><i class="ti ti-trash"></i> Excluir</button>
       </div>
-    </div>`).join('')}</div>`;
+    </div>`;
+  }).join('')}</div>`;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2515,6 +2697,7 @@ async function excluirAgendamento(id) {
 function editarAgendamento(id) {
   const item = agendaCache.find(a => a.id === id);
   if (!item) return;
+  if (item.dados.tipo === 'Compromisso') { editarBloqueioHorario(id); return; }
   preencherFormularioDados(item.dados);
   document.getElementById('plantaPreview').innerHTML = item.plantaBase64 ? `<div class="single-thumb"><img src="data:${item.plantaMediaType};base64,${item.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>` : '';
   document.getElementById('mapaPreview').innerHTML = item.mapaBase64 ? `<div class="single-thumb"><img src="data:${item.mapaMediaType};base64,${item.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>` : '';
@@ -2575,7 +2758,8 @@ function novaVistoria() {
   resetarBotaoDados();
   dadosContexto = 'novo';
   atualizarBotaoCancelarDados();
-  ['nomeCliente','cpf','telefone','empreendimento','construtora','endereco','bloco','apto','cep','cidade','metragem','comodos','obsGeral','valorVistoria'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['nomeCliente','cpf','telefone','empreendimento','construtora','endereco','bloco','apto','cep','cidade','metragem','obsGeral','valorVistoria'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('comodos').value = COMODOS_PADRAO;
   document.getElementById('dataVistoria').value=new Date().toISOString().split('T')[0];
   document.getElementById('horaVistoria').value='';
   document.getElementById('formaPagamento').value='';
@@ -2798,21 +2982,42 @@ async function carregarLixeira() {
   const lista = document.getElementById('lixeiraList');
   lista.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Carregando...</p>';
   try {
-    const res = await fetch('/historico?lixeira=1');
-    itensLixeira = await res.json();
+    const [resHist, rascunhosExcluidos] = await Promise.all([fetch('/historico?lixeira=1'), listarRascunhosLixeira()]);
+    itensLixeira = await resHist.json();
+    itensLixeiraRascunhos = rascunhosExcluidos;
     renderLixeira();
   } catch (e) {
     lista.innerHTML = '<p style="color:var(--danger);font-size:13px;text-align:center;padding:20px">Erro ao carregar.</p>';
   }
 }
 
+let itensLixeiraRascunhos = [];
+
 function renderLixeira() {
   const lista = document.getElementById('lixeiraList');
-  if (itensLixeira.length === 0) {
+  if (itensLixeira.length === 0 && itensLixeiraRascunhos.length === 0) {
     lista.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">A lixeira está vazia.</p>';
     return;
   }
-  lista.innerHTML = itensLixeira.map(l => {
+
+  const cardsRascunhos = itensLixeiraRascunhos.map(r => {
+    const diasRestantes = Math.max(0, 30 - Math.floor((Date.now() - r.excluidoEm) / (24 * 60 * 60 * 1000)));
+    const d = r.state.dados || {};
+    const qtdRegistros = (r.state.registros || []).length;
+    return `<div class="hist-item">
+      <i class="ti ti-pencil" style="font-size:26px;color:var(--muted)"></i>
+      <div class="info">
+        <strong>${d.nome || 'Sem nome'} <span style="font-size:9px;font-weight:700;color:var(--accent)">· NÃO FINALIZADA</span></strong>
+        <span style="display:block">${qtdRegistros} registro${qtdRegistros === 1 ? '' : 's'} · some de vez em ${diasRestantes} dia${diasRestantes === 1 ? '' : 's'}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <button class="hist-btn" style="background:var(--success);width:100%" onclick="restaurarRascunhoUI('${r.id}')"><i class="ti ti-arrow-back-up"></i> Restaurar</button>
+        <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirRascunhoDefinitivoUI('${r.id}','${(d.nome || 'cliente').replace(/'/g,"\\'")}')"><i class="ti ti-trash-x"></i> Apagar de vez</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  const cardsLaudos = itensLixeira.map(l => {
     const diasRestantes = Math.max(0, 30 - Math.floor((Date.now() - l.excluidoEm) / (24 * 60 * 60 * 1000)));
     return `<div class="hist-item">
       <i class="ti ti-trash" style="font-size:26px;color:var(--muted)"></i>
@@ -2826,6 +3031,8 @@ function renderLixeira() {
       </div>
     </div>`;
   }).join('');
+
+  lista.innerHTML = cardsRascunhos + cardsLaudos;
 }
 
 async function restaurarLaudo(arquivo) {
@@ -2903,9 +3110,24 @@ async function carregarNaoFinalizadas() {
 }
 
 async function excluirRascunhoUI(id) {
-  if (!confirm('Excluir essa vistoria não finalizada? Os ambientes e fotos já registrados serão perdidos — essa ação não pode ser desfeita.')) return;
+  if (!confirm('Mover essa vistoria não finalizada pra Lixeira?\n\nEla fica guardada lá por 30 dias (dá pra restaurar na aba "Lixeira") antes de ser apagada de vez.')) return;
   await excluirRascunhoPorId(id);
   carregarNaoFinalizadas();
+}
+
+async function restaurarRascunhoUI(id) {
+  await restaurarRascunho(id);
+  carregarLixeira();
+  carregarNaoFinalizadas();
+}
+
+async function excluirRascunhoDefinitivoUI(id, nome) {
+  const confirmado1 = confirm(`Apagar a vistoria não finalizada de "${nome}" DE VEZ, agora mesmo?\n\nIsso não espera os 30 dias.`);
+  if (!confirmado1) return;
+  const confirmado2 = confirm(`Tem certeza mesmo?\n\nDepois desse passo, NÃO tem mais como recuperar de jeito nenhum — os ambientes e fotos já registrados se perdem pra sempre.`);
+  if (!confirmado2) return;
+  await excluirRascunhoPermanente(id);
+  carregarLixeira();
 }
 
 async function carregarArmazenamento() {
@@ -2955,6 +3177,7 @@ function fecharSplash() {
   if (splash) splash.style.display = 'none';
   verificarRascunhoAoAbrir();
   verificarEspacoArmazenamento();
+  limparRascunhosLixeiraAntiga();
 }
 
 // Checa proativamente o espaço de armazenamento local do celular. Se estiver
