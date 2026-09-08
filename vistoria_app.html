@@ -2916,7 +2916,7 @@ async function processarLaudo() {
 async function gerarDocumento(tipo) {
   const msg=document.getElementById('gerandoMsg');
   msg.style.display='block'; msg.innerHTML='<span class="spinner"></span> Gerando documento...';
-  const registrosData=state.registros.map(r=>({ambiente:r.ambiente,defeito:r.defeito,fotos:r.fotos.map(f=>({base64:f.src.split(',')[1],mediaType:f.mediaType}))}));
+  const registrosData=state.registros.map(r=>({ambiente:r.ambiente,defeito:r.defeito,classificacao:r.classificacao||null,fotos:r.fotos.map(f=>({base64:f.src.split(',')[1],mediaType:f.mediaType}))}));
   const payload={dados:state.dados,tipoVistoria:state.tipoVistoria,obsGeral:state.obsGeral,registros:registrosData,formato:tipo,plantaBase64:state.plantaBase64,plantaMediaType:state.plantaMediaType,mapaBase64:state.mapaBase64,mapaMediaType:state.mapaMediaType,conclusaoIA:state.conclusaoIA||''};
   try {
     const res=await fetch('/gerar-laudo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -3081,14 +3081,16 @@ function renderAgendaTotais() {
   const pendentes = agendaCache.filter(a => !a.dados.concluidoEm);
   const vistorias = pendentes.filter(a => a.dados.tipo !== 'Compromisso');
   const total = vistorias.length;
-  const totalVistoria = vistorias.filter(a => a.dados.tipo !== 'Revistoria').length;
+  const totalVistoria = vistorias.filter(a => a.dados.tipo !== 'Revistoria' && a.dados.tipo !== 'Locação').length;
   const totalRevistoria = vistorias.filter(a => a.dados.tipo === 'Revistoria').length;
+  const totalLocacao = vistorias.filter(a => a.dados.tipo === 'Locação').length;
   const totalCompromisso = pendentes.length - vistorias.length;
   const totalConcluidas = agendaCache.length - pendentes.length;
   document.getElementById('agendaTotais').innerHTML = `
     <span style="background:var(--light);color:var(--text);padding:3px 8px;border-radius:20px">${total} agendado${total === 1 ? '' : 's'}</span>
     <span style="background:#DCEAF7;color:var(--brand2);padding:3px 8px;border-radius:20px">${totalVistoria} vistoria${totalVistoria === 1 ? '' : 's'}</span>
     <span style="background:#EDE3F5;color:#7B4FA0;padding:3px 8px;border-radius:20px">${totalRevistoria} revistoria${totalRevistoria === 1 ? '' : 's'}</span>
+    ${totalLocacao > 0 ? `<span style="background:#FDECD2;color:#8A5A00;padding:3px 8px;border-radius:20px">${totalLocacao} loca${totalLocacao === 1 ? 'ção' : 'ções'}</span>` : ''}
     ${totalCompromisso > 0 ? `<span style="background:#E8E8E8;color:#555;padding:3px 8px;border-radius:20px">${totalCompromisso} compromisso${totalCompromisso === 1 ? '' : 's'}</span>` : ''}
     ${totalConcluidas > 0 ? `<span style="background:#E6F4EC;color:var(--success);padding:3px 8px;border-radius:20px">${totalConcluidas} concluída${totalConcluidas === 1 ? '' : 's'} (veja no calendário)</span>` : ''}
   `;
@@ -3681,12 +3683,13 @@ function renderFinanceiro() {
 
   const doMes = laudosDoMes(ano, mes);
   const total = doMes.reduce((soma, l) => soma + parseValorBR(l.valor), 0);
-  const qtdVistoria = doMes.filter(l => l.tipo !== 'Revistoria').length;
+  const qtdVistoria = doMes.filter(l => l.tipo !== 'Revistoria' && l.tipo !== 'Locação').length;
   const qtdRevistoria = doMes.filter(l => l.tipo === 'Revistoria').length;
+  const qtdLocacao = doMes.filter(l => l.tipo === 'Locação').length;
 
   document.getElementById('financeiroTotalValor').textContent = formatarBRL(total);
   document.getElementById('financeiroTotalQtd').textContent = doMes.length;
-  document.getElementById('financeiroTotalQtdDetalhe').textContent = `${qtdVistoria} vistoria${qtdVistoria === 1 ? '' : 's'} · ${qtdRevistoria} revistoria${qtdRevistoria === 1 ? '' : 's'}`;
+  document.getElementById('financeiroTotalQtdDetalhe').textContent = `${qtdVistoria} vistoria${qtdVistoria === 1 ? '' : 's'} · ${qtdRevistoria} revistoria${qtdRevistoria === 1 ? '' : 's'}${qtdLocacao > 0 ? ` · ${qtdLocacao} loca${qtdLocacao === 1 ? 'ção' : 'ções'}` : ''}`;
 
   // Previsto pro mês — agendamentos com data marcada dentro do mês visualizado
   const agendaMes = agendaDoMes(ano, mes);
