@@ -369,6 +369,10 @@ Sacada;</textarea>
 <div class="screen" id="screen-defeito">
   <div style="margin-top:12px">
     <div class="card-title" style="padding:0 4px 10px;font-size:16px;font-weight:700;color:var(--brand)"><i class="ti ti-alert-triangle"></i> Qual defeito foi encontrado?</div>
+    <label style="display:flex;align-items:center;gap:8px;background:#fff;border:1.5px solid var(--border);border-radius:9px;padding:9px 12px;margin-bottom:12px;cursor:pointer">
+      <input type="checkbox" id="usouFitaToggle" checked onchange="toggleUsouFita(this.checked)" style="width:17px;height:17px;flex-shrink:0">
+      <span style="font-size:12px;font-weight:700;color:var(--text)">Usei fita colorida nesta foto</span>
+    </label>
     <div class="section-label" style="margin-top:0;display:flex;align-items:center;justify-content:space-between" id="labelFitaColorida">
       <span>Fita colorida (atalho)</span>
       <button onclick="toggleConfigCores()" style="background:none;border:none;color:var(--brand);cursor:pointer;font-size:16px;padding:2px 6px"><i class="ti ti-settings"></i></button>
@@ -392,6 +396,10 @@ Sacada;</textarea>
       </div>
       <div id="resultadoBuscaLocacao" style="display:none;margin-bottom:14px"></div>
       <div id="categoriasLocacaoContainer"></div>
+      <div id="corFitaLocacaoContainer" style="display:none;margin-top:14px">
+        <div class="section-label" style="color:var(--accent)">Cor da fita usada nesta foto</div>
+        <div id="corFitaLocacaoGrid" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
       <div id="classificacaoLocacaoContainer" style="display:none;margin-top:14px">
         <div class="section-label" style="color:#7B4FA0">Classificação (deixa o laudo mais defensável)</div>
         <div id="classificacaoLocacaoGrid" style="display:flex;flex-wrap:wrap;gap:6px"></div>
@@ -648,7 +656,7 @@ Sacada;</textarea>
 </div>
 
 <script>
-const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', classificacaoAtual:'', obsGeral:'', obsRapidas:[], defeitosPendentes:[], plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'', modoAgenda:false, rascunhoId:null };
+const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', classificacaoAtual:'', corFitaAtual:'', obsGeral:'', obsRapidas:[], defeitosPendentes:[], plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'', modoAgenda:false, rascunhoId:null };
 // Texto padrão do campo Cômodos — já vem preenchido (editável, não é só um
 // "fantasma"/placeholder) pra facilitar, já que a maioria dos imóveis tem essa
 // configuração parecida. A pessoa edita ou apaga o que não se aplicar.
@@ -1665,6 +1673,25 @@ function substituirCores(texto) {
     .replace(/\{CORH\}/g, getCor('H').nome);
 }
 
+// Remove a menção à fita/adesivo colorida do texto — usado quando a foto foi
+// tirada SEM usar a fita (ex: esqueceu de colar, ou não usa em locação), pra
+// não sair no laudo algo como "adesivo azul indica revestimento oco" sem
+// nenhuma fita aparecer na foto.
+function removerReferenciaCor(texto) {
+  return texto
+    // "(qualquer coisa adesivo {CORX} qualquer coisa)" — remove o parêntese
+    // inteiro, mesmo quando tem outro texto junto (ex: "(oco, adesivo {CORA})")
+    .replace(/\s*\([^)]*adesivo\s+\{COR[A-H]\}[^)]*\)/gi, '')
+    // ", sinalizada(o)(s) com adesivo {CORX}" — cláusula com vírgula antes
+    .replace(/,?\s*sinalizad[ao]s?\s+com\s+adesivo\s+\{COR[A-H]\}/gi, '')
+    // qualquer menção solta que tenha sobrado, tipo "adesivo {CORX}" isolado
+    .replace(/\s*adesivo\s+\{COR[A-H]\}/gi, '')
+    // limpeza: espaço duplo, espaço antes de ponto/vírgula que sobrou
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([.,;])/g, '$1')
+    .trim();
+}
+
 async function salvarCorConfig() {
   try {
     const db = await abrirDB();
@@ -2628,6 +2655,28 @@ const LEGENDAS_LOCACAO = {
   }
 };
 
+// Controla se a fita colorida foi usada na foto atual — quando desligado, o
+// texto do defeito sai SEM a menção ao adesivo/fita (ex: "revestimento oco"
+// em vez de "revestimento oco, sinalizado com adesivo azul").
+let usouFitaAtual = true;
+
+function toggleUsouFita(checked) {
+  usouFitaAtual = checked;
+  // Re-renderiza o que estiver na tela agora, pra aplicar a mudança nos
+  // textos que já estavam sendo mostrados (sem precisar reabrir a categoria).
+  if (state.tipoVistoria === 'Locação') {
+    const termoBusca = document.getElementById('buscaLocacaoInput').value;
+    if (termoBusca.trim()) buscarDefeitoLocacao(termoBusca);
+    else renderCategoriasLocacao();
+  } else if (categoriaAtual) {
+    selecionarCategoria(categoriaAtual);
+  }
+}
+
+function aplicarOuRemoverCor(textoRaw) {
+  return usouFitaAtual ? substituirCores(textoRaw) : removerReferenciaCor(textoRaw);
+}
+
 function renderCategorias() {
   document.getElementById('categoriaGrid').innerHTML = Object.keys(LEGENDAS).map(cat =>
     `<button class="opt-btn" onclick="selecionarCategoria('${cat.replace(/'/g,"\\'")}')"><i class="ti ti-folder"></i> ${cat}</button>`
@@ -2640,7 +2689,7 @@ function selecionarCategoria(cat) {
   categoriaAtual = cat;
   const itens = LEGENDAS[cat] || [];
   document.getElementById('itemLista').innerHTML = itens.map((item, i) => {
-    const textoFinal = substituirCores(item.d);
+    const textoFinal = aplicarOuRemoverCor(item.d);
     return `<button class="opt-btn" style="width:100%;text-align:left;justify-content:flex-start" onclick="selecionarDefeito(this,'${textoFinal.replace(/'/g,"\\'").replace(/\n/g,' ')}')"><i class="ti ti-tag"></i> ${item.t}</button>`;
   }).join('');
   document.getElementById('categoriaGrid').style.display = 'none';
@@ -2657,8 +2706,10 @@ let defeitoPendenteIdxAtual = null;
 function irParaDefeito() {
   if (state.fotosAtuais.length===0) { alert('Envie ao menos uma foto.'); return; }
   document.querySelectorAll('#screen-defeito .opt-btn').forEach(b=>b.classList.remove('selected'));
-  state.defeitoAtual=''; state.classificacaoAtual=''; document.getElementById('outroDefeitoField').style.display='none';
+  state.defeitoAtual=''; state.classificacaoAtual=''; state.corFitaAtual=''; document.getElementById('outroDefeitoField').style.display='none';
   document.getElementById('configCoresPainel').style.display='none';
+  usouFitaAtual = true;
+  document.getElementById('usouFitaToggle').checked = true;
 
   const ehLocacao = state.tipoVistoria === 'Locação';
   document.getElementById('labelFitaColorida').style.display = ehLocacao ? 'none' : 'flex';
@@ -2666,6 +2717,7 @@ function irParaDefeito() {
   document.getElementById('containerDefeitoNormal').style.display = ehLocacao ? 'none' : 'block';
   document.getElementById('containerDefeitoLocacao').style.display = ehLocacao ? 'block' : 'none';
   document.getElementById('classificacaoLocacaoContainer').style.display = 'none';
+  document.getElementById('corFitaLocacaoContainer').style.display = 'none';
 
   if (ehLocacao) {
     document.getElementById('buscaLocacaoInput').value = '';
@@ -2780,10 +2832,34 @@ function selecionarDefeitoLocacao(el, val) {
   document.querySelectorAll('#screen-defeito .opt-btn').forEach(b=>b.classList.remove('selected'));
   if (el) el.classList.add('selected');
   state.defeitoAtual = val;
+  state.corFitaAtual = '';
   document.getElementById('outroDefeitoField').style.display = val==='Outro defeito' ? 'block' : 'none';
   if (val==='Outro defeito') document.getElementById('outroDefeitoInput').focus();
   renderClassificacaoLocacao();
   document.getElementById('classificacaoLocacaoContainer').style.display = 'block';
+  const corContainer = document.getElementById('corFitaLocacaoContainer');
+  if (usouFitaAtual) {
+    renderCorFitaLocacao();
+    corContainer.style.display = 'block';
+  } else {
+    corContainer.style.display = 'none';
+  }
+}
+
+// Como a biblioteca de Locação não tem cor fixa por item (o documento original
+// não trazia isso), aqui a pessoa escolhe a cor da fita usada NESSA foto
+// específica, e ela é anexada ao final do texto — se não usou fita, não
+// aparece nada sobre adesivo no laudo.
+function renderCorFitaLocacao() {
+  document.getElementById('corFitaLocacaoGrid').innerHTML = CORES_DISPONIVEIS.map(c => {
+    const selecionada = state.corFitaAtual === c.id;
+    return `<button type="button" onclick="selecionarCorFitaLocacao('${c.id}')" style="background:${selecionada ? c.hex : '#fff'};color:${selecionada ? '#fff' : '#333'};border:1.5px solid ${c.hex};border-radius:20px;padding:7px 12px;font-family:var(--font);font-size:11px;font-weight:700;cursor:pointer">${c.emoji} ${c.label}</button>`;
+  }).join('');
+}
+
+function selecionarCorFitaLocacao(corId) {
+  state.corFitaAtual = state.corFitaAtual === corId ? '' : corId; // toca de novo pra desmarcar
+  renderCorFitaLocacao();
 }
 
 function renderClassificacaoLocacao() {
@@ -2840,6 +2916,13 @@ function salvarRegistro() {
   if (defeito==='Outro defeito') defeito=document.getElementById('outroDefeitoInput').value.trim()||'Outro defeito';
   if (!defeito) { alert('Selecione o tipo de defeito.'); return false; }
 
+  // Locação: se marcou a cor da fita usada nessa foto, anexa a menção ao
+  // adesivo no final do texto — se não usou fita, nada é anexado.
+  if (state.tipoVistoria === 'Locação' && usouFitaAtual && state.corFitaAtual) {
+    const cor = CORES_DISPONIVEIS.find(c => c.id === state.corFitaAtual);
+    if (cor) defeito = `${defeito} Sinalizado com adesivo ${cor.nome}.`;
+  }
+
   // Locação: se marcou uma classificação com texto padrão associado, acrescenta
   // esse parágrafo ao final do texto do defeito, automaticamente.
   let classificacaoLabel = null;
@@ -2857,7 +2940,7 @@ function salvarRegistro() {
     state.defeitosPendentes.splice(defeitoPendenteIdxAtual, 1);
     defeitoPendenteIdxAtual = null;
   }
-  state.fotosAtuais=[]; state.classificacaoAtual=''; atualizarResumo(); salvarRascunho(); return true;
+  state.fotosAtuais=[]; state.classificacaoAtual=''; state.corFitaAtual=''; atualizarResumo(); salvarRascunho(); return true;
 }
 
 function salvarEProximoAmbiente() { if(!salvarRegistro()) return; document.getElementById('photoPreviewGrid').innerHTML=''; mostrarScreen('screen-ambiente'); }
