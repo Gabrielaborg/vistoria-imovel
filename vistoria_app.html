@@ -201,6 +201,12 @@
       </button>
       <div id="resultadoVistoriaAnterior"></div>
     </div>
+    <div id="painelFinalizarSemLaudo" style="display:none;margin-bottom:14px">
+      <button type="button" onclick="finalizarSemLaudo()" style="width:100%;background:#E6F4EC;border:1.5px dashed var(--success);color:var(--success);border-radius:9px;padding:10px;font-family:var(--font);font-size:12.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <i class="ti ti-checkbox"></i> Já foi corrigido — finalizar sem gerar laudo novo
+      </button>
+      <p style="font-size:10px;color:var(--muted);margin-top:4px">Usa nome, empreendimento, data, valor e forma de pagamento já preenchidos aqui em cima. Lança direto no Financeiro/Histórico, sem precisar fotografar nada.</p>
+    </div>
     <div class="grid2">
       <div class="field"><label>CPF</label><input type="text" id="cpf" placeholder="000.000.000-00" maxlength="14" /></div>
       <div class="field"><label>Telefone</label><input type="text" id="telefone" placeholder="(34) 99999-0000" /></div>
@@ -578,6 +584,32 @@ Sacada;</textarea>
       <div class="field"><label>Horário (opcional)</label><input type="time" id="bloqueioHora"></div>
     </div>
     <button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="salvarBloqueioHorario()"><i class="ti ti-device-floppy"></i> Salvar bloqueio</button>
+  </div>
+</div>
+
+<div id="modalEditarPagamento" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:150;align-items:flex-end;justify-content:center">
+  <div style="background:#fff;border-radius:16px 16px 0 0;max-width:520px;width:100%;padding:20px 20px 26px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div style="font-weight:700;color:var(--brand);font-size:15px"><i class="ti ti-cash"></i> Editar valor recebido</div>
+      <button onclick="fecharModalEditarPagamento()" style="background:var(--light);border:none;width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;flex-shrink:0">✕</button>
+    </div>
+    <p id="editarPagamentoNome" style="font-size:12px;color:var(--muted);margin-bottom:14px;font-weight:700"></p>
+    <div class="grid2">
+      <div class="field"><label>Valor (R$)</label><input type="number" id="editarPagamentoValor" step="0.01" min="0" placeholder="0,00"></div>
+      <div class="field"><label>Forma de pagamento</label>
+        <select id="editarPagamentoForma" style="width:100%;padding:10px 13px;border:1.5px solid var(--border);border-radius:8px;font-family:var(--font);font-size:13px;outline:none;background:#fff">
+          <option value="">Selecione</option>
+          <option value="Pix">Pix</option>
+          <option value="Dinheiro">Dinheiro</option>
+          <option value="Cartão de crédito">Cartão de crédito</option>
+          <option value="Cartão de débito">Cartão de débito</option>
+          <option value="Transferência">Transferência</option>
+          <option value="Boleto">Boleto</option>
+          <option value="Outro">Outro</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="salvarEdicaoPagamento()"><i class="ti ti-device-floppy"></i> Salvar</button>
   </div>
 </div>
 
@@ -1068,6 +1100,38 @@ function selecionarTipoAgendamento(tipo) {
   const painel = document.getElementById('painelVistoriaAnterior');
   painel.style.display = tipo === 'Revistoria' ? 'block' : 'none';
   if (tipo !== 'Revistoria') document.getElementById('resultadoVistoriaAnterior').innerHTML = '';
+  document.getElementById('painelFinalizarSemLaudo').style.display = tipo === 'Revistoria' ? 'block' : 'none';
+}
+
+// Registra a revistoria como concluída direto no Financeiro/Histórico, sem
+// precisar fotografar ambientes nem gerar um documento novo — pra quando já
+// estava tudo corrigido e só falta lançar o valor recebido.
+async function finalizarSemLaudo() {
+  const nome = document.getElementById('nomeCliente').value.trim();
+  if (!nome) { alert('Informe o nome do cliente primeiro.'); return; }
+  const valor = document.getElementById('valorVistoria').value;
+  const formaPagamento = document.getElementById('formaPagamento').value;
+  if (!valor || !formaPagamento) {
+    if (!confirm('Você não preencheu o valor e/ou a forma de pagamento. Quer continuar mesmo assim? (dá pra editar depois no Financeiro)')) return;
+  }
+  if (!confirm(`Finalizar a revistoria de "${nome}" sem gerar um laudo novo?\n\nIsso só lança o serviço no Financeiro/Histórico — não gera nenhum documento Word/PDF.`)) return;
+
+  const dados = {
+    nome, valor, formaPagamento,
+    empreendimento: document.getElementById('empreendimento').value.trim(),
+    data: document.getElementById('dataVistoria').value,
+    endereco: document.getElementById('endereco').value.trim()
+  };
+  try {
+    await fetch('/finalizar-sem-laudo', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dados, tipoVistoria: 'Revistoria' })
+    });
+    alert('✓ Revistoria lançada no Financeiro/Histórico!');
+    novaVistoria();
+  } catch (e) {
+    alert('Não foi possível lançar agora. Verifique sua internet e tente de novo.');
+  }
 }
 
 // Busca a vistoria mais recente já feita pra esse mesmo cliente (pelo nome) e mostra
@@ -1765,8 +1829,6 @@ function montarEnderecoParaCarimbo() {
   const d = state.dados || {};
   const partes = [];
   if (d.endereco) partes.push(d.endereco);
-  if (d.bloco) partes.push(d.bloco);
-  if (d.apto) partes.push(`Apto ${d.apto}`);
   if (d.cidade) partes.push(d.cidade);
   return partes.join(', ');
 }
@@ -1784,7 +1846,7 @@ async function carimbarFoto(dataUrl, exifInfo) {
           ctx.drawImage(img, 0, 0);
 
           const momento = (exifInfo && exifInfo.dataHora) ? exifInfo.dataHora : new Date();
-          const linha1 = `${momento.toLocaleDateString('pt-BR')} ${momento.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+          const linha1 = `${momento.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${momento.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
           const linha2 = enderecoTexto || 'Endereço não informado';
 
           const fontSize = Math.max(14, Math.round(canvas.width * 0.028));
@@ -2313,8 +2375,9 @@ function badgeTipo(tipo) {
 function renderAgenda() {
   const lista = document.getElementById('agendaList');
   renderAgendaTotais();
-  if (!agendaCache.length) { lista.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nenhuma vistoria agendada ainda.</p>'; return; }
-  lista.innerHTML = agendaCache.map(a => {
+  const pendentes = agendaCache.filter(a => !a.dados.concluidoEm);
+  if (!pendentes.length) { lista.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nenhuma vistoria agendada ainda.</p>'; return; }
+  lista.innerHTML = pendentes.map(a => {
     const ehCompromisso = a.dados.tipo === 'Compromisso';
     return `
     <div class="hist-item">
@@ -2337,16 +2400,19 @@ function renderAgenda() {
 }
 
 function renderAgendaTotais() {
-  const vistorias = agendaCache.filter(a => a.dados.tipo !== 'Compromisso');
+  const pendentes = agendaCache.filter(a => !a.dados.concluidoEm);
+  const vistorias = pendentes.filter(a => a.dados.tipo !== 'Compromisso');
   const total = vistorias.length;
   const totalVistoria = vistorias.filter(a => a.dados.tipo !== 'Revistoria').length;
   const totalRevistoria = vistorias.filter(a => a.dados.tipo === 'Revistoria').length;
-  const totalCompromisso = agendaCache.length - vistorias.length;
+  const totalCompromisso = pendentes.length - vistorias.length;
+  const totalConcluidas = agendaCache.length - pendentes.length;
   document.getElementById('agendaTotais').innerHTML = `
     <span style="background:var(--light);color:var(--text);padding:3px 8px;border-radius:20px">${total} agendado${total === 1 ? '' : 's'}</span>
     <span style="background:#DCEAF7;color:var(--brand2);padding:3px 8px;border-radius:20px">${totalVistoria} vistoria${totalVistoria === 1 ? '' : 's'}</span>
     <span style="background:#EDE3F5;color:#7B4FA0;padding:3px 8px;border-radius:20px">${totalRevistoria} revistoria${totalRevistoria === 1 ? '' : 's'}</span>
     ${totalCompromisso > 0 ? `<span style="background:#E8E8E8;color:#555;padding:3px 8px;border-radius:20px">${totalCompromisso} compromisso${totalCompromisso === 1 ? '' : 's'}</span>` : ''}
+    ${totalConcluidas > 0 ? `<span style="background:#E6F4EC;color:var(--success);padding:3px 8px;border-radius:20px">${totalConcluidas} concluída${totalConcluidas === 1 ? '' : 's'} (veja no calendário)</span>` : ''}
   `;
 }
 
@@ -2525,9 +2591,10 @@ function renderCalDia() {
   }
   return cabecalho + `<div style="display:flex;flex-direction:column;gap:8px">${itens.map(a => {
     const ehCompromisso = a.dados.tipo === 'Compromisso';
+    const ehConcluida = !!a.dados.concluidoEm;
     return `
-    <div class="hist-item">
-      <div style="width:46px;flex-shrink:0;text-align:center;font-size:12px;font-weight:700;color:${ehCompromisso ? 'var(--muted)' : 'var(--brand)'}">${a.dados.hora || '--:--'}</div>
+    <div class="hist-item" style="${ehConcluida ? 'opacity:.6' : ''}">
+      <div style="width:46px;flex-shrink:0;text-align:center;font-size:12px;font-weight:700;color:${ehConcluida ? 'var(--success)' : (ehCompromisso ? 'var(--muted)' : 'var(--brand)')}">${ehConcluida ? '✓' : (a.dados.hora || '--:--')}</div>
       <div class="info">
         <strong>${a.dados.nome}${badgeTipo(a.dados.tipo)}</strong>
         ${ehCompromisso
@@ -2536,9 +2603,9 @@ function renderCalDia() {
              <span style="display:block">${a.dados.data ? a.dados.data.split('-').reverse().join('/') : 'Sem data'}${a.dados.hora ? ' às ' + a.dados.hora : ''} · ${a.dados.metragem ? a.dados.metragem + ' m²' : 'Metragem não informada'}</span>`}
       </div>
       <div style="display:flex;flex-direction:column;gap:5px">
-        ${ehCompromisso ? '' : `<button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>`}
+        ${ehConcluida ? `<span style="font-size:9px;font-weight:700;color:var(--success);text-align:center">CONCLUÍDA</span>` : (ehCompromisso ? '' : `<button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>`)}
         ${a.dados.tipo === 'Revistoria' ? `<button class="hist-btn" style="background:#7B4FA0;width:100%" onclick="abrirConsultaRevistoria('${a.id}')"><i class="ti ti-file-search"></i> Consultar</button>` : ''}
-        <button class="hist-btn" style="background:var(--brand2);width:100%" onclick="editarAgendamento('${a.id}')"><i class="ti ti-edit"></i> Editar</button>
+        ${ehConcluida ? '' : `<button class="hist-btn" style="background:var(--brand2);width:100%" onclick="editarAgendamento('${a.id}')"><i class="ti ti-edit"></i> Editar</button>`}
         <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirAgendamento('${a.id}')"><i class="ti ti-trash"></i> Excluir</button>
       </div>
     </div>`;
@@ -2624,7 +2691,13 @@ async function iniciarRevistoriaComDefeitos(laudoIdx) {
   state.defeitosPendentes = (laudo.registros || []).map(r => ({ ambiente: r.ambiente, defeito: r.defeito }));
   const idAgendamento = item.id;
   fecharConsultaRevistoria();
-  try { await fetch(`/agenda?id=${encodeURIComponent(idAgendamento)}`, { method: 'DELETE' }); } catch (e) { /* segue mesmo assim */ }
+  try {
+    const dadosConcluido = { ...item.dados, concluidoEm: Date.now() };
+    await fetch(`/agenda?id=${encodeURIComponent(idAgendamento)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dados: dadosConcluido, plantaBase64: item.plantaBase64, plantaMediaType: item.plantaMediaType, mapaBase64: item.mapaBase64, mapaMediaType: item.mapaMediaType })
+    });
+  } catch (e) { /* segue mesmo assim */ }
   switchTab('vistoria');
   irParaAmbiente();
 }
@@ -2676,7 +2749,15 @@ async function iniciarVistoriaDoAgendamento(id) {
   dadosContexto = 'novo';
   atualizarBotaoCancelarDados();
   if (item.dados.tipo === 'Revistoria') buscarVistoriaAnterior();
-  try { await fetch(`/agenda?id=${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (e) { /* segue mesmo assim, não trava a vistoria */ }
+  // Não apaga mais o agendamento — marca como concluído e mantém ele salvo,
+  // pra você poder consultar depois (ex: "quando eu vistoriei esse cliente?").
+  try {
+    const dadosConcluido = { ...item.dados, concluidoEm: Date.now() };
+    await fetch(`/agenda?id=${encodeURIComponent(id)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dados: dadosConcluido, plantaBase64: item.plantaBase64, plantaMediaType: item.plantaMediaType, mapaBase64: item.mapaBase64, mapaMediaType: item.mapaMediaType })
+    });
+  } catch (e) { /* segue mesmo assim, não trava a vistoria */ }
   switchTab('vistoria');
   irParaAmbiente();
 }
@@ -2925,15 +3006,47 @@ function renderFinanceiro() {
     return;
   }
   lista.innerHTML = doMes.sort((a, b) => b.ts - a.ts).map(l => `
-    <div class="hist-item">
+    <div class="hist-item" onclick="abrirModalEditarPagamento('${encodeURIComponent(l.arquivo)}','${(l.nome||'').replace(/'/g,"\\'")}')" style="cursor:pointer">
       <i class="ti ti-file-text" style="font-size:24px;color:var(--brand)"></i>
       <div class="info">
         <strong>${l.nome}${badgeTipo(l.tipo)}</strong>
         <span style="display:block">${l.empreendimento || 'Sem empreendimento'} · ${l.data ? l.data.split('-').reverse().join('/') : ''}</span>
         <span style="display:block">${l.formaPagamento || 'Forma não informada'}</span>
       </div>
-      <div style="font-weight:800;color:var(--brand);font-size:14px;flex-shrink:0">${formatarBRL(parseValorBR(l.valor))}</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
+        <div style="font-weight:800;color:var(--brand);font-size:14px">${formatarBRL(parseValorBR(l.valor))}</div>
+        <i class="ti ti-edit" style="font-size:12px;color:var(--muted)"></i>
+      </div>
     </div>`).join('');
+}
+
+function abrirModalEditarPagamento(arquivo, nome) {
+  const item = laudosFinanceiro.find(l => l.arquivo === decodeURIComponent(arquivo));
+  document.getElementById('editarPagamentoNome').textContent = nome;
+  document.getElementById('editarPagamentoValor').value = item ? (item.valor || '') : '';
+  document.getElementById('editarPagamentoForma').value = item ? (item.formaPagamento || '') : '';
+  document.getElementById('modalEditarPagamento').dataset.arquivo = arquivo;
+  document.getElementById('modalEditarPagamento').style.display = 'flex';
+}
+
+function fecharModalEditarPagamento() {
+  document.getElementById('modalEditarPagamento').style.display = 'none';
+}
+
+async function salvarEdicaoPagamento() {
+  const arquivo = document.getElementById('modalEditarPagamento').dataset.arquivo;
+  const valor = document.getElementById('editarPagamentoValor').value;
+  const formaPagamento = document.getElementById('editarPagamentoForma').value;
+  try {
+    await fetch(`/historico?arquivo=${arquivo}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valor, formaPagamento })
+    });
+    fecharModalEditarPagamento();
+    carregarFinanceiro();
+  } catch (e) {
+    alert('Não foi possível salvar agora. Verifique sua internet e tente de novo.');
+  }
 }
 
 // Apaga TODOS os laudos do histórico de uma vez — inclui os arquivos de verdade
@@ -3155,11 +3268,12 @@ function renderHistorico(lista) {
   if(!lista.length){document.getElementById('historicoList').innerHTML='<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nenhum laudo encontrado.</p>';return;}
   document.getElementById('historicoList').innerHTML=lista.map(l=>`
     <div class="hist-item">
-      <i class="ti ti-file-text" style="font-size:26px;color:var(--brand)"></i>
-      <div class="info"><strong>${l.nome}${l.empreendimento?' - '+l.empreendimento:''}</strong>${l.compactado?' <i class="ti ti-box" style="font-size:12px;color:var(--muted)" title="Compactado (economiza espaço)"></i>':''}<span>${l.data}</span></div>
+      <i class="ti ${l.semDocumento ? 'ti-receipt' : 'ti-file-text'}" style="font-size:26px;color:var(--brand)"></i>
+      <div class="info"><strong>${l.nome}${l.empreendimento?' - '+l.empreendimento:''}</strong>${l.semDocumento?' <span style="font-size:9px;font-weight:700;color:var(--success);background:#E6F4EC;padding:1px 6px;border-radius:10px">SEM LAUDO</span>':''}${l.compactado?' <i class="ti ti-box" style="font-size:12px;color:var(--muted)" title="Compactado (economiza espaço)"></i>':''}<span>${l.data}</span></div>
       <div style="display:flex;flex-direction:column;gap:5px">
+        ${l.semDocumento ? '' : `
         <button class="hist-btn" style="width:100%" onclick="baixarWordHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-word"></i> Word</button>
-        <button class="hist-btn" style="background:#C0392B;width:100%" onclick="baixarPdfHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-type-pdf"></i> PDF</button>
+        <button class="hist-btn" style="background:#C0392B;width:100%" onclick="baixarPdfHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-type-pdf"></i> PDF</button>`}
         <button class="hist-btn" style="background:#fff;border:1px solid #f0c4c0;color:var(--danger);width:100%" onclick="excluirLaudoHistorico('${encodeURIComponent(l.arquivo)}','${(l.nome||'').replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i> Excluir</button>
       </div>
     </div>`).join('');
