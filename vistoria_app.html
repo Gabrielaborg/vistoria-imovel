@@ -3283,13 +3283,37 @@ function renderCalDia() {
              <span style="display:block">${a.dados.data ? a.dados.data.split('-').reverse().join('/') : 'Sem data'}${a.dados.hora ? ' às ' + a.dados.hora : ''} · ${a.dados.metragem ? a.dados.metragem + ' m²' : 'Metragem não informada'}</span>`}
       </div>
       <div style="display:flex;flex-direction:column;gap:5px">
-        ${ehConcluida ? `<span style="font-size:9px;font-weight:700;color:var(--success);text-align:center">CONCLUÍDA</span>` : (ehCompromisso ? '' : `<button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>`)}
+        ${ehConcluida ? `<button class="hist-btn" style="background:var(--accent);width:100%" onclick="reverterConclusaoAgendamento('${a.id}')"><i class="ti ti-arrow-back-up"></i> Reverter</button>` : (ehCompromisso ? '' : `<button class="hist-btn" style="width:100%" onclick="iniciarVistoriaDoAgendamento('${a.id}')"><i class="ti ti-player-play"></i> Iniciar</button>`)}
         ${a.dados.tipo === 'Revistoria' ? `<button class="hist-btn" style="background:#7B4FA0;width:100%" onclick="abrirConsultaRevistoria('${a.id}')"><i class="ti ti-file-search"></i> Consultar</button>` : ''}
         ${ehConcluida ? '' : `<button class="hist-btn" style="background:var(--brand2);width:100%" onclick="editarAgendamento('${a.id}')"><i class="ti ti-edit"></i> Editar</button>`}
         <button class="hist-btn" style="background:#C0392B;width:100%" onclick="excluirAgendamento('${a.id}')"><i class="ti ti-trash"></i> Excluir</button>
       </div>
     </div>`;
   }).join('')}</div>`;
+}
+
+// Desfaz a marcação de "concluída" de um agendamento — usado quando alguém
+// tocou em "Iniciar" ou "Iniciar revistoria com estes defeitos" sem querer
+// (ex: só estava consultando o histórico). Volta a aparecer na lista de
+// pendentes, como se nunca tivesse sido iniciado.
+async function reverterConclusaoAgendamento(id) {
+  const item = agendaCache.find(a => a.id === id);
+  if (!item) return;
+  const confirmado1 = confirm(`Reverter "${item.dados.nome}" pra pendente de novo?\n\nEla volta a aparecer na lista de agendamentos aguardando, como se ainda não tivesse sido iniciada.`);
+  if (!confirmado1) return;
+  const confirmado2 = confirm(`Confirma mesmo?\n\nIsso só mexe no AGENDAMENTO — se você já tiver uma vistoria em andamento ou um laudo gerado (mesmo que ainda esperando internet pra enviar), eles continuam intactos em "Não finalizadas" e no Histórico. Nada disso é apagado.`);
+  if (!confirmado2) return;
+  try {
+    const dadosRevertido = { ...item.dados };
+    delete dadosRevertido.concluidoEm;
+    await fetch(`/agenda?id=${encodeURIComponent(id)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dados: dadosRevertido, plantaBase64: item.plantaBase64, plantaMediaType: item.plantaMediaType, mapaBase64: item.mapaBase64, mapaMediaType: item.mapaMediaType })
+    });
+    carregarAgenda();
+  } catch (e) {
+    alert('Não foi possível reverter agora. Verifique sua internet e tente de novo.');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
