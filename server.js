@@ -802,6 +802,38 @@ const server = http.createServer(async (req, res) => {
   // dias, dando uma segunda chance em caso de exclusão sem querer. Só depois
   // desses 30 dias (ou se a pessoa esvaziar a lixeira manualmente) o arquivo é
   // apagado de vez, sem volta.
+  // Deixa editar o valor e/ou a forma de pagamento de um laudo já concluído —
+  // útil porque muitas vezes só se sabe como o cliente vai pagar no dia da
+  // vistoria (ou até depois), e antes não dava pra corrigir isso no Financeiro.
+  if (req.method === 'PUT' && req.url.startsWith('/historico')) {
+    try {
+      const urlObj = new URL(req.url, `http://${req.headers.host}`);
+      const arquivoAlvo = urlObj.searchParams.get('arquivo');
+      const chunks = [];
+      req.on('data', chunk => chunks.push(chunk));
+      req.on('end', () => {
+        try {
+          const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          const hist = lerHistorico();
+          const item = hist.find(h => h.arquivo === arquivoAlvo && pertenceAConta(h));
+          if (!item) throw new Error('Laudo não encontrado.');
+          if (payload.valor !== undefined) item.valor = payload.valor;
+          if (payload.formaPagamento !== undefined) item.formaPagamento = payload.formaPagamento;
+          salvarHistorico(hist);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ ok: true }));
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ erro: e.message }));
+        }
+      });
+      return;
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ erro: e.message }));
+    }
+  }
+
   if (req.method === 'DELETE' && req.url.startsWith('/historico')) {
     try {
       const urlObj = new URL(req.url, `http://${req.headers.host}`);
@@ -916,6 +948,42 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ erro: e.message }));
     }
+  }
+
+  // Registra um serviço concluído SEM gerar laudo novo — pra revistorias em que
+  // não é necessário produzir um documento (ex: já foi tudo corrigido, só
+  // precisa lançar no Financeiro). Fica no Histórico sem arquivo pra baixar.
+  if (req.method === 'POST' && req.url === '/finalizar-sem-laudo') {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (!payload.dados || !payload.dados.nome) throw new Error('Nome do cliente é obrigatório.');
+        const hist = lerHistorico();
+        hist.push({
+          contaId: contaAtual.id,
+          nome: payload.dados.nome,
+          empreendimento: payload.dados.empreendimento || '',
+          endereco: payload.dados.endereco || '',
+          data: payload.dados.data || '—',
+          tipo: payload.tipoVistoria || 'Revistoria',
+          valor: payload.dados.valor || null,
+          formaPagamento: payload.dados.formaPagamento || null,
+          registros: [],
+          arquivo: `semdoc_${Date.now()}${Math.random().toString(36).slice(2, 8)}`, // não existe arquivo de verdade, é só um identificador único
+          semDocumento: true,
+          ts: Date.now()
+        });
+        salvarHistorico(hist);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
   }
 
   if (req.method === 'POST' && req.url === '/gerar-laudo') {
