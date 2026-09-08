@@ -189,9 +189,10 @@
     <div class="field">
       <label>Tipo de serviço</label>
       <input type="hidden" id="tipoAgendamento" value="Vistoria">
-      <div class="option-grid" style="grid-template-columns:1fr 1fr">
-        <button type="button" class="opt-btn selected" id="btnTipoVistoria" onclick="selecionarTipoAgendamento('Vistoria')"><i class="ti ti-search"></i> Vistoria</button>
-        <button type="button" class="opt-btn" id="btnTipoRevistoria" onclick="selecionarTipoAgendamento('Revistoria')"><i class="ti ti-repeat"></i> Revistoria</button>
+      <div class="option-grid" style="grid-template-columns:1fr 1fr 1fr">
+        <button type="button" class="opt-btn selected" id="btnTipoVistoria" onclick="selecionarTipoAgendamento('Vistoria')" style="padding:10px 4px;font-size:11.5px"><i class="ti ti-search"></i> Vistoria</button>
+        <button type="button" class="opt-btn" id="btnTipoRevistoria" onclick="selecionarTipoAgendamento('Revistoria')" style="padding:10px 4px;font-size:11.5px"><i class="ti ti-repeat"></i> Revistoria</button>
+        <button type="button" class="opt-btn" id="btnTipoLocacao" onclick="selecionarTipoAgendamento('Locação')" style="padding:10px 4px;font-size:11.5px"><i class="ti ti-key"></i> Locação</button>
       </div>
     </div>
     <div class="field"><label>Nome completo</label><input type="text" id="nomeCliente" placeholder="Maria Souza da Silva" /></div>
@@ -368,18 +369,35 @@ Sacada;</textarea>
 <div class="screen" id="screen-defeito">
   <div style="margin-top:12px">
     <div class="card-title" style="padding:0 4px 10px;font-size:16px;font-weight:700;color:var(--brand)"><i class="ti ti-alert-triangle"></i> Qual defeito foi encontrado?</div>
-    <div class="section-label" style="margin-top:0;display:flex;align-items:center;justify-content:space-between">
+    <div class="section-label" style="margin-top:0;display:flex;align-items:center;justify-content:space-between" id="labelFitaColorida">
       <span>Fita colorida (atalho)</span>
       <button onclick="toggleConfigCores()" style="background:none;border:none;color:var(--brand);cursor:pointer;font-size:16px;padding:2px 6px"><i class="ti ti-settings"></i></button>
     </div>
     <div id="configCoresPainel" style="display:none;background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px"></div>
     <div class="option-grid" id="fitaColoridaGrid" style="margin-bottom:16px"></div>
-    <div class="section-label">Outros defeitos (biblioteca de legendas)</div>
-    <div class="option-grid" id="categoriaGrid"></div>
-    <div id="itemGrid" style="display:none">
-      <button class="btn btn-outline" style="width:100%;margin-bottom:10px" onclick="voltarCategorias()"><i class="ti ti-arrow-left"></i> Categorias</button>
-      <div class="registro-list" id="itemLista"></div>
+
+    <div id="containerDefeitoNormal">
+      <div class="section-label">Outros defeitos (biblioteca de legendas)</div>
+      <div class="option-grid" id="categoriaGrid"></div>
+      <div id="itemGrid" style="display:none">
+        <button class="btn btn-outline" style="width:100%;margin-bottom:10px" onclick="voltarCategorias()"><i class="ti ti-arrow-left"></i> Categorias</button>
+        <div class="registro-list" id="itemLista"></div>
+      </div>
     </div>
+
+    <div id="containerDefeitoLocacao" style="display:none">
+      <div class="section-label">Buscar defeito (locação)</div>
+      <div class="field">
+        <input type="text" id="buscaLocacaoInput" placeholder="Ex: vazamento, quebrado, mancha..." oninput="buscarDefeitoLocacao(this.value)">
+      </div>
+      <div id="resultadoBuscaLocacao" style="display:none;margin-bottom:14px"></div>
+      <div id="categoriasLocacaoContainer"></div>
+      <div id="classificacaoLocacaoContainer" style="display:none;margin-top:14px">
+        <div class="section-label" style="color:#7B4FA0">Classificação (deixa o laudo mais defensável)</div>
+        <div id="classificacaoLocacaoGrid" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+    </div>
+
     <div id="outroDefeitoField" style="display:none;margin-top:10px">
       <div class="field"><label>Descreva o defeito</label><input type="text" id="outroDefeitoInput" placeholder="Ex: buraco na parede, porta travando..." /></div>
       <button type="button" onclick="gerarTextoDefeitoIA()" id="btnGerarDefeitoIA" style="width:100%;background:var(--brand2);color:#fff;border:none;border-radius:9px;padding:10px;font-family:var(--font);font-size:12.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
@@ -630,7 +648,7 @@ Sacada;</textarea>
 </div>
 
 <script>
-const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', obsGeral:'', obsRapidas:[], defeitosPendentes:[], plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'', modoAgenda:false, rascunhoId:null };
+const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', classificacaoAtual:'', obsGeral:'', obsRapidas:[], defeitosPendentes:[], plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'', modoAgenda:false, rascunhoId:null };
 // Texto padrão do campo Cômodos — já vem preenchido (editável, não é só um
 // "fantasma"/placeholder) pra facilitar, já que a maioria dos imóveis tem essa
 // configuração parecida. A pessoa edita ou apaga o que não se aplicar.
@@ -1113,6 +1131,7 @@ function selecionarTipoAgendamento(tipo) {
   document.getElementById('tipoAgendamento').value = tipo;
   document.getElementById('btnTipoVistoria').classList.toggle('selected', tipo === 'Vistoria');
   document.getElementById('btnTipoRevistoria').classList.toggle('selected', tipo === 'Revistoria');
+  document.getElementById('btnTipoLocacao').classList.toggle('selected', tipo === 'Locação');
   const painel = document.getElementById('painelVistoriaAnterior');
   painel.style.display = tipo === 'Revistoria' ? 'block' : 'none';
   if (tipo !== 'Revistoria') document.getElementById('resultadoVistoriaAnterior').innerHTML = '';
@@ -2107,6 +2126,508 @@ const LEGENDAS = {
   ]
 };
 
+
+// ══════════════════════════════════════════════════════════════
+// CLASSIFICAÇÃO (só pra vistoria de Locação) — deixa o laudo mais defensável,
+// separando "defeito causado pelo inquilino" de outras situações (uso normal,
+// não testado, etc), como recomendado no material de referência.
+// ══════════════════════════════════════════════════════════════
+const CLASSIFICACOES_LOCACAO = [
+  { id: 'avaria', label: 'Avaria', textoExtra: null },
+  { id: 'desgaste', label: 'Desgaste natural', textoExtra: null },
+  { id: 'manutencao', label: 'Necessita manutenção', textoExtra: null },
+  { id: 'umidade', label: 'Sinal de umidade/infiltração', textoExtra: null },
+  { id: 'estado', label: 'Estado de conservação', textoExtra: 'A condição foi registrada na presente vistoria para fins de caracterização do estado de conservação do imóvel, devendo ser considerada na comparação com a vistoria de entrada/saída e demais documentos integrantes da relação locatícia.' },
+  { id: 'funcionamento', label: 'Funcionamento (testado, OK)', textoExtra: 'O componente foi submetido a teste funcional compatível com as condições disponíveis no momento da vistoria, tendo apresentado funcionamento aparente no instante da verificação. A avaliação não contempla ensaios destrutivos ou diagnóstico aprofundado do sistema.' },
+  { id: 'nao_testado', label: 'Não testado', textoExtra: 'Não foi possível realizar o teste funcional do componente no momento da vistoria. Dessa forma, não é possível atestar seu funcionamento, devendo a condição ser considerada como não testada.' },
+  { id: 'nao_acessivel', label: 'Não acessível', textoExtra: 'A inspeção do elemento ficou limitada em razão de sua inacessibilidade/obstrução, não sendo possível avaliar integralmente suas condições. A presente constatação restringe-se às partes visualmente acessíveis no momento da vistoria.' }
+];
+
+// Quando a causa não pode ser determinada só pela vistoria visual (usado
+// automaticamente pra itens sem classificação específica escolhida).
+const TEXTO_CAUSA_INDETERMINADA_LOCACAO = 'A manifestação foi registrada quanto ao seu aspecto e condição no momento da vistoria, não sendo possível determinar, exclusivamente por inspeção visual, sua causa, origem ou responsabilidade. Recomenda-se avaliação específica por profissional habilitado quando necessária a determinação da causa e/ou solução técnica.';
+
+// Parágrafo de proteção legal (Lei 8.245/1991) — incluído automaticamente na
+// Conclusão de todo laudo de Locação.
+const TEXTO_PROTECAO_LOCACAO = 'A presente vistoria tem por finalidade registrar o estado aparente de conservação, funcionamento e características dos elementos acessíveis do imóvel na data da inspeção, servindo como documento de caracterização para comparação entre as condições observadas no início e no término da ocupação. As constatações apresentadas não constituem, isoladamente, atribuição de responsabilidade pela origem das manifestações, devendo eventual responsabilização considerar a natureza do dano, seu histórico, condições preexistentes, desgaste natural, uso, manutenção e demais evidências disponíveis.';
+
+const LEGENDAS_LOCACAO = {
+  "REVESTIMENTOS": {
+    itens: [
+      {t:"Peça trincada", d:"Constatada peça de revestimento com trinca visível, caracterizada por descontinuidade linear em sua superfície. Recomenda-se avaliar a extensão e a evolução da manifestação, bem como sua origem, antes da realização de reparo superficial."},
+      {t:"Peça fissurada", d:"Constatada fissuração superficial no revestimento, localizada conforme registro fotográfico. Recomenda-se acompanhamento da manifestação para verificar eventual evolução."},
+      {t:"Peça quebrada", d:"Constatada peça de revestimento quebrada, apresentando perda de integridade física e comprometimento do acabamento superficial. Recomenda-se substituição da peça danificada."},
+      {t:"Peça lascada", d:"Constatada perda localizada de material na peça de revestimento, caracterizando lascamento. A condição compromete o acabamento e recomenda-se reparo ou substituição da peça."},
+      {t:"Peça solta", d:"Constatada peça de revestimento com movimentação quando submetida à verificação manual compatível com a inspeção visual realizada. Recomenda-se avaliação da aderência e, se necessário, recomposição do revestimento."},
+      {t:"Peça oca", d:"Constatado som cavo durante a verificação por percussão manual da peça de revestimento. A condição indica possível deficiência de aderência, devendo ser avaliada quanto à extensão e necessidade de intervenção."},
+      {t:"Peça estufada", d:"Constatada deformação/estufamento da peça de revestimento, com alteração do plano superficial. Recomenda-se investigação da causa e avaliação da aderência do revestimento."},
+      {t:"Peça desalinhada", d:"Constatado desalinhamento entre peças de revestimento, resultando em irregularidade visual e/ou geométrica do acabamento. Recomenda-se avaliação do padrão executivo e, quando necessário, correção."},
+      {t:"Desnível entre peças", d:"Constatada diferença de nível entre peças adjacentes, formando ressalto perceptível na superfície do revestimento. Recomenda-se correção quando a condição interferir na utilização ou apresentar risco de impacto."},
+      {t:"Peça faltante", d:"Constatada ausência de peça de revestimento em área localizada. Recomenda-se recomposição para restabelecimento da continuidade e proteção da superfície."},
+      {t:"Recorte irregular", d:"Constatado recorte irregular na peça de revestimento, apresentando acabamento incompatível com o padrão visual das demais peças. Recomenda-se correção do acabamento."},
+      {t:"Rejunte ausente", d:"Constatada ausência localizada de material de rejuntamento entre peças. Recomenda-se recomposição para restabelecimento do acabamento e proteção das juntas."},
+      {t:"Rejunte deteriorado", d:"Constatado rejunte com perda de material, desagregação ou desgaste. Recomenda-se remoção do material deteriorado e recomposição adequada."},
+      {t:"Rejunte com falha", d:"Constatadas rejunte com falha. Recomenda-se avaliação da extensão e recomposição das juntas comprometidas."},
+      {t:"Rejunte manchado", d:"Constatado rejunte apresentando manchas e alteração de coloração. Recomenda-se limpeza específica e, caso não seja possível recuperar o acabamento, substituição do rejuntamento."},
+      {t:"Rejunte encardido", d:"Constatado escurecimento e acúmulo de sujeira no rejuntamento. Recomenda-se limpeza apropriada, preservando a integridade das juntas."},
+      {t:"Mancha", d:"Constatada mancha localizada no revestimento, conforme registro fotográfico. Recomenda-se verificar a origem e avaliar a possibilidade de remoção sem comprometimento da superfície."},
+      {t:"Mofo/bolor", d:"Constatada presença de sinais de mofo/bolor na superfície do revestimento. Recomenda-se investigar as condições de umidade, ventilação e eventual origem de infiltração antes da simples remoção superficial."},
+      {t:"Infiltração", d:"Constatados sinais aparentes compatíveis com infiltração no revestimento. Recomenda-se investigação da origem da umidade, uma vez que a correção superficial não elimina necessariamente a causa."},
+      {t:"Furos", d:"Constatada presença de furos na superfície do revestimento, compatíveis com fixações anteriormente instaladas. Recomenda-se avaliar o tratamento e acabamento dos pontos conforme o padrão de entrega previsto."},
+      {t:"Bucha/parafuso aparente", d:"Constatada presença de bucha e/ou parafuso aparente na superfície. Recomenda-se verificar se o elemento permanecerá instalado durante a locação ou se deverá ser removido e o acabamento recomposto."},
+      {t:"Remendo aparente", d:"Constatada área de reparo localizada apresentando diferença de textura, tonalidade ou acabamento em relação à superfície adjacente."},
+      {t:"Risco", d:"Constatados riscos visíveis na superfície do revestimento, conforme registro fotográfico. Recomenda-se avaliação da profundidade e possibilidade de recuperação do acabamento."},
+      {t:"Marca de impacto", d:"Constatada marca localizada compatível visualmente com impacto mecânico. Recomenda-se avaliação da integridade da peça e do substrato."},
+      {t:"Desplacamento", d:"Constatada perda de aderência e desprendimento parcial do revestimento em área localizada. Recomenda-se avaliação da extensão da manifestação e correção do trecho comprometido."},
+    ]
+  },
+  "PINTURA": {
+    itens: [
+      {t:"Pintura manchada", d:"Constatada alteração localizada de tonalidade e/ou presença de manchas na pintura. Recomenda-se verificar a origem da manifestação e avaliar a necessidade de limpeza ou repintura."},
+      {t:"Diferença de tonalidade", d:"Constatada diferença de tonalidade entre áreas da mesma superfície, comprometendo a uniformidade visual do acabamento."},
+      {t:"Marcas de rolo", d:"Constatadas marcas de rolo perceptíveis na superfície pintada, resultando em irregularidade no acabamento visual."},
+      {t:"Marcas de pincel", d:"Constatadas marcas de pincel visíveis na pintura, evidenciando irregularidade no acabamento superficial."},
+      {t:"Escorrimento", d:"Constatada presença de escorrimento de tinta, resultando em acúmulo localizado de material e acabamento irregular."},
+      {t:"Falha de cobertura", d:"Constatadas áreas com cobertura insuficiente de tinta, permitindo visualização parcial da camada subjacente."},
+      {t:"Descascamento", d:"Constatado desprendimento da película de pintura em áreas localizadas. Recomenda-se remoção das partes soltas, preparação adequada da superfície e recomposição do acabamento."},
+      {t:"Bolhas", d:"Constatada formação de bolhas na película de pintura. Recomenda-se investigar a causa, especialmente eventual presença de umidade, antes da repintura."},
+      {t:"Empolamento", d:"Constatado empolamento da pintura, caracterizado pela formação de elevações na película. Recomenda-se investigação da origem antes da execução do reparo."},
+      {t:"Fissura", d:"Constatada fissura na superfície pintada. Recomenda-se avaliar sua extensão e origem antes do tratamento superficial."},
+      {t:"Trinca", d:"Constatada trinca visível na superfície. Recomenda-se investigação quanto à origem e evolução da manifestação, não sendo recomendável apenas ocultá-la mediante pintura."},
+      {t:"Furos", d:"Constatada presença de furos na superfície pintada, compatíveis com fixações anteriormente executadas. Recomenda-se tratamento e recomposição do acabamento quando aplicável."},
+      {t:"Marcas de prego", d:"Constatadas marcas de pregos na superfície. Recomenda-se tratamento dos pontos e recomposição da pintura caso previsto."},
+      {t:"Remendo aparente", d:"Constatada área com reparo anterior apresentando diferença de textura e/ou tonalidade em relação ao entorno."},
+      {t:"Mofo/bolor", d:"Constatada presença de sinais de mofo/bolor sobre a pintura. Recomenda-se investigação das condições de umidade e ventilação antes da repintura."},
+      {t:"Mancha de umidade", d:"Constatada alteração de tonalidade compatível com exposição à umidade. Recomenda-se investigar a origem antes da recuperação da pintura."},
+      {t:"Tinta sobre tomadas/interruptores", d:"Constatada presença de tinta sobre componentes aparentes de tomadas e/ou interruptores, comprometendo o acabamento e dificultando eventual manutenção."},
+      {t:"Tinta sobre esquadria", d:"Constatada presença de tinta sobre perfil de esquadria, resultando em acabamento inadequado."},
+      {t:"Tinta sobre rodapé", d:"Constatada presença de tinta sobre o rodapé, comprometendo a separação visual entre os diferentes elementos de acabamento."},
+      {t:"Recorte irregular", d:"Constatado acabamento irregular nos encontros entre pintura e elementos adjacentes."},
+      {t:"Superfície ondulada", d:"Constatada irregularidade geométrica perceptível na superfície, podendo decorrer de preparação inadequada ou condição preexistente do substrato."},
+      {t:"Desgaste", d:"Constatado desgaste da camada superficial de pintura, com perda parcial do acabamento original."},
+      {t:"Desbotamento", d:"Constatada alteração de tonalidade da pintura compatível com exposição e envelhecimento do acabamento."},
+    ]
+  },
+  "PORTAS": {
+    itens: [
+      {t:"Porta não fecha", d:"Constatada dificuldade/impossibilidade de fechamento completo da folha da porta. Recomenda-se verificar alinhamento, ferragens, batente e demais componentes envolvidos."},
+      {t:"Porta não abre", d:"Constatada dificuldade/impossibilidade de abertura adequada da porta. Recomenda-se verificar fechadura, ferragens, alinhamento e eventuais interferências."},
+      {t:"Porta raspando no piso", d:"Constatada interferência entre a folha da porta e o piso durante a movimentação, ocasionando atrito. Recomenda-se verificar alinhamento, posicionamento e ferragens."},
+      {t:"Porta raspando no batente", d:"Constatada interferência da folha com o batente durante o acionamento. Recomenda-se ajuste do conjunto."},
+      {t:"Folga excessiva", d:"Constatada folga aparente entre a folha e o batente, superior ao padrão visual observado no conjunto. Recomenda-se avaliação do alinhamento e das ferragens."},
+      {t:"Porta desalinhada", d:"Constatada folha desalinhada em relação ao batente, comprometendo o fechamento e/ou acabamento."},
+      {t:"Empenamento", d:"Constatada deformação aparente da folha da porta, comprometendo seu alinhamento e/ou funcionamento."},
+      {t:"Inchaço", d:"Constatado aumento dimensional/deformação localizada compatível com exposição à umidade. Recomenda-se investigar a origem da umidade."},
+      {t:"Risco", d:"Constatados riscos na superfície da folha da porta."},
+      {t:"Amassado", d:"Constatada deformação localizada decorrente de impacto aparente."},
+      {t:"Lascado", d:"Constatada perda localizada de material no acabamento da porta."},
+      {t:"Maçaneta frouxa", d:"Constatada folga na maçaneta durante acionamento manual. Recomenda-se reaperto ou manutenção da ferragem."},
+      {t:"Maçaneta quebrada", d:"Constatada quebra ou perda de integridade da maçaneta, comprometendo seu acionamento."},
+      {t:"Fechadura com defeito", d:"Constatada dificuldade de acionamento da fechadura e/ou impossibilidade de funcionamento adequado."},
+      {t:"Chave com dificuldade", d:"Constatada dificuldade para inserção, retirada ou giro da chave no cilindro da fechadura."},
+      {t:"Dobradiça frouxa", d:"Constatada folga na fixação da dobradiça, podendo interferir no alinhamento e funcionamento da folha."},
+      {t:"Dobradiça enferrujada", d:"Constatada oxidação/corrosão aparente na ferragem da dobradiça."},
+      {t:"Dobradiça com ruído", d:"Constatado ruído durante movimentação da porta, recomendando-se manutenção e lubrificação apropriada."},
+      {t:"Guarnição solta", d:"Constatada perda de fixação da guarnição, comprometendo o acabamento do conjunto."},
+      {t:"Guarnição quebrada", d:"Constatada quebra localizada da guarnição."},
+    ]
+  },
+  "JANELAS": {
+    itens: [
+      {t:"Vidro quebrado", d:"Constatado vidro quebrado, comprometendo sua integridade física e condição de segurança. Recomenda-se substituição."},
+      {t:"Vidro trincado", d:"Constatada trinca no vidro. Recomenda-se avaliação e substituição quando necessário, considerando a extensão e localização da manifestação."},
+      {t:"Vidro riscado", d:"Constatados riscos visíveis na superfície do vidro."},
+      {t:"Vidro solto", d:"Constatada movimentação aparente do vidro em relação ao sistema de fixação. Recomenda-se verificar a fixação e vedação."},
+      {t:"Esquadria amassada", d:"Constatada deformação localizada no perfil da esquadria, compatível visualmente com impacto."},
+      {t:"Esquadria riscada", d:"Constatados riscos no acabamento da esquadria."},
+      {t:"Esquadria empenada", d:"Constatada deformação que interfere no alinhamento ou funcionamento do conjunto."},
+      {t:"Oxidação/corrosão", d:"Constatada oxidação/corrosão aparente no perfil metálico, devendo ser avaliada quanto à extensão."},
+      {t:"Falha de vedação", d:"Constatada descontinuidade ou deterioração aparente da vedação da esquadria."},
+      {t:"Entrada de água", d:"Constatados sinais de entrada de água pela esquadria. Recomenda-se investigação da vedação, drenagem e origem da ocorrência."},
+      {t:"Dificuldade de abertura", d:"Constatada dificuldade no acionamento da folha, recomendando-se verificar ferragens, trilhos, roldanas e alinhamento."},
+      {t:"Dificuldade de fechamento", d:"Constatada dificuldade no fechamento completo da janela."},
+      {t:"Folga", d:"Constatada folga aparente entre elementos móveis e fixos da esquadria."},
+      {t:"Fecho/trinco danificado", d:"Constatado componente de travamento danificado ou com funcionamento inadequado."},
+      {t:"Puxador danificado", d:"Constatado puxador com perda de integridade ou funcionamento inadequado."},
+      {t:"Rolamento com defeito", d:"Constatada dificuldade de movimentação compatível com possível deficiência nos rolamentos/roldanas."},
+      {t:"Tela mosquiteira rasgada", d:"Constatada ruptura localizada na tela de proteção contra insetos."},
+      {t:"Persiana danificada", d:"Constatada avaria em componente da persiana, comprometendo seu acionamento ou acabamento."},
+      {t:"Lâmina quebrada", d:"Constatada lâmina de persiana com quebra ou deformação."},
+      {t:"Cortina danificada", d:"Constatada avaria, rasgo, mancha ou desgaste aparente na cortina."},
+    ]
+  },
+  "HIDRÁULICA": {
+    subcategorias: {
+      "Registros": [
+        {t:"Registro travado", d:"Constatada impossibilidade ou dificuldade significativa de acionamento do registro durante o teste funcional realizado."},
+        {t:"Registro com vazamento", d:"Constatado vazamento no registro durante a verificação funcional. Recomenda-se manutenção do componente e eliminação do vazamento."},
+        {t:"Registro pingando", d:"Constatado gotejamento contínuo após o fechamento do registro, indicando necessidade de manutenção."},
+        {t:"Manopla quebrada", d:"Constatada perda de integridade da manopla, comprometendo o acionamento do registro."},
+        {t:"Acabamento solto", d:"Constatada folga no acabamento do registro, recomendando-se ajuste/fixação."},
+      ],
+      "Torneiras": [
+        {t:"Torneira vazando", d:"Constatado vazamento durante o acionamento e/ou após o fechamento da torneira. Recomenda-se manutenção para restabelecimento da estanqueidade."},
+        {t:"Torneira pingando", d:"Constatado gotejamento após o fechamento do comando."},
+        {t:"Vazamento pela base", d:"Constatada presença de água na região de conexão da torneira com a bancada/cuba."},
+        {t:"Bica frouxa", d:"Constatada movimentação excessiva da bica durante o uso."},
+        {t:"Arejador obstruído", d:"Constatada redução/irregularidade do fluxo decorrente de obstrução aparente no arejador."},
+        {t:"Baixa vazão", d:"Constatada vazão reduzida durante o teste funcional. Recomenda-se verificar arejador, flexível, registro e demais componentes antes de atribuir causa."},
+      ],
+      "Engates": [
+        {t:"Engate ressecado", d:"Constatado ressecamento aparente do componente flexível, recomendando-se substituição preventiva quando houver comprometimento de sua integridade."},
+        {t:"Engate rachado", d:"Constatada rachadura no componente, condição que pode resultar em vazamento e requer substituição."},
+        {t:"Engate torcido", d:"Constatada deformação por torção do engate flexível, devendo ser corrigido para evitar comprometimento da passagem e da conexão."},
+        {t:"Engate vazando", d:"Constatado vazamento na conexão do engate flexível."},
+      ],
+      "Sifões": [
+        {t:"Sifão vazando", d:"Constatado vazamento no conjunto do sifão durante utilização do ponto hidráulico."},
+        {t:"Sifão trincado", d:"Constatada trinca no sifão, recomendando-se substituição do componente."},
+        {t:"Conexão frouxa", d:"Constatada folga na conexão do sifão, com possibilidade de comprometimento da estanqueidade."},
+        {t:"Odor", d:"Constatada presença de odor proveniente do sistema de esgotamento sanitário. Recomenda-se verificar sifonamento, limpeza, vedação e condições do sistema."},
+      ]
+    }
+  },
+  "LOUÇAS SANITÁRIAS": {
+    itens: [
+      {t:"Bacia trincada", d:"Constatada trinca na louça sanitária, comprometendo sua integridade. Recomenda-se avaliação e substituição quando necessário."},
+      {t:"Bacia quebrada", d:"Constatada quebra localizada na louça, comprometendo sua integridade física e acabamento."},
+      {t:"Bacia lascada", d:"Constatada perda localizada de material na louça sanitária."},
+      {t:"Vazamento na base", d:"Constatada presença de água na região de contato entre a bacia e o piso, recomendando-se investigação da origem."},
+      {t:"Tampa quebrada", d:"Constatada quebra na tampa da bacia sanitária."},
+      {t:"Tampa frouxa", d:"Constatada movimentação excessiva da tampa/assento durante utilização."},
+      {t:"Descarga com defeito", d:"Constatado funcionamento inadequado do mecanismo de descarga, com acionamento irregular ou desempenho insatisfatório."},
+      {t:"Vazamento contínuo", d:"Constatado fluxo contínuo de água após acionamento da descarga, indicando necessidade de manutenção do mecanismo."},
+      {t:"Ducha higiênica vazando", d:"Constatado vazamento no conjunto da ducha higiênica, incluindo conexões e/ou registro."},
+      {t:"Cuba trincada", d:"Constatada trinca na cuba, comprometendo sua integridade."},
+      {t:"Cuba quebrada", d:"Constatada quebra localizada na cuba."},
+      {t:"Cuba lascada", d:"Constatada perda de material na borda ou superfície da cuba."},
+      {t:"Cuba manchada", d:"Constatada mancha persistente na superfície da louça."},
+      {t:"Vazamento na válvula", d:"Constatada presença de água na região da válvula da cuba/lavatório."},
+    ]
+  },
+  "PIA E TANQUE": {
+    itens: [
+      {t:"Trinca", d:"Constatada trinca na pia/tanque, devendo ser avaliada quanto à extensão e integridade do elemento."},
+      {t:"Quebra", d:"Constatada quebra localizada no elemento."},
+      {t:"Lascado", d:"Constatada perda localizada de material."},
+      {t:"Mancha", d:"Constatada alteração de coloração na superfície."},
+      {t:"Encardido", d:"Constatado acúmulo de sujeira aderida à superfície."},
+      {t:"Peça solta", d:"Constatada movimentação do elemento em relação à sua base/fixação."},
+      {t:"Silicone deteriorado", d:"Constatada perda de continuidade ou aderência do selante."},
+      {t:"Vazamento na válvula", d:"Constatada presença de água na região inferior da válvula de escoamento."},
+      {t:"Vazamento no sifão", d:"Constatado vazamento durante o escoamento da água."},
+      {t:"Torneira frouxa", d:"Constatada movimentação excessiva da torneira em sua base de fixação."},
+      {t:"Escoamento lento", d:"Constatada redução da velocidade de escoamento durante teste funcional."},
+      {t:"Entupimento", d:"Constatada retenção significativa de água durante o teste de escoamento, compatível com obstrução do sistema."},
+      {t:"Acúmulo de água", d:"Constatada permanência de água sobre a superfície após utilização, recomendando-se verificar condições de caimento e escoamento."},
+      {t:"Bancada trincada", d:"Constatada trinca na bancada, devendo ser avaliada quanto à extensão."},
+      {t:"Bancada manchada", d:"Constatada alteração de coloração na superfície da bancada."},
+      {t:"Quina quebrada", d:"Constatada perda de material em quina da bancada."},
+      {t:"Frontão danificado", d:"Constatada avaria no frontão/rodabanca, comprometendo o acabamento e/ou vedação."},
+    ]
+  },
+  "RALOS": {
+    itens: [
+      {t:"Ralo quebrado", d:"Constatada quebra no corpo ou acabamento do ralo."},
+      {t:"Grelha quebrada", d:"Constatada quebra da grelha de proteção do ralo."},
+      {t:"Grelha ausente", d:"Constatada ausência da grelha, deixando o ponto de drenagem sem o elemento de fechamento previsto."},
+      {t:"Grelha solta", d:"Constatada movimentação da grelha durante inspeção."},
+      {t:"Grelha enferrujada", d:"Constatada oxidação/corrosão na grelha."},
+      {t:"Entupimento", d:"Constatada dificuldade de escoamento compatível com obstrução do ponto de drenagem."},
+      {t:"Escoamento lento", d:"Constatado escoamento reduzido durante teste funcional."},
+      {t:"Acúmulo de água", d:"Constatada permanência de água na superfície após utilização do ambiente."},
+      {t:"Mau cheiro", d:"Constatada presença de odor proveniente do sistema de drenagem."},
+      {t:"Falha de vedação", d:"Constatada descontinuidade aparente entre o ralo e o revestimento/impermeabilização."},
+      {t:"Ralo desnivelado", d:"Constatada diferença de nível entre o ralo e o revestimento adjacente."},
+      {t:"Retorno de água", d:"Constatado retorno de água pelo ponto de drenagem durante a utilização/teste."},
+      {t:"Retorno de odor", d:"Constatada presença de odor proveniente do sistema de esgotamento."},
+    ]
+  },
+  "PEITORIL": {
+    itens: [
+      {t:"Trinca", d:"Constatada trinca no peitoril, conforme registro fotográfico."},
+      {t:"Quebra", d:"Constatada quebra localizada do peitoril."},
+      {t:"Lascado", d:"Constatada perda localizada de material."},
+      {t:"Peça solta", d:"Constatada movimentação do peitoril em relação ao substrato."},
+      {t:"Rejunte deteriorado", d:"Constatada perda de integridade do rejuntamento."},
+      {t:"Falha de vedação", d:"Constatada descontinuidade na vedação do encontro entre peitoril e esquadria/alvenaria."},
+      {t:"Silicone deteriorado", d:"Constatada deterioração do selante, recomendando-se substituição."},
+      {t:"Infiltração", d:"Constatados sinais compatíveis com entrada de umidade na região do peitoril. Recomenda-se investigação da origem."},
+      {t:"Acúmulo de água", d:"Constatada permanência de água sobre a superfície após ocorrência de chuva/limpeza, recomendando-se verificar condições de caimento e drenagem."},
+    ]
+  },
+  "GUARDA-CORPO": {
+    itens: [
+      {t:"Oxidação", d:"Constatada oxidação superficial nos componentes metálicos do guarda-corpo."},
+      {t:"Corrosão", d:"Constatada corrosão aparente, devendo ser avaliada quanto à extensão e eventual comprometimento da seção do elemento."},
+      {t:"Pintura descascada", d:"Constatada perda da película de pintura e exposição do substrato."},
+      {t:"Amassado", d:"Constatada deformação localizada compatível com impacto."},
+      {t:"Solda danificada", d:"Constatada irregularidade/dano aparente na região de solda, recomendando-se avaliação especializada."},
+      {t:"Elemento solto", d:"Constatada movimentação de componente do guarda-corpo durante verificação manual."},
+      {t:"Fixação frouxa", d:"Constatada folga nos elementos aparentes de fixação."},
+      {t:"Instabilidade", d:"Constatada movimentação anormal do conjunto durante verificação compatível com a inspeção."},
+      {t:"Desalinhamento", d:"Constatada alteração no alinhamento geométrico do guarda-corpo."},
+      {t:"Vidro trincado", d:"Constatada trinca no elemento de fechamento em vidro. Recomenda-se avaliação e substituição conforme necessidade."},
+      {t:"Vidro quebrado", d:"Constatada quebra do vidro, comprometendo sua integridade e condição de segurança."},
+      {t:"Vidro riscado", d:"Constatados riscos visíveis na superfície do vidro."},
+      {t:"Perfil danificado", d:"Constatada deformação ou perda de integridade no perfil do guarda-corpo."},
+    ]
+  },
+  "PISO VINÍLICO": {
+    itens: [
+      {t:"Risco/arranhão", d:"Constatados riscos/arranhões na camada superficial do piso vinílico, conforme registro fotográfico."},
+      {t:"Amassado", d:"Constatada deformação localizada da superfície."},
+      {t:"Corte", d:"Constatada incisão/corte no revestimento."},
+      {t:"Furo", d:"Constatada perfuração localizada no revestimento."},
+      {t:"Mancha", d:"Constatada alteração de coloração na superfície."},
+      {t:"Desgaste", d:"Constatado desgaste superficial decorrente de uso/exposição."},
+      {t:"Desbotamento", d:"Constatada alteração de tonalidade em relação às áreas adjacentes."},
+      {t:"Estufamento", d:"Constatada elevação localizada do revestimento, recomendando-se investigar eventual presença de umidade ou deficiência de aderência."},
+      {t:"Bolha", d:"Constatada formação de bolha sob a superfície do revestimento."},
+      {t:"Descolamento", d:"Constatada perda de aderência do revestimento ao substrato."},
+      {t:"Junta aberta", d:"Constatada abertura visível entre peças do revestimento."},
+      {t:"Ondulação", d:"Constatada irregularidade no plano superficial do piso."},
+      {t:"Deformação", d:"Constatada alteração da geometria original do revestimento."},
+      {t:"Marca de móvel", d:"Constatadas marcas localizadas compatíveis com apoio prolongado de mobiliário."},
+      {t:"Rodapé solto", d:"Constatada perda de fixação do rodapé."},
+      {t:"Rodapé danificado", d:"Constatada avaria localizada no rodapé."},
+    ]
+  },
+  "PISO LAMINADO": {
+    itens: [
+      {t:"Risco", d:"Constatados riscos na superfície do piso laminado."},
+      {t:"Arranhão", d:"Constatados arranhões visíveis decorrentes de contato mecânico aparente."},
+      {t:"Amassado", d:"Constatada deformação localizada na superfície."},
+      {t:"Lascado", d:"Constatada perda localizada da camada superficial."},
+      {t:"Quebra", d:"Constatada ruptura da peça."},
+      {t:"Mancha", d:"Constatada alteração de coloração na superfície."},
+      {t:"Estufamento", d:"Constatada elevação das peças, recomendando-se verificar possível exposição à umidade."},
+      {t:"Inchaço", d:"Constatado aumento dimensional/deformação compatível com exposição à umidade."},
+      {t:"Ondulação", d:"Constatada irregularidade no plano superficial do piso."},
+      {t:"Empenamento", d:"Constatada deformação da peça."},
+      {t:"Junta aberta", d:"Constatada abertura entre peças do piso."},
+      {t:"Desencaixe", d:"Constatada perda de encaixe entre peças adjacentes."},
+      {t:"Ruído", d:"Constatado ruído durante circulação sobre o piso, recomendando-se avaliação das condições de instalação e apoio."},
+      {t:"Marca de impacto", d:"Constatada marca localizada compatível com impacto mecânico."},
+      {t:"Marca de móvel", d:"Constatadas marcas de compressão associadas à permanência de mobiliário."},
+      {t:"Sinais de umidade", d:"Constatadas alterações de aspecto compatíveis com exposição à umidade. Recomenda-se investigação da origem."},
+      {t:"Rodapé solto", d:"Constatada perda de fixação do rodapé."},
+      {t:"Rodapé quebrado", d:"Constatada quebra localizada do rodapé."},
+    ]
+  },
+  "MÓVEIS": {
+    subcategorias: {
+      "Estrutura": [
+        {t:"Móvel riscado", d:"Constatados riscos visíveis na superfície do móvel, conforme registro fotográfico."},
+        {t:"Móvel amassado", d:"Constatada deformação localizada compatível com impacto."},
+        {t:"Móvel lascado", d:"Constatada perda localizada de material no acabamento."},
+        {t:"Móvel trincado", d:"Constatada trinca em componente do móvel."},
+        {t:"Móvel quebrado", d:"Constatada quebra de componente estrutural ou de acabamento."},
+        {t:"Móvel empenado", d:"Constatada deformação geométrica da peça, interferindo no alinhamento e/ou funcionamento."},
+        {t:"Móvel inchado", d:"Constatada alteração dimensional compatível com exposição à umidade."},
+        {t:"Móvel com mofo", d:"Constatada presença de sinais de mofo na superfície/interior do móvel. Recomenda-se investigar a origem da umidade."},
+      ],
+      "Portas": [
+        {t:"Porta desalinhada", d:"Constatada porta de móvel desalinhada em relação ao conjunto, comprometendo o acabamento e/ou fechamento."},
+        {t:"Porta não fecha", d:"Constatada impossibilidade de fechamento completo da porta."},
+        {t:"Dobradiça frouxa", d:"Constatada folga na dobradiça."},
+        {t:"Dobradiça quebrada", d:"Constatada perda de integridade da dobradiça."},
+        {t:"Amortecedor sem funcionamento", d:"Constatado funcionamento inadequado do mecanismo de amortecimento da porta."},
+        {t:"Puxador frouxo", d:"Constatada movimentação excessiva do puxador."},
+        {t:"Puxador quebrado", d:"Constatada quebra do puxador."},
+        {t:"Fechadura danificada", d:"Constatado funcionamento inadequado da fechadura do móvel."},
+      ],
+      "Gavetas": [
+        {t:"Gaveta travando", d:"Constatada dificuldade de movimentação da gaveta durante abertura/fechamento."},
+        {t:"Gaveta não fecha", d:"Constatada impossibilidade de fechamento completo."},
+        {t:"Corrediça danificada", d:"Constatada avaria na corrediça da gaveta, interferindo em seu funcionamento."},
+        {t:"Corrediça frouxa", d:"Constatada folga na fixação da corrediça."},
+        {t:"Frente solta", d:"Constatada perda de fixação da frente da gaveta."},
+      ],
+      "Prateleiras": [
+        {t:"Prateleira quebrada", d:"Constatada quebra da prateleira."},
+        {t:"Prateleira empenada", d:"Constatada deformação da prateleira."},
+        {t:"Prateleira solta", d:"Constatada movimentação da prateleira em sua posição de apoio/fixação."},
+      ],
+      "Vidros e espelhos": [
+        {t:"Vidro trincado", d:"Constatada trinca no vidro integrante do móvel."},
+        {t:"Vidro quebrado", d:"Constatada quebra do vidro."},
+        {t:"Espelho trincado", d:"Constatada trinca no espelho."},
+        {t:"Espelho quebrado", d:"Constatada quebra do espelho."},
+        {t:"Espelho manchado", d:"Constatada alteração de aspecto/oxidação/mancha no espelho."},
+      ],
+      "Estofados": [
+        {t:"Rasgo", d:"Constatado rasgo no revestimento do estofado."},
+        {t:"Mancha", d:"Constatada mancha visível no tecido/revestimento."},
+        {t:"Costura aberta", d:"Constatada abertura da costura."},
+        {t:"Tecido desfiado", d:"Constatado desgaste/desfiamento localizado do tecido."},
+        {t:"Espuma deformada", d:"Constatada deformação aparente do enchimento."},
+        {t:"Pé quebrado", d:"Constatada quebra do elemento de apoio do móvel."},
+        {t:"Pé solto", d:"Constatada perda de fixação do pé do móvel."},
+      ]
+    }
+  },
+  "PADRÃO/QUADRO DE ENERGIA": {
+    itens: [
+      {t:"Tampa danificada", d:"Constatada avaria na tampa do quadro/padrão de energia, comprometendo o acabamento e/ou proteção do conjunto."},
+      {t:"Tampa quebrada", d:"Constatada quebra na tampa de proteção."},
+      {t:"Tampa ausente", d:"Constatada ausência de elemento de fechamento/proteção previsto no conjunto."},
+      {t:"Porta danificada", d:"Constatada avaria na porta do quadro elétrico."},
+      {t:"Porta sem fechamento adequado", d:"Constatada dificuldade ou impossibilidade de fechamento adequado da porta do quadro."},
+      {t:"Disjuntor danificado", d:"Constatado dano aparente no componente de proteção."},
+      {t:"Disjuntor sem identificação", d:"Constatada ausência de identificação dos circuitos, dificultando sua associação aos respectivos pontos de utilização."},
+      {t:"Fiação aparente", d:"Constatada exposição de condutores elétricos em local onde deveria existir proteção/acabamento adequado. Recomenda-se avaliação por profissional habilitado."},
+      {t:"Fiação danificada", d:"Constatado dano aparente no isolamento de condutor elétrico. Recomenda-se avaliação e correção por profissional habilitado."},
+      {t:"Sinais de aquecimento", d:"Constatadas marcas visuais compatíveis com aquecimento excessivo em componente/conexão. Recomenda-se avaliação elétrica antes da utilização continuada."},
+      {t:"Marca de queimadura", d:"Constatada marca escurecida compatível visualmente com aquecimento ou queima localizada."},
+      {t:"Oxidação/corrosão", d:"Constatada oxidação/corrosão em componentes metálicos."},
+      {t:"Componente frouxo", d:"Constatada movimentação aparente de componente acessível durante inspeção visual/manual."},
+      {t:"Sinais de intervenção", d:"Constatados sinais aparentes de alteração/intervenção no conjunto elétrico. Recomenda-se verificar histórico e responsabilidade pela intervenção."},
+    ]
+  },
+  "CAVALETE DE ÁGUA": {
+    itens: [
+      {t:"Vazamento", d:"Constatada presença de vazamento no conjunto do cavalete durante a inspeção."},
+      {t:"Registro travado", d:"Constatada dificuldade/impossibilidade de acionamento do registro."},
+      {t:"Registro vazando", d:"Constatada perda de estanqueidade no registro."},
+      {t:"Hidrômetro danificado", d:"Constatada avaria aparente no hidrômetro."},
+      {t:"Visor danificado", d:"Constatada alteração/avaria no visor do hidrômetro, dificultando sua leitura."},
+      {t:"Tubulação danificada", d:"Constatada avaria aparente na tubulação exposta do cavalete."},
+      {t:"Conexão vazando", d:"Constatada presença de vazamento na região da conexão hidráulica."},
+      {t:"Oxidação/corrosão", d:"Constatada oxidação/corrosão em componentes metálicos."},
+      {t:"Tampa danificada", d:"Constatada avaria na tampa de proteção do cavalete."},
+      {t:"Tampa ausente", d:"Constatada ausência da tampa de proteção."},
+      {t:"Caixa danificada", d:"Constatadas avarias na caixa de proteção do cavalete."},
+      {t:"Acúmulo de água", d:"Constatada presença de água acumulada no interior ou entorno do cavalete, devendo ser investigada sua origem."},
+      {t:"Sinais de intervenção", d:"Constatados sinais aparentes de intervenção ou alteração no conjunto."},
+      {t:"Lacre danificado/ausente", d:"Constatada condição aparente do lacre conforme registro fotográfico, recomendando-se que eventual regularização seja tratada junto à concessionária responsável."},
+    ]
+  },
+  "INSTALAÇÕES ELÉTRICAS": {
+    subcategorias: {
+      "Tomadas": [
+        {t:"Tomada frouxa", d:"Constatada movimentação da tomada durante acionamento/retirada de plugue, indicando necessidade de verificação da fixação."},
+        {t:"Espelho quebrado", d:"Constatada quebra do espelho da tomada."},
+        {t:"Espelho trincado", d:"Constatada trinca no espelho."},
+        {t:"Tomada quebrada", d:"Constatada perda de integridade do componente."},
+        {t:"Tomada sem funcionamento", d:"Constatada ausência de funcionamento no teste realizado, recomendando-se investigação do circuito correspondente."},
+        {t:"Tampa ausente", d:"Constatada ausência do elemento de acabamento/proteção."},
+      ],
+      "Interruptores": [
+        {t:"Interruptor frouxo", d:"Constatada movimentação do componente durante acionamento."},
+        {t:"Interruptor quebrado", d:"Constatada quebra do componente."},
+        {t:"Sem funcionamento", d:"Constatado que o interruptor não realizou o acionamento esperado durante o teste funcional."},
+        {t:"Acionamento irregular", d:"Constatada irregularidade durante o acionamento, recomendando-se manutenção."},
+      ],
+      "Luminárias": [
+        {t:"Luminária quebrada", d:"Constatada quebra em componente da luminária."},
+        {t:"Luminária solta", d:"Constatada perda de fixação da luminária."},
+        {t:"Luminária sem funcionamento", d:"Constatada ausência de funcionamento durante teste."},
+        {t:"Lâmpada queimada", d:"Constatada lâmpada sem funcionamento no momento da vistoria."},
+        {t:"Lâmpada ausente", d:"Constatada ausência de lâmpada no ponto de iluminação."},
+        {t:"Difusor quebrado", d:"Constatada quebra do difusor da luminária."},
+      ],
+      "Campainha/interfone": [
+        {t:"Sem funcionamento", d:"Constatado que o equipamento não apresentou funcionamento durante o teste realizado."},
+      ],
+      "Ventilador": [
+        {t:"Sem funcionamento", d:"Constatado que o equipamento não entrou em funcionamento durante o teste."},
+        {t:"Ruído", d:"Constatado ruído anormal durante o funcionamento do equipamento."},
+      ]
+    }
+  },
+  "AR-CONDICIONADO": {
+    itens: [
+      {t:"Equipamento não liga", d:"Constatado que o equipamento não entrou em funcionamento durante o teste realizado."},
+      {t:"Equipamento não desliga", d:"Constatada impossibilidade de desligamento pelo comando utilizado."},
+      {t:"Controle remoto ausente", d:"Constatada ausência do controle remoto informado como integrante do equipamento."},
+      {t:"Controle danificado", d:"Constatada avaria no controle remoto."},
+      {t:"Evaporadora danificada", d:"Constatada avaria aparente na unidade interna."},
+      {t:"Condensadora danificada", d:"Constatada avaria aparente na unidade externa."},
+      {t:"Aletas danificadas", d:"Constatada deformação ou quebra das aletas direcionadoras de ar."},
+      {t:"Filtro sujo", d:"Constatado acúmulo de sujeira no filtro acessível durante a inspeção."},
+      {t:"Dreno com vazamento", d:"Constatada presença de água/vazamento na região do sistema de drenagem."},
+      {t:"Ruído anormal", d:"Constatado ruído durante funcionamento, devendo o equipamento ser avaliado tecnicamente."},
+      {t:"Vibração", d:"Constatada vibração perceptível durante o funcionamento."},
+      {t:"Fixação frouxa", d:"Constatada movimentação aparente do equipamento ou suporte."},
+    ]
+  },
+  "ELETRODOMÉSTICOS": {
+    itens: [
+      {t:"Equipamento não liga", d:"Constatado que o equipamento não entrou em funcionamento durante o teste realizado."},
+      {t:"Funcionamento parcial", d:"Constatado funcionamento parcial do equipamento, não sendo possível confirmar o desempenho integral de todas as funções durante a vistoria."},
+      {t:"Equipamento danificado", d:"Constatada avaria física aparente no equipamento."},
+      {t:"Equipamento riscado", d:"Constatados riscos na superfície externa."},
+      {t:"Equipamento amassado", d:"Constatada deformação localizada compatível com impacto."},
+      {t:"Equipamento trincado", d:"Constatada trinca em componente aparente."},
+      {t:"Equipamento quebrado", d:"Constatada quebra de componente do equipamento."},
+      {t:"Equipamento manchado", d:"Constatadas manchas na superfície externa."},
+      {t:"Equipamento oxidado", d:"Constatados sinais de oxidação/corrosão em componentes metálicos."},
+      {t:"Cabo danificado", d:"Constatada avaria aparente no cabo de alimentação. Recomenda-se não utilizar o equipamento até avaliação/substituição do componente quando houver comprometimento da segurança."},
+      {t:"Plugue danificado", d:"Constatada avaria no plugue de alimentação."},
+      {t:"Acessório ausente", d:"Constatada ausência de acessório integrante do equipamento conforme relação apresentada na vistoria."},
+      {t:"Geladeira", d:"Constatada condição de funcionamento conforme teste possível no momento da vistoria, devendo ser registrada eventual anormalidade específica observada."},
+      {t:"Fogão/cooktop", d:"Constatada condição de funcionamento dos componentes testáveis, registrando-se individualmente eventual queimador, comando ou superfície danificada."},
+      {t:"Forno", d:"Constatado funcionamento do forno conforme teste realizado, registrando-se eventual falha de aquecimento, comando, iluminação ou acabamento."},
+      {t:"Micro-ondas", d:"Constatado funcionamento do equipamento durante teste, registrando-se eventual falha específica observada."},
+      {t:"Coifa/depurador", d:"Constatado funcionamento do equipamento e/ou iluminação durante teste, registrando-se ruídos, vibrações, ausência de filtro ou outras anormalidades aparentes."},
+      {t:"Máquina de lavar", d:"Constatado funcionamento conforme teste possível no momento da vistoria, registrando-se eventuais vazamentos, ruídos, danos ou falhas aparentes."},
+    ]
+  },
+  "BANHEIRO / BOX": {
+    itens: [
+      {t:"Vidro do box trincado", d:"Constatada trinca no vidro do box, comprometendo sua integridade. Recomenda-se avaliação e substituição conforme necessidade."},
+      {t:"Vidro quebrado", d:"Constatada quebra do vidro do box, comprometendo a segurança de utilização."},
+      {t:"Perfil danificado", d:"Constatada avaria no perfil do box."},
+      {t:"Perfil oxidado", d:"Constatada oxidação/corrosão aparente no perfil metálico."},
+      {t:"Roldana danificada", d:"Constatada deficiência aparente na roldana, interferindo no deslocamento da porta."},
+      {t:"Porta desalinhada", d:"Constatada porta do box desalinhada em relação ao conjunto."},
+      {t:"Porta travando", d:"Constatada dificuldade de movimentação durante abertura/fechamento."},
+      {t:"Trilho danificado", d:"Constatada avaria no trilho de movimentação."},
+      {t:"Vedação deteriorada", d:"Constatada deterioração da vedação do box, podendo favorecer passagem de água para áreas adjacentes."},
+      {t:"Silicone deteriorado", d:"Constatada deterioração do selante de silicone nos encontros do box."},
+      {t:"Vazamento", d:"Constatada passagem de água para área externa ao box durante utilização/teste, recomendando-se verificar vedação, caimento e demais elementos envolvidos."},
+      {t:"Espelho trincado", d:"Constatada trinca no espelho."},
+      {t:"Espelho quebrado", d:"Constatada quebra no espelho."},
+      {t:"Espelho manchado", d:"Constatada mancha/alteração superficial no espelho."},
+      {t:"Gabinete danificado", d:"Constatada avaria no gabinete do banheiro."},
+      {t:"Nicho danificado", d:"Constatada avaria no revestimento/acabamento do nicho."},
+      {t:"Acessório solto", d:"Constatada perda de fixação de acessório instalado no banheiro."},
+      {t:"Porta-toalha solto", d:"Constatada movimentação do porta-toalha em sua fixação."},
+      {t:"Porta-papel solto", d:"Constatada movimentação do porta-papel em sua fixação."},
+      {t:"Chuveiro danificado", d:"Constatada avaria aparente no chuveiro."},
+      {t:"Ducha danificada", d:"Constatada avaria aparente na ducha."},
+    ]
+  },
+  "ÁREA EXTERNA": {
+    itens: [
+      {t:"Muro trincado", d:"Constatada trinca no muro, conforme localização e registro fotográfico. Recomenda-se avaliar extensão e origem da manifestação."},
+      {t:"Muro fissurado", d:"Constatada fissuração superficial no acabamento do muro."},
+      {t:"Muro descascado", d:"Constatada perda da camada de pintura/revestimento do muro."},
+      {t:"Muro manchado", d:"Constatada alteração de coloração na superfície."},
+      {t:"Portão danificado", d:"Constatada avaria física no portão, comprometendo seu acabamento e/ou funcionamento."},
+      {t:"Portão desalinhado", d:"Constatado desalinhamento que interfere na abertura, fechamento ou encaixe do portão."},
+      {t:"Portão travando", d:"Constatada dificuldade de movimentação do portão durante teste funcional."},
+      {t:"Fechadura danificada", d:"Constatado funcionamento inadequado da fechadura."},
+      {t:"Interfone danificado", d:"Constatada avaria aparente no equipamento."},
+      {t:"Calha danificada", d:"Constatada deformação, quebra ou perda de integridade da calha."},
+      {t:"Calha obstruída", d:"Constatada obstrução aparente na calha, podendo comprometer o adequado escoamento das águas pluviais."},
+      {t:"Rufo danificado", d:"Constatada avaria no rufo, recomendando-se verificar sua continuidade e condição de vedação."},
+      {t:"Telha quebrada", d:"Constatada quebra de telha, comprometendo a estanqueidade da cobertura."},
+      {t:"Telha trincada", d:"Constatada trinca em telha, recomendando-se substituição quando houver comprometimento da estanqueidade."},
+      {t:"Cobertura danificada", d:"Constatada avaria na cobertura, devendo ser avaliada quanto à estanqueidade e segurança."},
+      {t:"Grelha quebrada", d:"Constatada quebra da grelha de drenagem."},
+      {t:"Grelha ausente", d:"Constatada ausência da grelha de proteção do ponto de drenagem."},
+      {t:"Jardim danificado", d:"Constatada alteração ou dano aparente no paisagismo/jardim, conforme registro fotográfico."},
+      {t:"Deck riscado", d:"Constatados riscos na superfície do deck."},
+      {t:"Deck quebrado", d:"Constatada quebra de elemento do deck."},
+      {t:"Piscina com revestimento danificado", d:"Constatada avaria no revestimento da piscina, devendo ser avaliada quanto à extensão e origem."},
+      {t:"Piscina com vazamento aparente", d:"Constatados sinais compatíveis com possível perda de água, sendo necessária avaliação específica para confirmação da origem."},
+      {t:"Equipamento de piscina danificado", d:"Constatada avaria aparente em equipamento integrante do sistema da piscina."},
+    ]
+  }
+};
+
 function renderCategorias() {
   document.getElementById('categoriaGrid').innerHTML = Object.keys(LEGENDAS).map(cat =>
     `<button class="opt-btn" onclick="selecionarCategoria('${cat.replace(/'/g,"\\'")}')"><i class="ti ti-folder"></i> ${cat}</button>`
@@ -2136,10 +2657,23 @@ let defeitoPendenteIdxAtual = null;
 function irParaDefeito() {
   if (state.fotosAtuais.length===0) { alert('Envie ao menos uma foto.'); return; }
   document.querySelectorAll('#screen-defeito .opt-btn').forEach(b=>b.classList.remove('selected'));
-  state.defeitoAtual=''; document.getElementById('outroDefeitoField').style.display='none';
+  state.defeitoAtual=''; state.classificacaoAtual=''; document.getElementById('outroDefeitoField').style.display='none';
   document.getElementById('configCoresPainel').style.display='none';
-  renderFitaColorida();
-  renderCategorias();
+
+  const ehLocacao = state.tipoVistoria === 'Locação';
+  document.getElementById('labelFitaColorida').style.display = ehLocacao ? 'none' : 'flex';
+  document.getElementById('fitaColoridaGrid').style.display = ehLocacao ? 'none' : 'grid';
+  document.getElementById('containerDefeitoNormal').style.display = ehLocacao ? 'none' : 'block';
+  document.getElementById('containerDefeitoLocacao').style.display = ehLocacao ? 'block' : 'none';
+  document.getElementById('classificacaoLocacaoContainer').style.display = 'none';
+
+  if (ehLocacao) {
+    document.getElementById('buscaLocacaoInput').value = '';
+    renderCategoriasLocacao();
+  } else {
+    renderFitaColorida();
+    renderCategorias();
+  }
   mostrarScreen('screen-defeito');
   if (defeitoPreSelecionado) {
     document.getElementById('outroDefeitoField').style.display = 'block';
@@ -2147,6 +2681,121 @@ function irParaDefeito() {
     state.defeitoAtual = 'Outro defeito';
     defeitoPreSelecionado = null;
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// BIBLIOTECA DE LOCAÇÃO — busca por palavra + categorias em acordeão
+// (retrátil), já que são mais de 300 itens. Algumas categorias (Hidráulica,
+// Móveis, Instalações Elétricas) têm subcategorias, que também abrem/fecham.
+// ══════════════════════════════════════════════════════════════
+let categoriasLocacaoAbertas = {};
+let subcategoriasLocacaoAbertas = {};
+
+function renderCategoriasLocacao() {
+  document.getElementById('resultadoBuscaLocacao').style.display = 'none';
+  document.getElementById('categoriasLocacaoContainer').style.display = 'block';
+  const container = document.getElementById('categoriasLocacaoContainer');
+  container.innerHTML = Object.keys(LEGENDAS_LOCACAO).map(cat => {
+    const dados = LEGENDAS_LOCACAO[cat];
+    const aberta = !!categoriasLocacaoAbertas[cat];
+    const temSub = Object.keys(dados.subcategorias || {}).length > 0;
+    let conteudoInterno = '';
+    if (aberta) {
+      if (temSub) {
+        conteudoInterno = Object.keys(dados.subcategorias).map(sub => {
+          const subAberta = !!subcategoriasLocacaoAbertas[cat + '|' + sub];
+          return `
+            <button type="button" onclick="toggleSubcategoriaLocacao('${cat.replace(/'/g,"\\'")}','${sub.replace(/'/g,"\\'")}')" style="width:100%;text-align:left;background:var(--light);border:none;border-radius:8px;padding:9px 12px;font-family:var(--font);font-size:12.5px;font-weight:700;color:var(--text);cursor:pointer;display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+              ${sub} <i class="ti ti-chevron-${subAberta ? 'up' : 'down'}" style="font-size:14px"></i>
+            </button>
+            ${subAberta ? `<div style="padding:6px 0 0 8px">${dados.subcategorias[sub].map(item => itemLocacaoBtn(item)).join('')}</div>` : ''}
+          `;
+        }).join('');
+      } else {
+        conteudoInterno = `<div style="padding:8px 0 0">${(dados.itens || []).map(item => itemLocacaoBtn(item)).join('')}</div>`;
+      }
+    }
+    return `
+      <button type="button" onclick="toggleCategoriaLocacao('${cat.replace(/'/g,"\\'")}')" style="width:100%;text-align:left;background:#fff;border:1.5px solid var(--border);border-radius:9px;padding:11px 13px;font-family:var(--font);font-size:13px;font-weight:700;color:var(--brand);cursor:pointer;display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+        <span><i class="ti ti-folder"></i> ${cat}</span> <i class="ti ti-chevron-${aberta ? 'up' : 'down'}"></i>
+      </button>
+      ${conteudoInterno}
+    `;
+  }).join('') + `<button type="button" onclick="selecionarDefeitoLocacao(null,'Outro defeito')" style="width:100%;text-align:left;background:#fff;border:1.5px dashed var(--border);border-radius:9px;padding:11px 13px;font-family:var(--font);font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;margin-top:8px"><i class="ti ti-dots"></i> Outro / não listado</button>`;
+}
+
+function itemLocacaoBtn(item) {
+  const textoEscapado = item.d.replace(/'/g,"\\'").replace(/\n/g,' ');
+  return `<button type="button" onclick="selecionarDefeitoLocacao(this,'${textoEscapado}')" class="opt-btn" style="width:100%;text-align:left;justify-content:flex-start;margin-bottom:6px"><i class="ti ti-tag"></i> ${item.t}</button>`;
+}
+
+function toggleCategoriaLocacao(cat) {
+  categoriasLocacaoAbertas[cat] = !categoriasLocacaoAbertas[cat];
+  renderCategoriasLocacao();
+}
+
+function toggleSubcategoriaLocacao(cat, sub) {
+  const chave = cat + '|' + sub;
+  subcategoriasLocacaoAbertas[chave] = !subcategoriasLocacaoAbertas[chave];
+  renderCategoriasLocacao();
+}
+
+// Busca por palavra em TODOS os itens de TODAS as categorias/subcategorias de
+// uma vez — é o jeito mais rápido de achar um defeito específico sem precisar
+// abrir categoria por categoria.
+function buscarDefeitoLocacao(query) {
+  const termo = query.trim().toLowerCase();
+  const resultadoDiv = document.getElementById('resultadoBuscaLocacao');
+  const categoriasDiv = document.getElementById('categoriasLocacaoContainer');
+  if (!termo) {
+    resultadoDiv.style.display = 'none';
+    categoriasDiv.style.display = 'block';
+    return;
+  }
+  categoriasDiv.style.display = 'none';
+  resultadoDiv.style.display = 'block';
+
+  const encontrados = [];
+  Object.entries(LEGENDAS_LOCACAO).forEach(([cat, dados]) => {
+    (dados.itens || []).forEach(item => encontrados.push({ ...item, cat }));
+    Object.entries(dados.subcategorias || {}).forEach(([sub, itens]) => {
+      itens.forEach(item => encontrados.push({ ...item, cat: `${cat} · ${sub}` }));
+    });
+  });
+  const filtrados = encontrados.filter(item => item.t.toLowerCase().includes(termo) || item.d.toLowerCase().includes(termo));
+
+  if (filtrados.length === 0) {
+    resultadoDiv.innerHTML = '<p style="color:var(--muted);font-size:12px;text-align:center;padding:16px 0">Nenhum defeito encontrado com esse termo.</p>';
+    return;
+  }
+  resultadoDiv.innerHTML = `<p style="font-size:10.5px;color:var(--muted);margin-bottom:8px">${filtrados.length} resultado${filtrados.length===1?'':'s'}</p>` + filtrados.map(item => {
+    const textoEscapado = item.d.replace(/'/g,"\\'").replace(/\n/g,' ');
+    return `<button type="button" onclick="selecionarDefeitoLocacao(this,'${textoEscapado}')" class="opt-btn" style="width:100%;text-align:left;justify-content:flex-start;margin-bottom:6px">
+      <div><i class="ti ti-tag"></i> ${item.t} <span style="display:block;font-size:9.5px;color:var(--muted);font-weight:600;margin-top:1px">${item.cat}</span></div>
+    </button>`;
+  }).join('');
+}
+
+function selecionarDefeitoLocacao(el, val) {
+  document.querySelectorAll('#screen-defeito .opt-btn').forEach(b=>b.classList.remove('selected'));
+  if (el) el.classList.add('selected');
+  state.defeitoAtual = val;
+  document.getElementById('outroDefeitoField').style.display = val==='Outro defeito' ? 'block' : 'none';
+  if (val==='Outro defeito') document.getElementById('outroDefeitoInput').focus();
+  renderClassificacaoLocacao();
+  document.getElementById('classificacaoLocacaoContainer').style.display = 'block';
+}
+
+function renderClassificacaoLocacao() {
+  document.getElementById('classificacaoLocacaoGrid').innerHTML = CLASSIFICACOES_LOCACAO.map(c => {
+    const selecionada = state.classificacaoAtual === c.id;
+    return `<button type="button" onclick="selecionarClassificacaoLocacao('${c.id}')" style="background:${selecionada ? '#7B4FA0' : '#fff'};color:${selecionada ? '#fff' : '#7B4FA0'};border:1.5px solid #7B4FA0;border-radius:20px;padding:7px 12px;font-family:var(--font);font-size:11px;font-weight:700;cursor:pointer">${c.label}</button>`;
+  }).join('');
+}
+
+function selecionarClassificacaoLocacao(id) {
+  state.classificacaoAtual = state.classificacaoAtual === id ? '' : id; // toca de novo pra desmarcar
+  renderClassificacaoLocacao();
 }
 
 // Pega uma descrição curta e informal (ex: "buraco na parede") e transforma no
@@ -2190,13 +2839,25 @@ function salvarRegistro() {
   let defeito = state.defeitoAtual;
   if (defeito==='Outro defeito') defeito=document.getElementById('outroDefeitoInput').value.trim()||'Outro defeito';
   if (!defeito) { alert('Selecione o tipo de defeito.'); return false; }
+
+  // Locação: se marcou uma classificação com texto padrão associado, acrescenta
+  // esse parágrafo ao final do texto do defeito, automaticamente.
+  let classificacaoLabel = null;
+  if (state.tipoVistoria === 'Locação' && state.classificacaoAtual) {
+    const classi = CLASSIFICACOES_LOCACAO.find(c => c.id === state.classificacaoAtual);
+    if (classi) {
+      classificacaoLabel = classi.label;
+      if (classi.textoExtra) defeito = `${defeito} ${classi.textoExtra}`;
+    }
+  }
+
   const fotosDoRegistro = [...state.fotosAtuais];
-  state.registros.push({ ambiente:state.ambienteAtual, fotos:fotosDoRegistro, defeito });
+  state.registros.push({ ambiente:state.ambienteAtual, fotos:fotosDoRegistro, defeito, classificacao: classificacaoLabel });
   if (defeitoPendenteIdxAtual !== null) {
     state.defeitosPendentes.splice(defeitoPendenteIdxAtual, 1);
     defeitoPendenteIdxAtual = null;
   }
-  state.fotosAtuais=[]; atualizarResumo(); salvarRascunho(); return true;
+  state.fotosAtuais=[]; state.classificacaoAtual=''; atualizarResumo(); salvarRascunho(); return true;
 }
 
 function salvarEProximoAmbiente() { if(!salvarRegistro()) return; document.getElementById('photoPreviewGrid').innerHTML=''; mostrarScreen('screen-ambiente'); }
@@ -2384,6 +3045,7 @@ async function carregarAgenda() {
 
 function badgeTipo(tipo) {
   if (tipo === 'Compromisso') return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:#E8E8E8;color:#555;margin-left:6px;vertical-align:middle">COMPROMISSO</span>`;
+  if (tipo === 'Locação') return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:#FDECD2;color:#8A5A00;margin-left:6px;vertical-align:middle">LOCAÇÃO</span>`;
   const ehRevistoria = tipo === 'Revistoria';
   return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:${ehRevistoria ? '#EDE3F5' : '#DCEAF7'};color:${ehRevistoria ? '#7B4FA0' : 'var(--brand2)'};margin-left:6px;vertical-align:middle">${ehRevistoria ? 'REVISTORIA' : 'VISTORIA'}</span>`;
 }
