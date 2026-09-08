@@ -613,6 +613,22 @@ Sacada;</textarea>
   </div>
 </div>
 
+<div id="modalEscolhaRevistoria" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:150;align-items:flex-end;justify-content:center">
+  <div style="background:#fff;border-radius:16px 16px 0 0;max-width:520px;width:100%;padding:20px 20px 26px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div style="font-weight:700;color:var(--brand);font-size:15px"><i class="ti ti-repeat"></i> Como foi essa revistoria?</div>
+      <button onclick="fecharEscolhaRevistoria()" style="background:var(--light);border:none;width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;flex-shrink:0">✕</button>
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:16px">Escolha uma opção pra continuar.</p>
+    <button type="button" onclick="finalizarAgendamentoSemLaudo()" style="width:100%;background:#E6F4EC;border:1.5px solid var(--success);color:var(--success);border-radius:9px;padding:13px;font-family:var(--font);font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:10px">
+      <i class="ti ti-checkbox"></i> Já foi tudo corrigido — finalizar sem gerar laudo
+    </button>
+    <button type="button" onclick="iniciarComNovoLaudo()" style="width:100%;background:var(--brand);color:#fff;border:none;border-radius:9px;padding:13px;font-family:var(--font);font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+      <i class="ti ti-camera"></i> Ainda tem algo pra fotografar — gerar laudo novo
+    </button>
+  </div>
+</div>
+
 <script>
 const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotosAtuais:[], defeitoAtual:'', obsGeral:'', obsRapidas:[], defeitosPendentes:[], plantaBase64:null, plantaMediaType:null, mapaBase64:null, mapaMediaType:null, conclusaoIA:'', modoAgenda:false, rascunhoId:null };
 // Texto padrão do campo Cômodos — já vem preenchido (editável, não é só um
@@ -2733,9 +2749,63 @@ function fotografarDefeitoPendente(i) {
   selecionarAmbiente(pendente.ambiente);
 }
 
+// Ao tocar em "Iniciar": se for Revistoria, pergunta primeiro se precisa gerar
+// um laudo novo (com fotos) ou se já foi tudo corrigido (só lança no
+// Financeiro, sem passar pela tela de fotos). Vistoria comum sempre precisa
+// de laudo, então vai direto pro fluxo normal.
 async function iniciarVistoriaDoAgendamento(id) {
   const item = agendaCache.find(a => a.id === id);
   if (!item) return;
+  if (item.dados.tipo === 'Revistoria') {
+    abrirEscolhaRevistoria(id);
+    return;
+  }
+  await iniciarComNovoLaudo(id);
+}
+
+let escolhaRevistoriaId = null;
+
+function abrirEscolhaRevistoria(id) {
+  escolhaRevistoriaId = id;
+  document.getElementById('modalEscolhaRevistoria').style.display = 'flex';
+}
+
+function fecharEscolhaRevistoria() {
+  document.getElementById('modalEscolhaRevistoria').style.display = 'none';
+  escolhaRevistoriaId = null;
+}
+
+// Já foi tudo corrigido — não precisa fotografar nada. Usa os dados que já
+// estavam salvos no agendamento (nome, empreendimento, data, valor, forma de
+// pagamento) e lança direto no Financeiro, sem gerar nenhum documento.
+async function finalizarAgendamentoSemLaudo() {
+  const id = escolhaRevistoriaId;
+  const item = agendaCache.find(a => a.id === id);
+  if (!item) return;
+  fecharEscolhaRevistoria();
+  try {
+    await fetch('/finalizar-sem-laudo', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dados: item.dados, tipoVistoria: 'Revistoria' })
+    });
+    const dadosConcluido = { ...item.dados, concluidoEm: Date.now() };
+    await fetch(`/agenda?id=${encodeURIComponent(id)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dados: dadosConcluido, plantaBase64: item.plantaBase64, plantaMediaType: item.plantaMediaType, mapaBase64: item.mapaBase64, mapaMediaType: item.mapaMediaType })
+    });
+    alert(`✓ Revistoria de "${item.dados.nome}" finalizada! Lançada no Financeiro.`);
+    carregarAgenda();
+  } catch (e) {
+    alert('Não foi possível finalizar agora. Verifique sua internet e tente de novo.');
+  }
+}
+
+// Precisa fotografar o que ainda está pendente — segue o fluxo normal de
+// vistoria (tela de ambientes, fotos, defeitos, geração de laudo no final).
+async function iniciarComNovoLaudo(id) {
+  const item = agendaCache.find(a => a.id === (id || escolhaRevistoriaId));
+  if (!item) return;
+  fecharEscolhaRevistoria();
   resetarConteudoVistoria();
   preencherFormularioDados(item.dados);
   state.plantaBase64 = item.plantaBase64 || null;
@@ -2753,7 +2823,7 @@ async function iniciarVistoriaDoAgendamento(id) {
   // pra você poder consultar depois (ex: "quando eu vistoriei esse cliente?").
   try {
     const dadosConcluido = { ...item.dados, concluidoEm: Date.now() };
-    await fetch(`/agenda?id=${encodeURIComponent(id)}`, {
+    await fetch(`/agenda?id=${encodeURIComponent(item.id)}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dados: dadosConcluido, plantaBase64: item.plantaBase64, plantaMediaType: item.plantaMediaType, mapaBase64: item.mapaBase64, mapaMediaType: item.mapaMediaType })
     });
@@ -3264,16 +3334,18 @@ function filtrarHistorico() {
   renderHistorico(todosLaudos.filter(l=>l.nome.toLowerCase().includes(q)||l.data.includes(q)));
 }
 
-function renderHistorico(lista) {
+function renderHistorico(listaCompleta) {
+  // Laudos "sem documento" (finalizados sem gerar Word/PDF) não aparecem aqui —
+  // eles só existem pra manter o controle de dinheiro no Financeiro.
+  const lista = listaCompleta.filter(l => !l.semDocumento);
   if(!lista.length){document.getElementById('historicoList').innerHTML='<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">Nenhum laudo encontrado.</p>';return;}
   document.getElementById('historicoList').innerHTML=lista.map(l=>`
     <div class="hist-item">
-      <i class="ti ${l.semDocumento ? 'ti-receipt' : 'ti-file-text'}" style="font-size:26px;color:var(--brand)"></i>
-      <div class="info"><strong>${l.nome}${l.empreendimento?' - '+l.empreendimento:''}</strong>${l.semDocumento?' <span style="font-size:9px;font-weight:700;color:var(--success);background:#E6F4EC;padding:1px 6px;border-radius:10px">SEM LAUDO</span>':''}${l.compactado?' <i class="ti ti-box" style="font-size:12px;color:var(--muted)" title="Compactado (economiza espaço)"></i>':''}<span>${l.data}</span></div>
+      <i class="ti ti-file-text" style="font-size:26px;color:var(--brand)"></i>
+      <div class="info"><strong>${l.nome}${l.empreendimento?' - '+l.empreendimento:''}</strong>${l.compactado?' <i class="ti ti-box" style="font-size:12px;color:var(--muted)" title="Compactado (economiza espaço)"></i>':''}<span>${l.data}</span></div>
       <div style="display:flex;flex-direction:column;gap:5px">
-        ${l.semDocumento ? '' : `
         <button class="hist-btn" style="width:100%" onclick="baixarWordHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-word"></i> Word</button>
-        <button class="hist-btn" style="background:#C0392B;width:100%" onclick="baixarPdfHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-type-pdf"></i> PDF</button>`}
+        <button class="hist-btn" style="background:#C0392B;width:100%" onclick="baixarPdfHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-type-pdf"></i> PDF</button>
         <button class="hist-btn" style="background:#fff;border:1px solid #f0c4c0;color:var(--danger);width:100%" onclick="excluirLaudoHistorico('${encodeURIComponent(l.arquivo)}','${(l.nome||'').replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i> Excluir</button>
       </div>
     </div>`).join('');
