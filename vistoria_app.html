@@ -201,6 +201,16 @@
         <button type="button" class="opt-btn" id="btnTipoConstatacao" onclick="selecionarTipoAgendamento('Constatação')" style="padding:10px 4px;font-size:11.5px"><i class="ti ti-file-search"></i> Laudo de constatação</button>
       </div>
     </div>
+    <div class="field" id="painelModalidadeLocacao" style="display:none">
+      <label>Modalidade da vistoria de locação</label>
+      <input type="hidden" id="locacaoModalidade" value="">
+      <div class="option-grid" style="grid-template-columns:1fr 1fr 1fr">
+        <button type="button" class="opt-btn btn-modalidade" data-mod="Entrada" onclick="selecionarModalidadeLocacao('Entrada')" style="padding:10px 4px;font-size:11.5px"><i class="ti ti-login"></i> Entrada</button>
+        <button type="button" class="opt-btn btn-modalidade" data-mod="Saída" onclick="selecionarModalidadeLocacao('Saída')" style="padding:10px 4px;font-size:11.5px"><i class="ti ti-logout"></i> Saída</button>
+        <button type="button" class="opt-btn btn-modalidade" data-mod="Levantamento" onclick="selecionarModalidadeLocacao('Levantamento')" style="padding:10px 4px;font-size:11.5px"><i class="ti ti-list-search"></i> Levantamento</button>
+      </div>
+      <p id="modalidadeDica" style="font-size:10.5px;color:var(--muted);margin-top:6px"></p>
+    </div>
     <div class="field"><label>Nome completo</label><input type="text" id="nomeCliente" placeholder="Maria Souza da Silva" /></div>
     <div id="painelVistoriaAnterior" style="display:none;margin-bottom:14px">
       <button type="button" onclick="buscarVistoriaAnterior()" style="width:100%;background:#F3E9DD;border:1.5px dashed #7B4FA0;color:#7B4FA0;border-radius:9px;padding:10px;font-family:var(--font);font-size:12.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
@@ -700,6 +710,19 @@ const DOCS_GERAIS = [
   'Memorial descritivo', 'Manual de uso, operação e manutenção (manual do proprietário)',
   'Contrato', 'Matrícula do imóvel'
 ];
+// Locação: entrada (início do contrato), saída (devolução) ou levantamento
+// (só registrar o estado atual / o que existe no imóvel, sem entrada nem saída).
+const DICAS_MODALIDADE = {
+  'Entrada': 'Início da locação, antes do inquilino ocupar o imóvel.',
+  'Saída': 'Fim da locação, após a desocupação — para comparar com a entrada.',
+  'Levantamento': 'Registrar o estado atual e o que existe no imóvel, sem entrada nem saída de inquilino.'
+};
+function selecionarModalidadeLocacao(mod) {
+  document.getElementById('locacaoModalidade').value = mod || '';
+  document.querySelectorAll('.btn-modalidade').forEach(b => b.classList.toggle('selected', b.dataset.mod === mod));
+  document.getElementById('modalidadeDica').textContent = DICAS_MODALIDADE[mod] || '';
+}
+
 const TIPOS_SERVICO = ['Vistoria', 'Revistoria', 'Locação', 'Constatação'];
 function tipoServicoValido(tipo) { return TIPOS_SERVICO.includes(tipo) ? tipo : 'Vistoria'; }
 
@@ -725,6 +748,7 @@ function preencherCamposConstatacao(d) {
   document.querySelectorAll('.doc-entregue').forEach(c => { c.checked = marcados.includes(c.value); });
   document.getElementById('documentosOutros').value = d.documentosOutros || '';
   document.getElementById('anamnese').value = d.anamnese || '';
+  selecionarModalidadeLocacao(d.locacaoModalidade || '');
 }
 
 // Lê todos os campos da tela de Dados (usado ao iniciar vistoria, salvar e editar agendamento).
@@ -747,6 +771,7 @@ function lerDadosFormulario() {
     data: document.getElementById('dataVistoria').value,
     hora: document.getElementById('horaVistoria').value,
     comodos: document.getElementById('comodos').value.trim(),
+    locacaoModalidade: document.getElementById('tipoAgendamento').value === 'Locação' ? document.getElementById('locacaoModalidade').value : '',
     ...lerCamposConstatacao()
   };
 }
@@ -1261,6 +1286,7 @@ function selecionarTipoAgendamento(tipo) {
   document.getElementById('btnTipoConstatacao').classList.toggle('selected', tipo === 'Constatação');
   document.getElementById('painelConstatacao').style.display = tipo === 'Constatação' ? 'block' : 'none';
   document.getElementById('campoComodos').style.display = tipo === 'Constatação' ? 'none' : 'block';
+  document.getElementById('painelModalidadeLocacao').style.display = tipo === 'Locação' ? 'block' : 'none';
   const painel = document.getElementById('painelVistoriaAnterior');
   painel.style.display = tipo === 'Revistoria' ? 'block' : 'none';
   if (tipo !== 'Revistoria') document.getElementById('resultadoVistoriaAnterior').innerHTML = '';
@@ -1336,7 +1362,7 @@ function renderResultadosVistoriaAnterior() {
       <div style="background:#F3E9DD;border-radius:10px;padding:12px;margin-bottom:8px">
         <div onclick="toggleDefeitosAnteriores(${i})" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
           <div style="font-size:11.5px;font-weight:700;color:#7B4FA0;line-height:1.5">
-            ${badgeTipo(l.tipo)} em ${l.data && l.data !== '—' ? l.data.split('-').reverse().join('/') : 'data não informada'}<br>
+            ${badgeTipo(l.tipo, l.modalidade)} em ${l.data && l.data !== '—' ? l.data.split('-').reverse().join('/') : 'data não informada'}<br>
             <span>${l.empreendimento || 'Sem empreendimento'}${l.endereco ? ' · ' + l.endereco : ''}</span>
           </div>
           <i class="ti ti-chevron-down" id="chevronAnterior${i}" style="color:#7B4FA0;flex-shrink:0;transition:transform .15s"></i>
@@ -1362,6 +1388,7 @@ function toggleDefeitosAnteriores(i) {
 function irParaAmbiente() {
   state.dados = lerDadosFormulario();
   if (!state.dados.nome) { alert('Informe o nome do cliente.'); return; }
+  if (state.dados.tipo === 'Locação' && !state.dados.locacaoModalidade) { alert('Escolha a modalidade da locação: Entrada, Saída ou Levantamento.'); return; }
   state.tipoVistoria = state.dados.tipo || 'Vistoria';
   salvarRascunho();
   mostrarScreen('screen-ambiente');
@@ -3215,10 +3242,10 @@ async function carregarAgenda() {
   }
 }
 
-function badgeTipo(tipo) {
+function badgeTipo(tipo, modalidade) {
   if (tipo === 'Compromisso') return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:#E8E8E8;color:#555;margin-left:6px;vertical-align:middle">COMPROMISSO</span>`;
   if (tipo === 'Constatação') return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:#E1F0EE;color:#1F6E63;margin-left:6px;vertical-align:middle">CONSTATAÇÃO</span>`;
-  if (tipo === 'Locação') return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:#FDECD2;color:#8A5A00;margin-left:6px;vertical-align:middle">LOCAÇÃO</span>`;
+  if (tipo === 'Locação') return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:#FDECD2;color:#8A5A00;margin-left:6px;vertical-align:middle">LOCAÇÃO${modalidade ? ' · ' + modalidade.toUpperCase() : ''}</span>`;
   const ehRevistoria = tipo === 'Revistoria';
   return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:${ehRevistoria ? '#EDE3F5' : '#DCEAF7'};color:${ehRevistoria ? '#7B4FA0' : 'var(--brand2)'};margin-left:6px;vertical-align:middle">${ehRevistoria ? 'REVISTORIA' : 'VISTORIA'}</span>`;
 }
@@ -3234,7 +3261,7 @@ function renderAgenda() {
     <div class="hist-item">
       <i class="ti ${ehCompromisso ? 'ti-lock' : 'ti-calendar-event'}" style="font-size:26px;color:${ehCompromisso ? 'var(--muted)' : 'var(--brand)'}"></i>
       <div class="info">
-        <strong>${a.dados.nome}${badgeTipo(a.dados.tipo)}</strong>
+        <strong>${a.dados.nome}${badgeTipo(a.dados.tipo, a.dados.locacaoModalidade)}</strong>
         ${ehCompromisso
           ? `<span style="display:block">${a.dados.data ? a.dados.data.split('-').reverse().join('/') : 'Sem data'}${a.dados.hora ? ' às ' + a.dados.hora : ''}</span>`
           : `<span style="display:block">${a.dados.empreendimento || 'Empreendimento não informado'}${a.dados.construtora ? ' · ' + a.dados.construtora : ''}</span>
@@ -3451,7 +3478,7 @@ function renderCalDia() {
     <div class="hist-item" style="${ehConcluida ? 'opacity:.6' : ''}">
       <div style="width:46px;flex-shrink:0;text-align:center;font-size:12px;font-weight:700;color:${ehConcluida ? 'var(--success)' : (ehCompromisso ? 'var(--muted)' : 'var(--brand)')}">${ehConcluida ? '✓' : (a.dados.hora || '--:--')}</div>
       <div class="info">
-        <strong>${a.dados.nome}${badgeTipo(a.dados.tipo)}</strong>
+        <strong>${a.dados.nome}${badgeTipo(a.dados.tipo, a.dados.locacaoModalidade)}</strong>
         ${ehCompromisso
           ? `<span style="display:block">${a.dados.data ? a.dados.data.split('-').reverse().join('/') : 'Sem data'}${a.dados.hora ? ' às ' + a.dados.hora : ''}</span>`
           : `<span style="display:block">${a.dados.empreendimento || 'Empreendimento não informado'}${a.dados.construtora ? ' · ' + a.dados.construtora : ''}</span>
@@ -3520,7 +3547,7 @@ async function abrirConsultaRevistoria(agendamentoId) {
       <div style="background:#F3E9DD;border-radius:10px;padding:12px;margin-bottom:10px">
         <div onclick="toggleConsultaDefeitos(${i})" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
           <div style="font-size:11.5px;font-weight:700;color:#7B4FA0;line-height:1.5">
-            ${badgeTipo(l.tipo)} em ${l.data && l.data !== '—' ? l.data.split('-').reverse().join('/') : 'data não informada'}<br>
+            ${badgeTipo(l.tipo, l.modalidade)} em ${l.data && l.data !== '—' ? l.data.split('-').reverse().join('/') : 'data não informada'}<br>
             <span>${l.empreendimento || 'Sem empreendimento'}${l.endereco ? ' · ' + l.endereco : ''}</span>
           </div>
           <i class="ti ti-chevron-down" id="chevronConsulta${i}" style="color:#7B4FA0;flex-shrink:0;transition:transform .15s"></i>
@@ -3927,7 +3954,7 @@ function renderFinanceiro() {
     <div class="hist-item" onclick="abrirModalEditarPagamento('${encodeURIComponent(l.arquivo)}','${(l.nome||'').replace(/'/g,"\\'")}')" style="cursor:pointer">
       <i class="ti ti-file-text" style="font-size:24px;color:var(--brand)"></i>
       <div class="info">
-        <strong>${l.nome}${badgeTipo(l.tipo)}</strong>
+        <strong>${l.nome}${badgeTipo(l.tipo, l.modalidade)}</strong>
         <span style="display:block">${l.empreendimento || 'Sem empreendimento'} · ${l.data ? l.data.split('-').reverse().join('/') : ''}</span>
         <span style="display:block">${l.formaPagamento || 'Forma não informada'}</span>
       </div>
@@ -4113,7 +4140,7 @@ async function carregarNaoFinalizadas() {
     return `<div class="hist-item">
       <i class="ti ti-pencil" style="font-size:24px;color:var(--accent)"></i>
       <div class="info">
-        <strong>${d.nome || 'Sem nome ainda'}${badgeTipo(d.tipo)}</strong>
+        <strong>${d.nome || 'Sem nome ainda'}${badgeTipo(d.tipo, d.locacaoModalidade)}</strong>
         <span style="display:block">${qtdRegistros} registro${qtdRegistros === 1 ? '' : 's'} salvo${qtdRegistros === 1 ? '' : 's'} · em edição</span>
       </div>
       <div style="display:flex;flex-direction:column;gap:5px">

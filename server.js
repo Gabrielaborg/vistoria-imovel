@@ -184,7 +184,29 @@ function lerCorpoJSON(req) {
 // cômodos, eram 8 chamadas separadas só pra essa parte. Consolidar tudo numa
 // chamada só, usando o modelo mais econômico (Haiku, que já dá conta bem desse
 // tipo de tarefa de organizar texto), reduz bastante o custo por laudo.
-async function gerarResumosDosAmbientes(listaAmbientes, tipoVistoria) {
+// Modalidades da vistoria de Locação (escolhidas no app, dentro do botão Locação).
+// O texto de "objetivo" entra na seção OBJETIVO do laudo; "contextoIA" orienta a
+// IA ao escrever os parágrafos dos ambientes e a conclusão.
+const MODALIDADES_LOCACAO = {
+  'Entrada': {
+    rotulo: 'vistoria de entrada de imóvel em locação',
+    objetivo: 'Trata-se de VISTORIA DE ENTRADA, realizada no início da relação locatícia, previamente à ocupação do imóvel pelo locatário, com a finalidade de registrar o estado de conservação, funcionamento e acabamento em que o imóvel é entregue. Este registro servirá de referência para a comparação com as condições a serem verificadas na vistoria de saída, ao término da locação, nos termos do art. 22, inciso V, da Lei nº 8.245/1991, que assegura ao locatário a descrição minuciosa do estado do imóvel quando de sua entrega.',
+    contextoIA: 'Esta é uma VISTORIA DE ENTRADA (início da locação, antes da ocupação pelo locatário): o objetivo é registrar o estado em que o imóvel está sendo entregue, para servir de referência futura. Nunca sugira que os danos foram causados pelo locatário.'
+  },
+  'Saída': {
+    rotulo: 'vistoria de saída de imóvel em locação',
+    objetivo: 'Trata-se de VISTORIA DE SAÍDA, realizada ao término da relação locatícia, após a desocupação do imóvel, com a finalidade de registrar o estado de conservação, funcionamento e acabamento em que o imóvel é restituído, possibilitando sua comparação com as condições registradas na vistoria de entrada. Nos termos do art. 23, inciso III, da Lei nº 8.245/1991, cabe ao locatário restituir o imóvel no estado em que o recebeu, salvo as deteriorações decorrentes do seu uso normal.',
+    contextoIA: 'Esta é uma VISTORIA DE SAÍDA (fim da locação, após a desocupação): o objetivo é registrar o estado em que o imóvel está sendo restituído, para comparação com a vistoria de entrada. Diferencie com cuidado o que é compatível com desgaste natural do que é avaria, sem atribuir culpa de forma categórica — a comparação com a entrada é que define responsabilidades.'
+  },
+  'Levantamento': {
+    rotulo: 'vistoria de levantamento do estado do imóvel',
+    semComparacao: true,
+    objetivo: 'Trata-se de VISTORIA DE LEVANTAMENTO, realizada sem caracterizar entrada ou saída de locatário, com a finalidade de registrar o estado atual de conservação, funcionamento e acabamento do imóvel e dos itens nele existentes na data da inspeção, permitindo ao(à) contratante conhecer as condições em que o imóvel se encontra no momento — seja durante a ocupação, seja para fins de acompanhamento, manutenção ou preparação de uma futura locação.',
+    contextoIA: 'Esta é uma VISTORIA DE LEVANTAMENTO (não é entrada nem saída): o objetivo é registrar o estado atual do imóvel e do que existe nele, para conhecimento do(a) contratante. Não fale em comparação entre entrada e saída; destaque o que necessita manutenção.'
+  }
+};
+
+async function gerarResumosDosAmbientes(listaAmbientes, tipoVistoria, contextoExtra = '') {
   const ehLocacao = tipoVistoria === 'Locação';
   const ehConstatacao = tipoVistoria === 'Constatação';
   // listaAmbientes: [{ ambiente, defeitos, inicioImg, fimImg, classificacaoPorDefeito }, ...]
@@ -211,7 +233,7 @@ async function gerarResumosDosAmbientes(listaAmbientes, tipoVistoria) {
     : ehLocacao
     ? 'Você é um(a) engenheiro(a) civil redigindo as seções de ambientes de um laudo técnico de VISTORIA DE LOCAÇÃO de imóvel (não é vistoria de entrega de obra nova), considerando as disposições da Lei nº 8.245/1991 (Lei do Inquilinato). Você vai receber VÁRIOS ambientes de uma vez, cada um com suas constatações numeradas — algumas trazem entre colchetes a classificação já definida pela pessoa (ex: Avaria, Desgaste natural, Necessita manutenção, Sinal de umidade/infiltração, Estado de conservação, Funcionamento, Não testado, Não acessível). Responda SOMENTE com um JSON válido, sem markdown, sem texto antes ou depois, no formato exato: {"ambientes": [{"paragrafo": "...", "legendas": ["...", "..."]}, ...]}. O array "ambientes" deve ter EXATAMENTE um item por ambiente informado, NA MESMA ORDEM em que foram apresentados. Em cada item: "paragrafo" é um único parágrafo fluido (não uma lista) sintetizando TODAS as constatações daquele ambiente, mencionando de forma natural a classificação de cada uma quando informada (ex: "trata-se de condição associada a desgaste natural", "constatação classificada como avaria"), SEM atribuir culpa/responsabilidade ao locatário de forma direta, e mencionando que os itens estão registrados nas imagens indicadas daquele ambiente, que integram o laudo. "legendas" deve ter EXATAMENTE um item por constatação daquele ambiente, na mesma ordem, cada uma uma legenda curta (até 8 palavras) descrevendo objetivamente aquele item.'
     : 'Você é um(a) engenheiro(a) civil redigindo as seções de ambientes de um laudo técnico de vistoria de imóvel, seguindo o estilo formal de normas ABNT (NBR 15575, NBR 13753, NBR 13755 e correlatas) e do IBAPE Nacional. Você vai receber VÁRIOS ambientes de uma vez, cada um com seus defeitos numerados. Responda SOMENTE com um JSON válido, sem markdown, sem texto antes ou depois, no formato exato: {"ambientes": [{"paragrafo": "...", "legendas": ["...", "..."]}, ...]}. O array "ambientes" deve ter EXATAMENTE um item por ambiente informado, NA MESMA ORDEM em que foram apresentados. Em cada item: "paragrafo" é um único parágrafo fluido (não uma lista, não repita os textos originais colados um atrás do outro) sintetizando TODOS os defeitos daquele ambiente, citando a norma ABNT mais pertinente quando fizer sentido, e mencionando que as não conformidades estão registradas nas imagens indicadas daquele ambiente, que integram o laudo. "legendas" deve ter EXATAMENTE um item por defeito daquele ambiente, na mesma ordem, cada um uma legenda curta (até 8 palavras) descrevendo objetivamente aquele defeito específico — se o texto original mencionar uma cor de adesivo/fita, a legenda deve citar essa cor (ex: "Adesivo verde indica cerâmica oca").';
-  const mensagem = `Ambientes da vistoria:\n\n${blocos}`;
+  const mensagem = `${contextoExtra ? contextoExtra + '\n\n' : ''}Ambientes da vistoria:\n\n${blocos}`;
   const maxTokens = Math.min(8000, 500 + comDefeitos.length * 350);
 
   let ultimoErro = null;
@@ -405,6 +427,7 @@ async function gerarDocx(payload) {
   const { dados, tipoVistoria, obsGeral, registros, plantaBase64, plantaMediaType, mapaBase64, mapaMediaType, conclusaoIA } = payload;
   const ehLocacao = tipoVistoria === 'Locação';
   const ehConstatacao = tipoVistoria === 'Constatação';
+  const modalidadeLocacao = ehLocacao ? (MODALIDADES_LOCACAO[dados.locacaoModalidade] || null) : null;
 
   const dataFmt = dados.data
     ? new Date(dados.data + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })
@@ -485,7 +508,7 @@ async function gerarDocx(payload) {
   // sair no formato antigo (parágrafos repetidos); se a IA falhar mesmo depois
   // de tentar 2 vezes, a geração do laudo INTEIRO é interrompida aqui, e o app
   // do celular já trata isso (fila de reenvio automático) — nunca perde nada.
-  const resumosPorAmbiente = await gerarResumosDosAmbientes(ambientesInfo, tipoVistoria);
+  const resumosPorAmbiente = await gerarResumosDosAmbientes(ambientesInfo, tipoVistoria, modalidadeLocacao ? modalidadeLocacao.contextoIA : '');
 
   // 2ª passagem: agora sim monta o documento de verdade, usando os parágrafos e
   // legendas já prontos, na mesma ordem/numeração calculada na 1ª passagem.
@@ -631,17 +654,21 @@ async function gerarDocx(payload) {
           // 1. IDENTIFICAÇÃO
           secNum(1, 'IDENTIFICAÇÃO DO CONTRATANTE'),
           bodyP(ehLocacao
-            ? `${dados.nome || 'Cliente'}, portador(a) do CPF nº ${dados.cpf || '—'}${dados.telefone ? `, telefone ${dados.telefone}` : ''}, solicitou a elaboração do presente relatório de vistoria de locação de imóvel, com o objetivo de registrar as condições da unidade na data da vistoria, para fins de caracterização do estado de conservação, funcionamento e acabamentos, servindo como documento de referência para a relação locatícia.`
+            ? `${dados.nome || 'Cliente'}, portador(a) do CPF nº ${dados.cpf || '—'}${dados.telefone ? `, telefone ${dados.telefone}` : ''}, solicitou a elaboração do presente relatório de ${modalidadeLocacao ? modalidadeLocacao.rotulo : 'vistoria de locação de imóvel'}, com o objetivo de registrar as condições da unidade na data da vistoria, para fins de caracterização do estado de conservação, funcionamento e acabamentos, servindo como documento de referência para a relação locatícia.`
             : `${dados.nome || 'Cliente'}, portador(a) do CPF nº ${dados.cpf || '—'}${dados.telefone ? `, telefone ${dados.telefone}` : ''}, solicitou a elaboração do presente relatório de vistoria de imóvel, com o objetivo de registrar as condições da unidade no momento da entrega, identificando eventuais inconformidades aparentes e falhas de execução visíveis.`),
           br(),
 
           // 2. OBJETIVO
           secNum(2, 'OBJETIVO'),
-          bodyP(ehLocacao
+          ...(modalidadeLocacao ? [
+            bodyBold('Modalidade da vistoria: ', dados.locacaoModalidade),
+            bodyP(modalidadeLocacao.objetivo),
+            bodyP('A avaliação foi conduzida de forma objetiva e detalhada, com base nas diretrizes técnicas aplicáveis, sem prejuízo das disposições da Lei nº 8.245/1991 (Lei do Inquilinato), que rege as relações locatícias.')
+          ] : [bodyP(ehLocacao
             ? `Este relatório tem como finalidade documentar, de forma objetiva e detalhada, as condições do imóvel na data da vistoria de locação, identificando o estado de conservação, funcionamento e características dos elementos acessíveis do imóvel, servindo como documento de caracterização para eventual comparação entre as condições observadas no início e no término da ocupação. A avaliação foi conduzida com base nas diretrizes técnicas aplicáveis, sem prejuízo das disposições da Lei nº 8.245/1991 (Lei do Inquilinato), que rege as relações locatícias.`
             : (tipoVistoria === 'Revistoria'
                 ? `Este relatório tem como finalidade documentar, de forma objetiva e detalhada, as condições do imóvel na data da revistoria, verificando os itens anteriormente apontados em vistoria prévia e registrando as não conformidades que permanecem pendentes de correção. A avaliação foi conduzida com base nas diretrizes estabelecidas pelas normas técnicas vigentes, incluindo as NBR (Normas Brasileiras) aplicáveis e os referenciais do PBQP-H (Programa Brasileiro da Qualidade e Produtividade no Habitat), assegurando a análise dos padrões de qualidade, segurança, funcionalidade e durabilidade do empreendimento.`
-                : `Este relatório tem como finalidade documentar, de forma objetiva e detalhada, as condições do imóvel ${tipoVistoria === 'Imóvel Novo' ? 'novo ' : ''}na data da vistoria, identificando eventuais não conformidades em acabamentos, instalações elétricas e hidráulicas, estrutura e funcionalidade dos ambientes. A avaliação foi conduzida seguindo as diretrizes estabelecidas pelas normas técnicas vigentes, incluindo as NBR (Normas Brasileiras) e os referenciais do PBQP-H (Programa Brasileiro da Qualidade e Produtividade no Habitat), assegurando que os padrões de qualidade, segurança, funcionalidade e durabilidade do empreendimento sejam observados.`)),
+                : `Este relatório tem como finalidade documentar, de forma objetiva e detalhada, as condições do imóvel ${tipoVistoria === 'Imóvel Novo' ? 'novo ' : ''}na data da vistoria, identificando eventuais não conformidades em acabamentos, instalações elétricas e hidráulicas, estrutura e funcionalidade dos ambientes. A avaliação foi conduzida seguindo as diretrizes estabelecidas pelas normas técnicas vigentes, incluindo as NBR (Normas Brasileiras) e os referenciais do PBQP-H (Programa Brasileiro da Qualidade e Produtividade no Habitat), assegurando que os padrões de qualidade, segurança, funcionalidade e durabilidade do empreendimento sejam observados.`))]),
           br(),
 
           // 3. DADOS INICIAIS
@@ -721,7 +748,9 @@ async function gerarDocx(payload) {
           // CONCLUSÃO
           secNum(obsGeral ? 8 + numOffset : 7 + numOffset, 'CONCLUSÃO'),
           ...conclusaoTexto.map(p => bodyP(p)),
-          ...(ehLocacao ? [bodyP(TEXTO_LEI_LOCACAO), bodyP(TEXTO_PROTECAO_LOCACAO)] : []),
+          ...(ehLocacao ? [bodyP(TEXTO_LEI_LOCACAO), bodyP(modalidadeLocacao && modalidadeLocacao.semComparacao
+            ? TEXTO_PROTECAO_LOCACAO.replace(', servindo como documento de caracterização para comparação entre as condições observadas no início e no término da ocupação', ', servindo como documento de caracterização do estado do imóvel naquele momento')
+            : TEXTO_PROTECAO_LOCACAO)] : []),
           br(),
 
           // ASSINATURA
@@ -1192,14 +1221,16 @@ const server = http.createServer(async (req, res) => {
         .map(r => `- ${r.ambiente}: ${r.defeito}`)
         .join('\n') || 'Nenhum defeito registrado.';
       const outrosProblemas = (obsGeral || '').trim();
-      const system = ehLocacao
+      const modalidade = ehLocacao ? MODALIDADES_LOCACAO[(dados || {}).locacaoModalidade] : null;
+      let system = ehLocacao
         ? 'Você é um(a) engenheiro(a) civil redigindo a seção de CONCLUSÃO de um laudo técnico de VISTORIA DE LOCAÇÃO de imóvel (não é vistoria de entrega de obra nova), considerando a Lei nº 8.245/1991 (Lei do Inquilinato). Escreva 2 a 3 parágrafos técnicos, objetivos e formais, em português, resumindo as constatações registradas (que já vêm classificadas por natureza: avaria, desgaste natural, necessidade de manutenção, sinal de umidade, estado de conservação, funcionamento, não testado ou não acessível). NÃO atribua responsabilidade/culpa ao locatário de forma direta — trate isso como registro objetivo do estado do imóvel na data da vistoria, para fins de comparação futura entre entrada e saída. NÃO mencione "construtora" nem "aceitação de obra". Retorne SOMENTE os parágrafos de texto, separados por uma linha em branco, sem títulos, sem markdown, sem numeração. Não inclua nenhuma menção à Lei 8.245/1991 ou parágrafo de proteção legal — isso é adicionado automaticamente depois, fora do seu texto.'
         : 'Você é um(a) engenheiro(a) civil redigindo a seção de CONCLUSÃO de um laudo técnico de vistoria de imóvel, seguindo ABNT NBR 16747:2020, ABNT NBR 5674:2024 e conceitos do IBAPE Nacional. Escreva 3 a 4 parágrafos técnicos, objetivos e formais, em português, baseados nos defeitos e observações fornecidos, recomendando a correção antes da entrega/aceitação do imóvel. Retorne SOMENTE os parágrafos de texto, separados por uma linha em branco, sem títulos, sem markdown, sem numeração.';
+      if (modalidade && modalidade.semComparacao) system = system.replace('para fins de comparação futura entre entrada e saída', 'para conhecimento do estado atual do imóvel e do que nele existe');
       const texto = await chamarClaude({
         model: 'claude-haiku-4-5-20251001',
         maxTokens: 700,
         system,
-        messages: [{ role: 'user', content: `Tipo de vistoria: ${tipoVistoria || 'não informado'}\n\nConstatações registradas (por legenda escolhida em cada foto):\n${listaDefeitos}\n\nOutros problemas observados:\n${outrosProblemas || 'Nenhum'}\n\nRedija a conclusão do laudo.` }]
+        messages: [{ role: 'user', content: `Tipo de vistoria: ${tipoVistoria || 'não informado'}${modalidade ? ` — ${(dados || {}).locacaoModalidade}\n${modalidade.contextoIA}` : ''}\n\nConstatações registradas (por legenda escolhida em cada foto):\n${listaDefeitos}\n\nOutros problemas observados:\n${outrosProblemas || 'Nenhum'}\n\nRedija a conclusão do laudo.` }]
       });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ conclusao: texto.trim() }));
@@ -1300,7 +1331,7 @@ const server = http.createServer(async (req, res) => {
 
         const hist = lerHistorico();
         const registrosResumo = (payload.registros || []).map(r => ({ ambiente: r.ambiente, defeito: r.defeito }));
-        hist.push({ nome: payload.dados.nome||'Cliente', empreendimento: payload.dados.empreendimento||'', endereco: payload.dados.endereco||'', data: payload.dados.data||'—', tipo: payload.tipoVistoria||'—', valor: payload.dados.valor || null, formaPagamento: payload.dados.formaPagamento || null, registros: registrosResumo, arquivo: nomeArquivo, ts });
+        hist.push({ nome: payload.dados.nome||'Cliente', empreendimento: payload.dados.empreendimento||'', endereco: payload.dados.endereco||'', data: payload.dados.data||'—', tipo: payload.tipoVistoria||'—', modalidade: payload.dados.locacaoModalidade || null, valor: payload.dados.valor || null, formaPagamento: payload.dados.formaPagamento || null, registros: registrosResumo, arquivo: nomeArquivo, ts });
         salvarHistorico(hist);
 
         if (payload.formato === 'docx') {
