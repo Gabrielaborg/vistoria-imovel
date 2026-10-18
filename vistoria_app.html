@@ -2080,15 +2080,16 @@ function validarImagemCarregavel(dataUrl) {
 
 function renderFitaColorida() {
   const grupos = [
-    { grupo: 'A', texto: 'Cerâmica oca', label: 'Cerâmica oca' },
-    { grupo: 'E', texto: 'Cerâmica lascada', label: 'Cerâmica lascada' },
-    { grupo: 'F', texto: 'Cerâmica trincada', label: 'Cerâmica trincada' },
+    { grupo: 'A', texto: 'Revestimento oco', label: 'Revestimento oco' },
+    { grupo: 'E', texto: 'Revestimento lascado', label: 'Revestimento lascado' },
+    { grupo: 'F', texto: 'Revestimento trincado', label: 'Revestimento trincado' },
     { grupo: 'B', texto: 'Falha no rejunte', label: 'Rejunte' },
     { grupo: 'D', texto: 'Falha na pintura (manchas, calafete sem finalizar e outros)', label: 'Pintura (manchas/calafete)' },
     { grupo: 'G', texto: 'Ondulação na parede', label: 'Ondulação na parede' },
     { grupo: 'C', texto: 'Fissura na parede ou teto', label: 'Fissura (parede/teto)' },
     { grupo: 'H', texto: 'Revestimento com tonalidade diferente', label: 'Revestimento tonalidade diferente' }
   ];
+  grupos.sort((a, b) => a.label.localeCompare(b.label, 'pt-BR', { sensitivity: 'base' }));
   document.getElementById('fitaColoridaGrid').innerHTML = grupos.map(g => {
     const cor = getCor(g.grupo);
     return `<button class="opt-btn" style="background:${cor.hex};color:#fff;border-color:${cor.hex}" onclick="selecionarDefeito(this,'${g.texto.replace(/'/g,"\\'")}')"><i class="ti ti-tag"></i> ${cor.emoji} ${g.label}</button>`;
@@ -2099,15 +2100,16 @@ function toggleConfigCores() {
   const painel = document.getElementById('configCoresPainel');
   if (painel.style.display === 'block') { painel.style.display = 'none'; return; }
   const grupos = [
-    { grupo: 'A', label: 'Cerâmica oca' },
-    { grupo: 'E', label: 'Cerâmica lascada' },
-    { grupo: 'F', label: 'Cerâmica trincada' },
+    { grupo: 'A', label: 'Revestimento oco' },
+    { grupo: 'E', label: 'Revestimento lascado' },
+    { grupo: 'F', label: 'Revestimento trincado' },
     { grupo: 'B', label: 'Rejunte' },
     { grupo: 'D', label: 'Pintura (manchas/calafete)' },
     { grupo: 'G', label: 'Ondulação na parede' },
     { grupo: 'C', label: 'Fissura' },
     { grupo: 'H', label: 'Revestimento tonalidade diferente' }
   ];
+  grupos.sort((a, b) => a.label.localeCompare(b.label, 'pt-BR', { sensitivity: 'base' }));
   painel.innerHTML = `<div class="section-label" style="margin-top:0">Configurar cores das fitas</div>` + grupos.map(g => `
     <div class="field">
       <label>${g.label}</label>
@@ -2131,15 +2133,15 @@ function mudarCorGrupo(grupo, corId) {
 let categoriaAtual = '';
 
 const LEGENDAS = {
-  "Revestimentos Cerâmicos": [
-    {t:"Cerâmica oca (som cavo)", d:"Durante a vistoria, foi identificada manifestação patológica caracterizada por som cavo (oco) em peças de revestimento cerâmico, sinalizada com adesivo {CORA}. Essa condição indica falha de aderência entre a cerâmica e a base, podendo resultar em descolamento futuro das peças e redução do desempenho do sistema de revestimento. Recomenda-se a remoção e reinstalação das peças afetadas, com preparo adequado do substrato e utilização de argamassa colante compatível, conforme procedimentos estabelecidos na ABNT NBR 13753:1996."},
+  "Revestimentos": [
+    {t:"Revestimento oco (som cavo)", d:"Durante a vistoria, foi identificada manifestação patológica caracterizada por som cavo (oco) em peças de revestimento, sinalizada com adesivo {CORA}. Essa condição indica falha de aderência entre a peça de revestimento e a base, podendo resultar em descolamento futuro das peças e redução do desempenho do sistema de revestimento. Recomenda-se a remoção e reinstalação das peças afetadas, com preparo adequado do substrato e utilização de argamassa colante compatível, conforme procedimentos estabelecidos na ABNT NBR 13753:1996."},
     {t:"Falha no rejunte", d:"Foram identificadas falhas e descontinuidades no rejunte, sinalizadas com adesivo {CORB}, comprometendo o acabamento e podendo permitir a infiltração de água e o acúmulo de sujeira. Recomenda-se a correção com reaplicação adequada do rejunte."},
-    {t:"Cerâmica oca e falha no rejunte", d:"Verifica-se revestimento cerâmico com peças ocas (adesivo {CORA}) e ausência ou falhas no rejuntamento (adesivo {CORB}), comprometendo a aderência, a uniformidade e o acabamento estético do revestimento. Recomenda-se correção das peças e execução adequada do rejunte para garantir durabilidade e padrão visual adequado."},
-    {t:"Cerâmica trincada", d:"Foi identificada cerâmica trincada, sinalizada com adesivo {CORF}, comprometendo a integridade e a estética do revestimento. Possivelmente causada por movimentação do substrato ou impacto. Recomenda-se substituição da peça para restabelecer o acabamento e evitar infiltrações."},
-    {t:"Cerâmica lascada", d:"Verifica-se a presença de lascamentos no revestimento cerâmico, sinalizados com adesivo {CORE}, comprometendo o acabamento, a estética e a durabilidade do material."},
-    {t:"Cerâmica lascada e oca", d:"Foi constatada a presença de peça cerâmica lascada (adesivo {CORE}) e com som cavo (oco, adesivo {CORA}). Essa condição pode estar associada a falhas no assentamento, utilização inadequada de argamassa colante ou movimentações do substrato. Recomenda-se a substituição da peça afetada e verificação das demais áreas para evitar recorrências."},
+    {t:"Revestimento oco e falha no rejunte", d:"Verifica-se revestimento com peças ocas (adesivo {CORA}) e ausência ou falhas no rejuntamento (adesivo {CORB}), comprometendo a aderência, a uniformidade e o acabamento estético do revestimento. Recomenda-se correção das peças e execução adequada do rejunte para garantir durabilidade e padrão visual adequado."},
+    {t:"Revestimento trincado", d:"Foi identificada peça de revestimento trincada, sinalizada com adesivo {CORF}, comprometendo a integridade e a estética do revestimento. Possivelmente causada por movimentação do substrato ou impacto. Recomenda-se substituição da peça para restabelecer o acabamento e evitar infiltrações."},
+    {t:"Revestimento lascado", d:"Verifica-se a presença de lascamentos no revestimento, sinalizados com adesivo {CORE}, comprometendo o acabamento, a estética e a durabilidade do material."},
+    {t:"Revestimento lascado e oco", d:"Foi constatada a presença de peça de revestimento lascada (adesivo {CORE}) e com som cavo (oco, adesivo {CORA}). Essa condição pode estar associada a falhas no assentamento, utilização inadequada de argamassa colante ou movimentações do substrato. Recomenda-se a substituição da peça afetada e verificação das demais áreas para evitar recorrências."},
     {t:"Rodapé oco", d:"Ao realizar a inspeção por percussão, foi constatado som cavo no rodapé, sinalizado com adesivo {CORA}, indicando falta de aderência adequada ao substrato, com risco de desplacamento. Recomenda-se a remoção e a correta reinstalação do rodapé, garantindo a adequada fixação e acabamento."},
-    {t:"Piso sujo", d:"Observa-se revestimento cerâmico com acúmulo de sujeira e resíduos de obra, comprometendo a aparência e o acabamento final da superfície. Recomenda-se a limpeza adequada e remoção dos resíduos."},
+    {t:"Piso sujo", d:"Observa-se revestimento com acúmulo de sujeira e resíduos de obra, comprometendo a aparência e o acabamento final da superfície. Recomenda-se a limpeza adequada e remoção dos resíduos."},
     {t:"Revestimento encardido", d:"Foi identificado revestimento encardido, com sujidade impregnada na superfície e/ou nas juntas, que não é removida com a limpeza convencional, comprometendo o acabamento e a estética do ambiente. Recomenda-se limpeza técnica com produto adequado ao tipo de revestimento e, caso a condição persista, a substituição das peças afetadas."},
     {t:"Rejunte geral em todo o ambiente", d:"Foram identificadas falhas generalizadas no rejuntamento em todo o revestimento do ambiente, sinalizadas com adesivo {CORB}, comprometendo o acabamento e podendo permitir a infiltração de água e o acúmulo de sujeira. Recomenda-se a correção com reaplicação adequada do rejunte em toda a extensão do revestimento."},
     {t:"Revestimento arranhado", d:"Foram identificados arranhões na superfície do revestimento, sinalizados com adesivo {CORE}, comprometendo o acabamento e a estética do ambiente."},
@@ -2853,12 +2855,15 @@ function aplicarOuRemoverCor(textoRaw) {
 
 // Mostra as legendas de cada categoria em ordem alfabética (ignora acento e
 // maiúscula/minúscula), assim itens novos já entram no lugar certo sozinhos.
+function ordenarNomes(nomes) {
+  return [...nomes].sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base', numeric: true }));
+}
 function ordenarLegendas(lista) {
   return [...(lista || [])].sort((a, b) => a.t.localeCompare(b.t, 'pt-BR', { sensitivity: 'base', numeric: true }));
 }
 
 function renderCategorias() {
-  document.getElementById('categoriaGrid').innerHTML = Object.keys(LEGENDAS).map(cat =>
+  document.getElementById('categoriaGrid').innerHTML = ordenarNomes(Object.keys(LEGENDAS)).map(cat =>
     `<button class="opt-btn" onclick="selecionarCategoria('${cat.replace(/'/g,"\\'")}')"><i class="ti ti-folder"></i> ${cat}</button>`
   ).join('') + `<button class="opt-btn" onclick="selecionarDefeito(this,'Outro defeito')"><i class="ti ti-dots"></i> Outro / não listado</button>`;
   document.getElementById('categoriaGrid').style.display = 'grid';
@@ -2927,14 +2932,14 @@ function renderCategoriasLocacao() {
   document.getElementById('resultadoBuscaLocacao').style.display = 'none';
   document.getElementById('categoriasLocacaoContainer').style.display = 'block';
   const container = document.getElementById('categoriasLocacaoContainer');
-  container.innerHTML = Object.keys(LEGENDAS_LOCACAO).map(cat => {
+  container.innerHTML = ordenarNomes(Object.keys(LEGENDAS_LOCACAO)).map(cat => {
     const dados = LEGENDAS_LOCACAO[cat];
     const aberta = !!categoriasLocacaoAbertas[cat];
     const temSub = Object.keys(dados.subcategorias || {}).length > 0;
     let conteudoInterno = '';
     if (aberta) {
       if (temSub) {
-        conteudoInterno = Object.keys(dados.subcategorias).map(sub => {
+        conteudoInterno = ordenarNomes(Object.keys(dados.subcategorias)).map(sub => {
           const subAberta = !!subcategoriasLocacaoAbertas[cat + '|' + sub];
           return `
             <button type="button" onclick="toggleSubcategoriaLocacao('${cat.replace(/'/g,"\\'")}','${sub.replace(/'/g,"\\'")}')" style="width:100%;text-align:left;background:var(--light);border:none;border-radius:8px;padding:9px 12px;font-family:var(--font);font-size:12.5px;font-weight:700;color:var(--text);cursor:pointer;display:flex;justify-content:space-between;align-items:center;margin-top:6px">
