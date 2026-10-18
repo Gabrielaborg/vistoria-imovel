@@ -2851,6 +2851,12 @@ function aplicarOuRemoverCor(textoRaw) {
   return usouFitaAtual ? substituirCores(textoRaw) : removerReferenciaCor(textoRaw);
 }
 
+// Mostra as legendas de cada categoria em ordem alfabética (ignora acento e
+// maiúscula/minúscula), assim itens novos já entram no lugar certo sozinhos.
+function ordenarLegendas(lista) {
+  return [...(lista || [])].sort((a, b) => a.t.localeCompare(b.t, 'pt-BR', { sensitivity: 'base', numeric: true }));
+}
+
 function renderCategorias() {
   document.getElementById('categoriaGrid').innerHTML = Object.keys(LEGENDAS).map(cat =>
     `<button class="opt-btn" onclick="selecionarCategoria('${cat.replace(/'/g,"\\'")}')"><i class="ti ti-folder"></i> ${cat}</button>`
@@ -2861,7 +2867,7 @@ function renderCategorias() {
 
 function selecionarCategoria(cat) {
   categoriaAtual = cat;
-  const itens = LEGENDAS[cat] || [];
+  const itens = ordenarLegendas(LEGENDAS[cat]);
   document.getElementById('itemLista').innerHTML = itens.map((item, i) => {
     const textoFinal = aplicarOuRemoverCor(item.d);
     return `<button class="opt-btn" style="width:100%;text-align:left;justify-content:flex-start" onclick="selecionarDefeito(this,'${textoFinal.replace(/'/g,"\\'").replace(/\n/g,' ')}')"><i class="ti ti-tag"></i> ${item.t}</button>`;
@@ -2934,11 +2940,11 @@ function renderCategoriasLocacao() {
             <button type="button" onclick="toggleSubcategoriaLocacao('${cat.replace(/'/g,"\\'")}','${sub.replace(/'/g,"\\'")}')" style="width:100%;text-align:left;background:var(--light);border:none;border-radius:8px;padding:9px 12px;font-family:var(--font);font-size:12.5px;font-weight:700;color:var(--text);cursor:pointer;display:flex;justify-content:space-between;align-items:center;margin-top:6px">
               ${sub} <i class="ti ti-chevron-${subAberta ? 'up' : 'down'}" style="font-size:14px"></i>
             </button>
-            ${subAberta ? `<div style="padding:6px 0 0 8px">${dados.subcategorias[sub].map(item => itemLocacaoBtn(item)).join('')}</div>` : ''}
+            ${subAberta ? `<div style="padding:6px 0 0 8px">${ordenarLegendas(dados.subcategorias[sub]).map(item => itemLocacaoBtn(item)).join('')}</div>` : ''}
           `;
         }).join('');
       } else {
-        conteudoInterno = `<div style="padding:8px 0 0">${(dados.itens || []).map(item => itemLocacaoBtn(item)).join('')}</div>`;
+        conteudoInterno = `<div style="padding:8px 0 0">${ordenarLegendas(dados.itens).map(item => itemLocacaoBtn(item)).join('')}</div>`;
       }
     }
     return `
@@ -2988,7 +2994,7 @@ function buscarDefeitoLocacao(query) {
       itens.forEach(item => encontrados.push({ ...item, cat: `${cat} · ${sub}` }));
     });
   });
-  const filtrados = encontrados.filter(item => item.t.toLowerCase().includes(termo) || item.d.toLowerCase().includes(termo));
+  const filtrados = ordenarLegendas(encontrados).filter(item => item.t.toLowerCase().includes(termo) || item.d.toLowerCase().includes(termo));
 
   if (filtrados.length === 0) {
     resultadoDiv.innerHTML = '<p style="color:var(--muted);font-size:12px;text-align:center;padding:16px 0">Nenhum defeito encontrado com esse termo.</p>';
