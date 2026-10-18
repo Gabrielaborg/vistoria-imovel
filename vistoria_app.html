@@ -545,6 +545,9 @@ Sacada;</textarea>
       <i class="ti ti-arrow-left"></i> Voltar ao Histórico
     </button>
     <div class="section-label" style="color:var(--muted)"><i class="ti ti-clock-pause"></i> Lixeira (some de vez em 30 dias)</div>
+    <button type="button" id="btnEsvaziarLixeira" onclick="esvaziarLixeira()" style="display:none;width:100%;background:#fff;border:1.5px solid #f0c4c0;color:var(--danger);border-radius:9px;padding:10px;font-family:var(--font);font-size:12.5px;font-weight:700;cursor:pointer;align-items:center;justify-content:center;gap:6px;margin-bottom:12px">
+      <i class="ti ti-trash-x"></i> Apagar tudo da lixeira
+    </button>
     <div id="lixeiraList"></div>
   </div>
 </div>
@@ -4321,6 +4324,10 @@ let itensLixeiraRascunhos = [];
 
 function renderLixeira() {
   const lista = document.getElementById('lixeiraList');
+  const total = itensLixeira.length + itensLixeiraRascunhos.length;
+  const btnEsvaziar = document.getElementById('btnEsvaziarLixeira');
+  btnEsvaziar.style.display = total > 0 ? 'flex' : 'none';
+  btnEsvaziar.innerHTML = `<i class="ti ti-trash-x"></i> Apagar tudo da lixeira (${total} ${total === 1 ? 'item' : 'itens'})`;
   if (itensLixeira.length === 0 && itensLixeiraRascunhos.length === 0) {
     lista.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px">A lixeira está vazia.</p>';
     return;
@@ -4369,6 +4376,35 @@ async function restaurarLaudo(arquivo) {
   } catch (e) {
     alert('Não foi possível restaurar agora. Verifique sua internet e tente de novo.');
   }
+}
+
+// Apaga DE VEZ tudo o que está na lixeira (laudos e vistorias não finalizadas).
+// Importante: apaga item por item, só os que estão na lixeira — nunca usa a
+// rota "apagar tudo" do servidor, que mexeria também no Histórico ativo.
+async function esvaziarLixeira() {
+  const laudos = [...itensLixeira];
+  const rascunhos = [...itensLixeiraRascunhos];
+  const total = laudos.length + rascunhos.length;
+  if (total === 0) return;
+  if (!confirm(`Apagar DE VEZ os ${total} ${total === 1 ? 'item' : 'itens'} da lixeira, agora mesmo?\n\n${laudos.length} laudo(s) concluído(s) e ${rascunhos.length} vistoria(s) não finalizada(s).\n\nIsso não espera os 30 dias.`)) return;
+  if (!confirm('Tem certeza mesmo?\n\nDepois desse passo, NÃO tem mais como recuperar nada disso — nem pela Lixeira, nem por mim.')) return;
+  const btn = document.getElementById('btnEsvaziarLixeira');
+  btn.disabled = true; btn.innerHTML = '<span class="sp2"></span> Apagando...';
+  let falhas = 0;
+  for (const l of laudos) {
+    if (!l.excluidoEm || !l.arquivo) continue; // segurança extra: só o que está de fato na lixeira
+    try {
+      const r = await fetch(`/historico?arquivo=${encodeURIComponent(l.arquivo)}&permanente=1`, { method: 'DELETE' });
+      if (!r.ok) falhas++;
+    } catch (e) { falhas++; }
+  }
+  for (const r of rascunhos) {
+    if (!r.excluidoEm) continue;
+    try { await excluirRascunhoPermanente(r.id); } catch (e) { falhas++; }
+  }
+  btn.disabled = false;
+  if (falhas) alert(`${falhas} item(ns) não puderam ser apagados agora (sem internet?). Tente de novo.`);
+  carregarLixeira();
 }
 
 async function excluirDefinitivo(arquivo, nome) {
