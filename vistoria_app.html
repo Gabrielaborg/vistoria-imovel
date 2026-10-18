@@ -116,6 +116,11 @@
   .nav-tab.active { background: #fff; color: var(--brand); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
   .view-toggle-btn { flex: 1; padding: 8px; text-align: center; font-size: 12px; font-weight: 700; border-radius: 6px; cursor: pointer; border: none; background: transparent; color: var(--muted); font-family: var(--font); transition: all .15s; }
   .view-toggle-btn.active-view { background: var(--brand); color: #fff; }
+.doc-grid{display:flex;flex-direction:column;gap:6px}
+.doc-check{display:flex;align-items:center;gap:10px;background:#fff;border:1.5px solid var(--border);border-radius:9px;padding:9px 12px;font-size:12.5px;font-weight:600;color:var(--text);cursor:pointer;user-select:none}
+.field label.doc-check{text-transform:none;letter-spacing:normal;font-size:12.5px;font-weight:600;color:var(--text);margin-bottom:0}
+.doc-check input{width:17px;height:17px;margin:0;padding:0;flex-shrink:0;accent-color:var(--accent)}
+.doc-check:has(input:checked){background:#F3E9DD;border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -189,10 +194,11 @@
     <div class="field">
       <label>Tipo de serviço</label>
       <input type="hidden" id="tipoAgendamento" value="Vistoria">
-      <div class="option-grid" style="grid-template-columns:1fr 1fr 1fr">
+      <div class="option-grid" style="grid-template-columns:1fr 1fr">
         <button type="button" class="opt-btn selected" id="btnTipoVistoria" onclick="selecionarTipoAgendamento('Vistoria')" style="padding:10px 4px;font-size:11.5px"><i class="ti ti-search"></i> Vistoria</button>
         <button type="button" class="opt-btn" id="btnTipoRevistoria" onclick="selecionarTipoAgendamento('Revistoria')" style="padding:10px 4px;font-size:11.5px"><i class="ti ti-repeat"></i> Revistoria</button>
         <button type="button" class="opt-btn" id="btnTipoLocacao" onclick="selecionarTipoAgendamento('Locação')" style="padding:10px 4px;font-size:11.5px"><i class="ti ti-key"></i> Locação</button>
+        <button type="button" class="opt-btn" id="btnTipoConstatacao" onclick="selecionarTipoAgendamento('Constatação')" style="padding:10px 4px;font-size:11.5px"><i class="ti ti-file-search"></i> Laudo de constatação</button>
       </div>
     </div>
     <div class="field"><label>Nome completo</label><input type="text" id="nomeCliente" placeholder="Maria Souza da Silva" /></div>
@@ -247,9 +253,32 @@
     </div>
   </div>
 
+  <div class="card" id="painelConstatacao" style="display:none">
+    <div class="card-title"><i class="ti ti-file-search"></i> Laudo de constatação</div>
+    <div class="field"><label>Matrícula do imóvel (opcional)</label><input type="text" id="matricula" placeholder="Ex: 25.801" /></div>
+
+    <div class="field">
+      <label>Documentos entregues pelo cliente</label>
+      <div style="font-size:11px;font-weight:700;color:var(--muted);margin:2px 0 6px">PROJETOS</div>
+      <div class="doc-grid" id="docsProjetosGrid"></div>
+      <div style="font-size:11px;font-weight:700;color:var(--muted);margin:12px 0 6px">OUTROS DOCUMENTOS</div>
+      <div class="doc-grid" id="docsGeraisGrid"></div>
+    </div>
+    <div class="field"><label>Outros documentos (um por linha, opcional)</label><textarea id="documentosOutros" style="min-height:60px" placeholder="Ex: Laudo anterior de 2024; Notas fiscais da reforma"></textarea></div>
+
+    <div class="field">
+      <label>Anamnese (relato do cliente)</label>
+      <textarea id="anamnese" style="min-height:140px" placeholder="Anote do jeito que o cliente contar. Ex: pedreiro chamado pra arrumar infiltração no quarto 1 e corredor por causa da caixa d'água de amianto trincada. Trocou o telhado e mudou a caixa de lugar. Depois apareceram fissuras na cozinha..."></textarea>
+      <button type="button" onclick="gerarAnamneseIA()" id="btnAnamneseIA" style="width:100%;margin-top:8px;background:var(--brand2);color:#fff;border:none;border-radius:9px;padding:10px;font-family:var(--font);font-size:12.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+        <i class="ti ti-sparkles"></i> Transformar em texto técnico com IA
+      </button>
+      <p style="font-size:10.5px;color:var(--muted);margin-top:5px">A IA reescreve o relato no formato de anamnese do laudo, sem inventar nada. Revise e edite antes de seguir.</p>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-title"><i class="ti ti-layout-list"></i> Descrição do imóvel</div>
-    <div class="field">
+    <div class="field" id="campoComodos">
       <label>Cômodos (um por linha)</label>
       <textarea id="comodos">2 quartos, sendo 1 suíte;
 Sala em dois ambientes;
@@ -660,6 +689,93 @@ const state = { dados:{}, tipoVistoria:'', registros:[], ambienteAtual:'', fotos
 // Texto padrão do campo Cômodos — já vem preenchido (editável, não é só um
 // "fantasma"/placeholder) pra facilitar, já que a maioria dos imóveis tem essa
 // configuração parecida. A pessoa edita ou apaga o que não se aplicar.
+// ── Laudo de constatação: documentos que podem ser marcados como entregues ──
+// (os textos precisam ser IGUAIS aos do servidor — server.js, DOCUMENTOS_PROJETOS/GERAIS)
+const DOCS_PROJETOS = [
+  'Projeto arquitetônico', 'Projeto estrutural', 'Projeto de fundações', 'Projeto hidrossanitário',
+  'Projeto elétrico', 'Projeto de impermeabilização', 'Projeto de prevenção e combate a incêndio (PPCI)',
+  'Projeto de águas pluviais', 'Projeto de gás', 'Projeto de climatização'
+];
+const DOCS_GERAIS = [
+  'Memorial descritivo', 'Manual de uso, operação e manutenção (manual do proprietário)',
+  'Contrato', 'Matrícula do imóvel'
+];
+const TIPOS_SERVICO = ['Vistoria', 'Revistoria', 'Locação', 'Constatação'];
+function tipoServicoValido(tipo) { return TIPOS_SERVICO.includes(tipo) ? tipo : 'Vistoria'; }
+
+function renderDocsCheckboxes() {
+  const montar = (lista) => lista.map(d => `<label class="doc-check"><input type="checkbox" class="doc-entregue" value="${d}"> ${d}</label>`).join('');
+  document.getElementById('docsProjetosGrid').innerHTML = montar(DOCS_PROJETOS);
+  document.getElementById('docsGeraisGrid').innerHTML = montar(DOCS_GERAIS);
+}
+
+function lerCamposConstatacao() {
+  return {
+    matricula: document.getElementById('matricula').value.trim(),
+    documentos: [...document.querySelectorAll('.doc-entregue:checked')].map(c => c.value),
+    documentosOutros: document.getElementById('documentosOutros').value.trim(),
+    anamnese: document.getElementById('anamnese').value.trim()
+  };
+}
+
+function preencherCamposConstatacao(d) {
+  d = d || {};
+  document.getElementById('matricula').value = d.matricula || '';
+  const marcados = Array.isArray(d.documentos) ? d.documentos : [];
+  document.querySelectorAll('.doc-entregue').forEach(c => { c.checked = marcados.includes(c.value); });
+  document.getElementById('documentosOutros').value = d.documentosOutros || '';
+  document.getElementById('anamnese').value = d.anamnese || '';
+}
+
+// Lê todos os campos da tela de Dados (usado ao iniciar vistoria, salvar e editar agendamento).
+function lerDadosFormulario() {
+  return {
+    tipo: document.getElementById('tipoAgendamento').value,
+    nome: document.getElementById('nomeCliente').value.trim(),
+    cpf: document.getElementById('cpf').value.trim(),
+    telefone: document.getElementById('telefone').value.trim(),
+    empreendimento: document.getElementById('empreendimento').value.trim(),
+    construtora: document.getElementById('construtora').value.trim(),
+    valor: document.getElementById('valorVistoria').value,
+    formaPagamento: document.getElementById('formaPagamento').value,
+    endereco: document.getElementById('endereco').value.trim(),
+    bloco: document.getElementById('bloco').value.trim(),
+    apto: document.getElementById('apto').value.trim(),
+    cep: document.getElementById('cep').value.trim(),
+    cidade: document.getElementById('cidade').value.trim(),
+    metragem: document.getElementById('metragem').value.trim(),
+    data: document.getElementById('dataVistoria').value,
+    hora: document.getElementById('horaVistoria').value,
+    comodos: document.getElementById('comodos').value.trim(),
+    ...lerCamposConstatacao()
+  };
+}
+
+// Reescreve o relato informal do cliente como anamnese técnica (o texto continua editável).
+async function gerarAnamneseIA() {
+  const campo = document.getElementById('anamnese');
+  const relato = campo.value.trim();
+  if (!relato) { alert('Escreva primeiro o relato do cliente, do jeito que ele contou.'); return; }
+  const btn = document.getElementById('btnAnamneseIA');
+  const original = btn.innerHTML;
+  btn.disabled = true; btn.style.opacity = '.7';
+  btn.innerHTML = '<span class="spinner"></span> Redigindo anamnese...';
+  try {
+    const res = await fetch('/gerar-anamnese-texto', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relato, nome: document.getElementById('nomeCliente').value.trim() })
+    });
+    const data = await res.json();
+    if (data.erro || !data.texto) throw new Error(data.erro || 'Resposta vazia.');
+    campo.value = data.texto;
+    campo.style.height = 'auto'; campo.style.height = Math.max(140, campo.scrollHeight) + 'px';
+  } catch (e) {
+    alert('Não foi possível gerar o texto agora. Seu relato continua salvo no campo.\n\nDetalhe: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.style.opacity = '1'; btn.innerHTML = original;
+  }
+}
+
 const COMODOS_PADRAO = `2 quartos, sendo 1 suíte;
 Sala em dois ambientes;
 Banheiro social;
@@ -1019,7 +1135,8 @@ async function carregarRascunhoPorId(id) {
   });
   document.getElementById('dataVistoria').value = state.dados.data || '';
   document.getElementById('horaVistoria').value = state.dados.hora || '';
-  selecionarTipoAgendamento(state.dados.tipo === 'Revistoria' ? 'Revistoria' : 'Vistoria');
+  selecionarTipoAgendamento(tipoServicoValido(state.dados.tipo));
+  preencherCamposConstatacao(state.dados);
 
   document.getElementById('plantaPreview').innerHTML = state.plantaBase64 ? `<div class="single-thumb"><img src="data:${state.plantaMediaType};base64,${state.plantaBase64}"><button class="remove-photo" onclick="removerUpload('plantaPreview','plantaBase64','plantaMediaType','plantaInput')">✕</button></div>` : '';
   document.getElementById('mapaPreview').innerHTML = state.mapaBase64 ? `<div class="single-thumb"><img src="data:${state.mapaMediaType};base64,${state.mapaBase64}"><button class="remove-photo" onclick="removerUpload('mapaPreview','mapaBase64','mapaMediaType','mapaInput')">✕</button></div>` : '';
@@ -1034,6 +1151,7 @@ async function carregarRascunhoPorId(id) {
 }
 
 
+renderDocsCheckboxes();
 document.getElementById('dataVistoria').value = new Date().toISOString().split('T')[0];
 
 document.getElementById('cpf').addEventListener('input', function() {
@@ -1140,6 +1258,9 @@ function selecionarTipoAgendamento(tipo) {
   document.getElementById('btnTipoVistoria').classList.toggle('selected', tipo === 'Vistoria');
   document.getElementById('btnTipoRevistoria').classList.toggle('selected', tipo === 'Revistoria');
   document.getElementById('btnTipoLocacao').classList.toggle('selected', tipo === 'Locação');
+  document.getElementById('btnTipoConstatacao').classList.toggle('selected', tipo === 'Constatação');
+  document.getElementById('painelConstatacao').style.display = tipo === 'Constatação' ? 'block' : 'none';
+  document.getElementById('campoComodos').style.display = tipo === 'Constatação' ? 'none' : 'block';
   const painel = document.getElementById('painelVistoriaAnterior');
   painel.style.display = tipo === 'Revistoria' ? 'block' : 'none';
   if (tipo !== 'Revistoria') document.getElementById('resultadoVistoriaAnterior').innerHTML = '';
@@ -1239,25 +1360,7 @@ function toggleDefeitosAnteriores(i) {
 }
 
 function irParaAmbiente() {
-  state.dados = {
-    tipo: document.getElementById('tipoAgendamento').value,
-    nome: document.getElementById('nomeCliente').value.trim(),
-    cpf: document.getElementById('cpf').value.trim(),
-    telefone: document.getElementById('telefone').value.trim(),
-    empreendimento: document.getElementById('empreendimento').value.trim(),
-    construtora: document.getElementById('construtora').value.trim(),
-    valor: document.getElementById('valorVistoria').value,
-    formaPagamento: document.getElementById('formaPagamento').value,
-    endereco: document.getElementById('endereco').value.trim(),
-    bloco: document.getElementById('bloco').value.trim(),
-    apto: document.getElementById('apto').value.trim(),
-    cep: document.getElementById('cep').value.trim(),
-    cidade: document.getElementById('cidade').value.trim(),
-    metragem: document.getElementById('metragem').value.trim(),
-    data: document.getElementById('dataVistoria').value,
-    hora: document.getElementById('horaVistoria').value,
-    comodos: document.getElementById('comodos').value.trim()
-  };
+  state.dados = lerDadosFormulario();
   if (!state.dados.nome) { alert('Informe o nome do cliente.'); return; }
   state.tipoVistoria = state.dados.tipo || 'Vistoria';
   salvarRascunho();
@@ -2974,7 +3077,9 @@ async function processarLaudo() {
   btnDocx.style.pointerEvents = 'none';
   const msg = document.getElementById('gerandoMsg');
   msg.style.display = 'block';
-  msg.innerHTML = '<span class="sp2"></span> Preparando conclusão personalizada...';
+  msg.innerHTML = state.tipoVistoria === 'Constatação'
+    ? '<span class="sp2"></span> Redigindo conclusão técnica com base nas normas (pode levar até 1 minuto)...'
+    : '<span class="sp2"></span> Preparando conclusão personalizada...';
 
   // Gera a conclusão personalizada por IA, com base nos defeitos reais.
   // Se falhar (rede, IA fora do ar, etc.), state.conclusaoIA fica vazio e o servidor
@@ -2983,7 +3088,7 @@ async function processarLaudo() {
     const registrosResumo = state.registros.map(r => ({ ambiente: r.ambiente, defeito: r.defeito }));
     const res = await fetch('/gerar-conclusao', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ registros: registrosResumo, tipoVistoria: state.tipoVistoria, obsGeral: state.obsGeral })
+      body: JSON.stringify({ registros: registrosResumo, tipoVistoria: state.tipoVistoria, obsGeral: state.obsGeral, dados: state.dados })
     });
     const data = await res.json();
     state.conclusaoIA = data.conclusao || '';
@@ -3029,7 +3134,8 @@ async function gerarDocumento(tipo) {
 let agendaCache = [];
 
 function preencherFormularioDados(d) {
-  selecionarTipoAgendamento(d.tipo === 'Revistoria' ? 'Revistoria' : 'Vistoria');
+  selecionarTipoAgendamento(tipoServicoValido(d.tipo));
+  preencherCamposConstatacao(d);
   document.getElementById('nomeCliente').value = d.nome || '';
   document.getElementById('cpf').value = d.cpf || '';
   document.getElementById('telefone').value = d.telefone || '';
@@ -3059,6 +3165,7 @@ function resetarBotaoDados() {
 function novoAgendamento() {
   ['nomeCliente','cpf','telefone','empreendimento','construtora','endereco','bloco','apto','cep','cidade','metragem','valorVistoria'].forEach(id => { document.getElementById(id).value = ''; });
   document.getElementById('comodos').value = COMODOS_PADRAO;
+  preencherCamposConstatacao({});
   document.getElementById('dataVistoria').value = '';
   document.getElementById('horaVistoria').value = '';
   document.getElementById('formaPagamento').value = '';
@@ -3078,25 +3185,7 @@ function novoAgendamento() {
 }
 
 async function salvarAgendamento() {
-  const dados = {
-    tipo: document.getElementById('tipoAgendamento').value,
-    nome: document.getElementById('nomeCliente').value.trim(),
-    cpf: document.getElementById('cpf').value.trim(),
-    telefone: document.getElementById('telefone').value.trim(),
-    empreendimento: document.getElementById('empreendimento').value.trim(),
-    construtora: document.getElementById('construtora').value.trim(),
-    valor: document.getElementById('valorVistoria').value,
-    formaPagamento: document.getElementById('formaPagamento').value,
-    endereco: document.getElementById('endereco').value.trim(),
-    bloco: document.getElementById('bloco').value.trim(),
-    apto: document.getElementById('apto').value.trim(),
-    cep: document.getElementById('cep').value.trim(),
-    cidade: document.getElementById('cidade').value.trim(),
-    metragem: document.getElementById('metragem').value.trim(),
-    data: document.getElementById('dataVistoria').value,
-    hora: document.getElementById('horaVistoria').value,
-    comodos: document.getElementById('comodos').value.trim()
-  };
+  const dados = lerDadosFormulario();
   if (!dados.nome) { alert('Informe pelo menos o nome do cliente.'); return; }
   try {
     await fetch('/agenda', {
@@ -3128,6 +3217,7 @@ async function carregarAgenda() {
 
 function badgeTipo(tipo) {
   if (tipo === 'Compromisso') return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:#E8E8E8;color:#555;margin-left:6px;vertical-align:middle">COMPROMISSO</span>`;
+  if (tipo === 'Constatação') return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:#E1F0EE;color:#1F6E63;margin-left:6px;vertical-align:middle">CONSTATAÇÃO</span>`;
   if (tipo === 'Locação') return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:#FDECD2;color:#8A5A00;margin-left:6px;vertical-align:middle">LOCAÇÃO</span>`;
   const ehRevistoria = tipo === 'Revistoria';
   return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;background:${ehRevistoria ? '#EDE3F5' : '#DCEAF7'};color:${ehRevistoria ? '#7B4FA0' : 'var(--brand2)'};margin-left:6px;vertical-align:middle">${ehRevistoria ? 'REVISTORIA' : 'VISTORIA'}</span>`;
@@ -3164,7 +3254,8 @@ function renderAgendaTotais() {
   const pendentes = agendaCache.filter(a => !a.dados.concluidoEm);
   const vistorias = pendentes.filter(a => a.dados.tipo !== 'Compromisso');
   const total = vistorias.length;
-  const totalVistoria = vistorias.filter(a => a.dados.tipo !== 'Revistoria' && a.dados.tipo !== 'Locação').length;
+  const totalVistoria = vistorias.filter(a => !['Revistoria', 'Locação', 'Constatação'].includes(a.dados.tipo)).length;
+  const totalConstatacao = vistorias.filter(a => a.dados.tipo === 'Constatação').length;
   const totalRevistoria = vistorias.filter(a => a.dados.tipo === 'Revistoria').length;
   const totalLocacao = vistorias.filter(a => a.dados.tipo === 'Locação').length;
   const totalCompromisso = pendentes.length - vistorias.length;
@@ -3174,6 +3265,7 @@ function renderAgendaTotais() {
     <span style="background:#DCEAF7;color:var(--brand2);padding:3px 8px;border-radius:20px">${totalVistoria} vistoria${totalVistoria === 1 ? '' : 's'}</span>
     <span style="background:#EDE3F5;color:#7B4FA0;padding:3px 8px;border-radius:20px">${totalRevistoria} revistoria${totalRevistoria === 1 ? '' : 's'}</span>
     ${totalLocacao > 0 ? `<span style="background:#FDECD2;color:#8A5A00;padding:3px 8px;border-radius:20px">${totalLocacao} loca${totalLocacao === 1 ? 'ção' : 'ções'}</span>` : ''}
+    ${totalConstatacao > 0 ? `<span style="background:#E1F0EE;color:#1F6E63;padding:3px 8px;border-radius:20px">${totalConstatacao} constataç${totalConstatacao === 1 ? 'ão' : 'ões'}</span>` : ''}
     ${totalCompromisso > 0 ? `<span style="background:#E8E8E8;color:#555;padding:3px 8px;border-radius:20px">${totalCompromisso} compromisso${totalCompromisso === 1 ? '' : 's'}</span>` : ''}
     ${totalConcluidas > 0 ? `<span style="background:#E6F4EC;color:var(--success);padding:3px 8px;border-radius:20px">${totalConcluidas} concluída${totalConcluidas === 1 ? '' : 's'} (veja no calendário)</span>` : ''}
   `;
@@ -3637,25 +3729,7 @@ function editarAgendamento(id) {
 }
 
 async function salvarEdicaoAgendamento(id) {
-  const dados = {
-    tipo: document.getElementById('tipoAgendamento').value,
-    nome: document.getElementById('nomeCliente').value.trim(),
-    cpf: document.getElementById('cpf').value.trim(),
-    telefone: document.getElementById('telefone').value.trim(),
-    empreendimento: document.getElementById('empreendimento').value.trim(),
-    construtora: document.getElementById('construtora').value.trim(),
-    valor: document.getElementById('valorVistoria').value,
-    formaPagamento: document.getElementById('formaPagamento').value,
-    endereco: document.getElementById('endereco').value.trim(),
-    bloco: document.getElementById('bloco').value.trim(),
-    apto: document.getElementById('apto').value.trim(),
-    cep: document.getElementById('cep').value.trim(),
-    cidade: document.getElementById('cidade').value.trim(),
-    metragem: document.getElementById('metragem').value.trim(),
-    data: document.getElementById('dataVistoria').value,
-    hora: document.getElementById('horaVistoria').value,
-    comodos: document.getElementById('comodos').value.trim()
-  };
+  const dados = lerDadosFormulario();
   if (!dados.nome) { alert('Informe pelo menos o nome do cliente.'); return; }
   try {
     await fetch(`/agenda?id=${encodeURIComponent(id)}`, {
@@ -3682,6 +3756,7 @@ function novaVistoria() {
   atualizarBotaoCancelarDados();
   ['nomeCliente','cpf','telefone','empreendimento','construtora','endereco','bloco','apto','cep','cidade','metragem','obsGeral','valorVistoria'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('comodos').value = COMODOS_PADRAO;
+  preencherCamposConstatacao({});
   document.getElementById('dataVistoria').value=new Date().toISOString().split('T')[0];
   document.getElementById('horaVistoria').value='';
   document.getElementById('formaPagamento').value='';
@@ -3790,13 +3865,14 @@ function renderFinanceiro() {
 
   const doMes = laudosDoMes(ano, mes);
   const total = doMes.reduce((soma, l) => soma + parseValorBR(l.valor), 0);
-  const qtdVistoria = doMes.filter(l => l.tipo !== 'Revistoria' && l.tipo !== 'Locação').length;
+  const qtdVistoria = doMes.filter(l => !['Revistoria', 'Locação', 'Constatação'].includes(l.tipo)).length;
+  const qtdConstatacao = doMes.filter(l => l.tipo === 'Constatação').length;
   const qtdRevistoria = doMes.filter(l => l.tipo === 'Revistoria').length;
   const qtdLocacao = doMes.filter(l => l.tipo === 'Locação').length;
 
   document.getElementById('financeiroTotalValor').textContent = formatarBRL(total);
   document.getElementById('financeiroTotalQtd').textContent = doMes.length;
-  document.getElementById('financeiroTotalQtdDetalhe').textContent = `${qtdVistoria} vistoria${qtdVistoria === 1 ? '' : 's'} · ${qtdRevistoria} revistoria${qtdRevistoria === 1 ? '' : 's'}${qtdLocacao > 0 ? ` · ${qtdLocacao} loca${qtdLocacao === 1 ? 'ção' : 'ções'}` : ''}`;
+  document.getElementById('financeiroTotalQtdDetalhe').textContent = `${qtdVistoria} vistoria${qtdVistoria === 1 ? '' : 's'} · ${qtdRevistoria} revistoria${qtdRevistoria === 1 ? '' : 's'}${qtdLocacao > 0 ? ` · ${qtdLocacao} loca${qtdLocacao === 1 ? 'ção' : 'ções'}` : ''}${qtdConstatacao > 0 ? ` · ${qtdConstatacao} constataç${qtdConstatacao === 1 ? 'ão' : 'ões'}` : ''}`;
 
   // Previsto pro mês — agendamentos com data marcada dentro do mês visualizado
   const agendaMes = agendaDoMes(ano, mes);

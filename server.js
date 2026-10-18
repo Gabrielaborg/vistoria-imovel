@@ -8,6 +8,7 @@ const { execSync } = require('child_process');
 const PORT = 3000;
 const OUTPUT_DIR = path.join(__dirname, 'laudos_gerados');
 const COVER_IMG = path.join(__dirname, 'cover_page.png');
+const COVER_CONSTATACAO_IMG = path.join(__dirname, 'cover_constatacao.jpg'); // capa "Laudo de Constatação"
 const FOOTER_IMG = path.join(__dirname, 'footer_bar.jpeg');
 const LOGO_IMG = path.join(__dirname, 'logo.png');
 const HISTORICO_FILE = path.join(OUTPUT_DIR, 'historico.json');
@@ -146,6 +147,21 @@ async function chamarClaude({ system, messages, maxTokens = 300, model = 'claude
   return blocosDeTexto.join('\n').trim();
 }
 
+// Para textos longos e técnicos (conclusão do Laudo de Constatação, anamnese), usa
+// um modelo mais capaz; se ele não estiver disponível na conta, cai pro Haiku, que
+// já é usado no resto do app — assim a geração nunca trava por causa do modelo.
+// Dá pra trocar o modelo principal em Railway: Service > Variables > MODELO_LAUDO_TECNICO
+const MODELO_LAUDO_TECNICO = process.env.MODELO_LAUDO_TECNICO || 'claude-sonnet-4-5';
+async function chamarClaudeTecnico(opcoes) {
+  const modelos = [MODELO_LAUDO_TECNICO, 'claude-haiku-4-5-20251001'];
+  let ultimoErro = null;
+  for (const model of [...new Set(modelos)]) {
+    try { return await chamarClaude({ ...opcoes, model }); }
+    catch (e) { ultimoErro = e; console.error(`Modelo ${model} falhou, tentando o próximo:`, e.message); }
+  }
+  throw ultimoErro;
+}
+
 // Lê o corpo (body) de uma requisição POST como JSON
 function lerCorpoJSON(req) {
   return new Promise((resolve, reject) => {
@@ -168,7 +184,9 @@ function lerCorpoJSON(req) {
 // cômodos, eram 8 chamadas separadas só pra essa parte. Consolidar tudo numa
 // chamada só, usando o modelo mais econômico (Haiku, que já dá conta bem desse
 // tipo de tarefa de organizar texto), reduz bastante o custo por laudo.
-async function gerarResumosDosAmbientes(listaAmbientes, ehLocacao) {
+async function gerarResumosDosAmbientes(listaAmbientes, tipoVistoria) {
+  const ehLocacao = tipoVistoria === 'Locação';
+  const ehConstatacao = tipoVistoria === 'Constatação';
   // listaAmbientes: [{ ambiente, defeitos, inicioImg, fimImg, classificacaoPorDefeito }, ...]
   const comDefeitos = listaAmbientes.filter(a => a.defeitos && a.defeitos.length > 0);
   const resultado = {};
@@ -188,7 +206,9 @@ async function gerarResumosDosAmbientes(listaAmbientes, ehLocacao) {
     return `### Ambiente ${idx} — ${a.ambiente} (imagens ${faixaTexto})\n${listaTexto}`;
   }).join('\n\n');
 
-  const system = ehLocacao
+  const system = ehConstatacao
+    ? 'Você é um(a) engenheiro(a) civil redigindo as seções de ambientes de um LAUDO DE CONSTATAÇÃO de imóvel (registro técnico, por inspeção exclusivamente visual, das manifestações patológicas, danos e não conformidades aparentes), seguindo a ABNT NBR 16747:2020, a ABNT NBR 15575 e normas correlatas (NBR 6118, NBR 7190, NBR 9575, NBR 13749, NBR 13753, NBR 5626, NBR 5410, NBR 10844), além dos conceitos do IBAPE Nacional. Você vai receber VÁRIOS ambientes de uma vez, cada um com suas constatações numeradas. Responda SOMENTE com um JSON válido, sem markdown, sem texto antes ou depois, no formato exato: {"ambientes": [{"paragrafo": "...", "legendas": ["...", "..."]}, ...]}. O array "ambientes" deve ter EXATAMENTE um item por ambiente informado, NA MESMA ORDEM em que foram apresentados. Em cada item: "paragrafo" é um único parágrafo fluido e técnico (não uma lista, não repita os textos originais colados um atrás do outro) descrevendo TODAS as manifestações constatadas naquele ambiente, citando a norma ABNT mais pertinente quando fizer sentido, usando linguagem cautelosa quanto à origem (ex: "compatível com", "indícios de") sem afirmar causa ou responsável de forma categórica, e mencionando que as constatações estão registradas nas imagens indicadas daquele ambiente, que integram o laudo. "legendas" deve ter EXATAMENTE um item por constatação daquele ambiente, na mesma ordem, cada uma uma legenda curta (até 10 palavras) descrevendo objetivamente o que a foto mostra (ex: "Marcas de infiltração por capilaridade e bolor").'
+    : ehLocacao
     ? 'Você é um(a) engenheiro(a) civil redigindo as seções de ambientes de um laudo técnico de VISTORIA DE LOCAÇÃO de imóvel (não é vistoria de entrega de obra nova), considerando as disposições da Lei nº 8.245/1991 (Lei do Inquilinato). Você vai receber VÁRIOS ambientes de uma vez, cada um com suas constatações numeradas — algumas trazem entre colchetes a classificação já definida pela pessoa (ex: Avaria, Desgaste natural, Necessita manutenção, Sinal de umidade/infiltração, Estado de conservação, Funcionamento, Não testado, Não acessível). Responda SOMENTE com um JSON válido, sem markdown, sem texto antes ou depois, no formato exato: {"ambientes": [{"paragrafo": "...", "legendas": ["...", "..."]}, ...]}. O array "ambientes" deve ter EXATAMENTE um item por ambiente informado, NA MESMA ORDEM em que foram apresentados. Em cada item: "paragrafo" é um único parágrafo fluido (não uma lista) sintetizando TODAS as constatações daquele ambiente, mencionando de forma natural a classificação de cada uma quando informada (ex: "trata-se de condição associada a desgaste natural", "constatação classificada como avaria"), SEM atribuir culpa/responsabilidade ao locatário de forma direta, e mencionando que os itens estão registrados nas imagens indicadas daquele ambiente, que integram o laudo. "legendas" deve ter EXATAMENTE um item por constatação daquele ambiente, na mesma ordem, cada uma uma legenda curta (até 8 palavras) descrevendo objetivamente aquele item.'
     : 'Você é um(a) engenheiro(a) civil redigindo as seções de ambientes de um laudo técnico de vistoria de imóvel, seguindo o estilo formal de normas ABNT (NBR 15575, NBR 13753, NBR 13755 e correlatas) e do IBAPE Nacional. Você vai receber VÁRIOS ambientes de uma vez, cada um com seus defeitos numerados. Responda SOMENTE com um JSON válido, sem markdown, sem texto antes ou depois, no formato exato: {"ambientes": [{"paragrafo": "...", "legendas": ["...", "..."]}, ...]}. O array "ambientes" deve ter EXATAMENTE um item por ambiente informado, NA MESMA ORDEM em que foram apresentados. Em cada item: "paragrafo" é um único parágrafo fluido (não uma lista, não repita os textos originais colados um atrás do outro) sintetizando TODOS os defeitos daquele ambiente, citando a norma ABNT mais pertinente quando fizer sentido, e mencionando que as não conformidades estão registradas nas imagens indicadas daquele ambiente, que integram o laudo. "legendas" deve ter EXATAMENTE um item por defeito daquele ambiente, na mesma ordem, cada um uma legenda curta (até 8 palavras) descrevendo objetivamente aquele defeito específico — se o texto original mencionar uma cor de adesivo/fita, a legenda deve citar essa cor (ex: "Adesivo verde indica cerâmica oca").';
   const mensagem = `Ambientes da vistoria:\n\n${blocos}`;
@@ -223,16 +243,176 @@ async function gerarResumosDosAmbientes(listaAmbientes, ehLocacao) {
   throw ultimoErro;
 }
 
+// Tipos de documento que podem ser marcados como entregues no Laudo de Constatação.
+// A ordem aqui é a ordem em que aparecem no laudo.
+const DOCUMENTOS_PROJETOS = [
+  'Projeto arquitetônico', 'Projeto estrutural', 'Projeto de fundações', 'Projeto hidrossanitário',
+  'Projeto elétrico', 'Projeto de impermeabilização', 'Projeto de prevenção e combate a incêndio (PPCI)',
+  'Projeto de águas pluviais', 'Projeto de gás', 'Projeto de climatização'
+];
+const DOCUMENTOS_GERAIS = [
+  'Memorial descritivo', 'Manual de uso, operação e manutenção (manual do proprietário)',
+  'Contrato', 'Matrícula do imóvel'
+];
+
+// Quebra um texto digitado em parágrafos (linha em branco ou quebra simples).
+function emParagrafos(texto) {
+  return String(texto || '').split(/\n+/).map(p => p.trim()).filter(Boolean);
+}
+
+// Monta o corpo do Laudo de Constatação, seguindo o modelo da G&G Engenharia:
+// Identificação → Objetivo → Dados iniciais (endereço, localização, vistoria, data)
+// → Planta → Documentos entregues → Anamnese → Metodologia → Registro fotográfico
+// → (Outras observações) → Conclusão → Assinatura. A numeração das seções é
+// calculada na hora, então seções opcionais (planta, observações) não deixam buraco.
+function montarConteudoConstatacao({ dados, dataFmt, endFull, mapaParagraphs, plantaBase64, plantaMediaType, registrosParagraphs, obsGeral, conclusaoIA, h }) {
+  const { B, N, br, indent, secNum, subNum, bodyP, bodyBold, bulletP, defP, Paragraph, ImageRun, AlignmentType } = h;
+  let n = 0;
+  const sec = (titulo) => secNum(++n, titulo);
+  const out = [];
+  const nome = dados.nome || 'Cliente';
+
+  // 1. IDENTIFICAÇÃO
+  out.push(sec('IDENTIFICAÇÃO DO CONTRATANTE'));
+  out.push(bodyP(`${nome}, portador(a) do CPF nº ${dados.cpf || '—'}${dados.telefone ? `, telefone ${dados.telefone}` : ''}, referente ao imóvel localizado na ${endFull || '—'}${dados.matricula ? `, matrícula nº ${dados.matricula}` : ''}, solicitou a elaboração do presente Laudo de Constatação, com a finalidade de registrar as condições aparentes do imóvel na data da inspeção, documentando visualmente as manifestações patológicas, danos e demais não conformidades observadas.`));
+  out.push(br());
+
+  // 2. OBJETIVO
+  out.push(sec('OBJETIVO'));
+  out.push(bodyP('O presente Laudo de Constatação tem por objetivo registrar, de forma técnica, objetiva e ilustrada, as condições aparentes do imóvel na data da inspeção, identificando manifestações patológicas, danos e demais inconformidades visíveis.'));
+  out.push(bodyP('A avaliação restringe-se às condições perceptíveis por inspeção visual, não contemplando a realização de ensaios, testes de desempenho, medições instrumentais, abertura de elementos construtivos ou quaisquer procedimentos invasivos.'));
+  out.push(bodyP('As constatações apresentadas neste documento representam o estado observado no momento da inspeção, servindo como registro técnico das evidências encontradas, sem estabelecer, de forma conclusiva, a origem, causa, responsabilidade ou extensão dos danos identificados, as quais dependem, quando necessário, de investigação complementar específica.'));
+  out.push(br());
+
+  // 3. DADOS INICIAIS
+  const s3 = ++n;
+  out.push(secNum(s3, 'DADOS INICIAIS'));
+  out.push(subNum(`${s3}.1`, 'Identificação'));
+  out.push(bodyBold('Endereço: ', endFull || '—'));
+  if (dados.matricula) out.push(bodyBold('Matrícula do imóvel: ', dados.matricula));
+  out.push(...mapaParagraphs);
+  out.push(br());
+  out.push(subNum(`${s3}.2`, 'Realização da vistoria'));
+  out.push(bodyP('Responsável: Engenheira Civil Gabriela Soares Borges'));
+  out.push(bodyP('Registro CREA: 427760MG'));
+  out.push(br());
+  out.push(subNum(`${s3}.3`, 'Data da vistoria'));
+  out.push(bodyP(`A vistoria foi realizada dia ${dataFmt}.`));
+  out.push(br());
+
+  // 4. PLANTA (se houver)
+  if (plantaBase64) {
+    try {
+      const plantaBuf = Buffer.from(plantaBase64, 'base64');
+      out.push(sec('PLANTA DO IMÓVEL'));
+      out.push(bodyP('Abaixo, apresenta-se croqui/planta da unidade vistoriada:'));
+      out.push(new Paragraph({
+        children: [new ImageRun({ data: plantaBuf, transformation: { width: 420, height: 300 }, type: plantaMediaType === 'image/png' ? 'png' : 'jpg' })],
+        alignment: AlignmentType.CENTER, spacing: { before: 100, after: 60 }
+      }));
+      out.push(new Paragraph({ children: [N('Planta / croqui do imóvel', 20)], alignment: AlignmentType.CENTER, spacing: { after: 160 } }));
+      out.push(br());
+    } catch (e) { console.error('Planta error:', e.message); }
+  }
+
+  // 5. DOCUMENTOS ENTREGUES
+  const docs = Array.isArray(dados.documentos) ? dados.documentos : [];
+  const projetos = DOCUMENTOS_PROJETOS.filter(d => docs.includes(d));
+  const gerais = DOCUMENTOS_GERAIS.filter(d => docs.includes(d));
+  const outrosDocs = emParagrafos(dados.documentosOutros);
+  const faltando = [
+    ...(projetos.length === 0 ? ['projetos'] : []),
+    ...DOCUMENTOS_GERAIS.filter(d => !docs.includes(d)).map(d => d.split(' (')[0].toLowerCase())
+  ];
+  out.push(sec('DOCUMENTOS ENTREGUES'));
+  if (projetos.length + gerais.length + outrosDocs.length === 0) {
+    out.push(bodyP('Não foram disponibilizados pelo(a) contratante projetos, memorial descritivo, manual de uso, operação e manutenção, contrato ou matrícula do imóvel. Dessa forma, a análise baseou-se exclusivamente na inspeção visual realizada e nas informações prestadas na anamnese, não sendo possível confrontar as condições observadas com as especificações de projeto.'));
+  } else {
+    out.push(bodyP('Para a elaboração do presente laudo, foram disponibilizados pelo(a) contratante os seguintes documentos, considerados como referência na análise técnica:'));
+    if (projetos.length) {
+      out.push(new Paragraph({ children: [B('Projetos:', 20)], indent, spacing: { before: 60, after: 40 } }));
+      projetos.forEach(d => out.push(bulletP(d + ';')));
+    }
+    if (projetos.length && (gerais.length || outrosDocs.length)) {
+      out.push(new Paragraph({ children: [B('Demais documentos:', 20)], indent, spacing: { before: 60, after: 40 } }));
+    }
+    gerais.forEach(d => out.push(bulletP(d + ';')));
+    outrosDocs.forEach(d => out.push(bulletP(d.replace(/[;,.]$/, '') + ';')));
+    if (faltando.length) {
+      out.push(bodyP(`Não foram disponibilizados: ${faltando.join(', ')}. As constatações relativas a esses itens baseiam-se exclusivamente na inspeção visual e nas informações prestadas pelo(a) contratante.`));
+    }
+  }
+  out.push(br());
+
+  // 6. ANAMNESE
+  out.push(sec('ANAMNESE'));
+  const anamnese = emParagrafos(dados.anamnese);
+  if (anamnese.length) anamnese.forEach(p => out.push(bodyP(p)));
+  else out.push(bodyP('Não foram prestadas informações adicionais pelo(a) contratante quanto ao histórico do imóvel, intervenções anteriores ou surgimento das manifestações observadas.'));
+  out.push(br());
+
+  // 7. METODOLOGIA
+  out.push(sec('ELABORAÇÃO DO RELATÓRIO'));
+  out.push(bodyP('A elaboração do presente laudo de constatação foi realizada com base na identificação dos elementos construtivos aparentes, sua localização dentro do imóvel e as manifestações patológicas visíveis no momento da inspeção.'));
+  out.push(bodyP('Durante a vistoria, foram observados pontos de não conformidade, anomalias, falhas e manifestações patológicas que podem comprometer o desempenho, a segurança e a durabilidade dos sistemas e materiais da edificação.'));
+  out.push(bodyP('A inspeção foi feita com base nos princípios estabelecidos pela ABNT NBR 16747:2020 – Diretrizes para inspeção predial, na ABNT NBR 5674:2024 – Manutenção de edificações, na ABNT NBR 15575 – Edificações habitacionais: Desempenho, e também conforme os conceitos definidos pelo IBAPE Nacional.'));
+  out.push(bodyP('Considerando que alguns termos utilizados neste documento podem não ser de conhecimento geral, seguem abaixo os principais conceitos utilizados ao longo do relatório:'));
+  out.push(defP('Anomalia', 'Irregularidade que compromete o desempenho de um elemento ou sistema da edificação. Pode ter origem no projeto, execução, uso ou manutenção inadequada.'));
+  out.push(defP('Manifestação Patológica', 'Sinais visíveis de degradação, como fissuras, manchas, destacamentos, entre outros.'));
+  out.push(defP('Agente de Degradação', 'Fatores (naturais, físicos ou químicos) que contribuem para a deterioração dos elementos construtivos.'));
+  out.push(defP('Falha', 'Perda da função de um componente, seja por uso indevido, má execução ou falta de manutenção.'));
+  out.push(defP('Desempenho', 'Comportamento da edificação e seus sistemas durante o uso, frente às solicitações normais esperadas ao longo de sua vida útil.'));
+  out.push(defP('Vida Útil (VU)', 'Período em que um sistema ou componente deve cumprir suas funções, conforme previsto em projeto e respeitada sua manutenção adequada.'));
+  out.push(defP('Plano de Manutenção', 'Documento técnico que organiza as ações necessárias de manutenção preventiva e corretiva de uma edificação.'));
+  out.push(br());
+
+  // 8. REGISTRO FOTOGRÁFICO
+  out.push(sec('REGISTRO FOTOGRÁFICO DAS CONSTATAÇÕES'));
+  out.push(bodyP(`A seguir, são apresentados os registros fotográficos das manifestações patológicas e não conformidades identificadas durante a vistoria realizada em ${dataFmt}, acompanhados da respectiva descrição técnica.`));
+  out.push(br());
+  out.push(...registrosParagraphs);
+
+  // OUTRAS OBSERVAÇÕES
+  if (obsGeral) {
+    out.push(sec('OUTRAS OBSERVAÇÕES'));
+    emParagrafos(obsGeral).forEach(p => out.push(bodyP(p)));
+    out.push(br());
+  }
+
+  // CONCLUSÃO
+  const conclusaoFixa = [
+    'O presente laudo teve por objetivo o registro técnico das condições aparentes do imóvel vistoriado, com a identificação das manifestações patológicas, danos e não conformidades visíveis na data da inspeção. A análise foi desenvolvida com base em inspeção exclusivamente visual e em critérios técnicos consagrados na engenharia civil, observando-se as diretrizes da ABNT NBR 16747:2020, da ABNT NBR 5674:2024 e os requisitos de desempenho, durabilidade e segurança da ABNT NBR 15575.',
+    'As manifestações registradas ao longo deste documento indicam comprometimento do desempenho dos sistemas construtivos afetados, em desacordo com os requisitos mínimos de habitabilidade, estanqueidade, segurança e durabilidade estabelecidos pela ABNT NBR 15575. A manutenção das condições observadas tende a promover a progressão das anomalias, com agravamento dos danos e redução da vida útil dos elementos afetados.',
+    'Recomenda-se que as anomalias constatadas sejam objeto de diagnóstico complementar, quando necessário, e de intervenções corretivas executadas por profissional habilitado, com acompanhamento técnico e observância às normas aplicáveis a cada sistema, de modo a eliminar as causas das manifestações e não apenas seus sintomas, evitando a recorrência das falhas e intervenções futuras de maior complexidade, risco e custo.'
+  ];
+  const conclusao = (conclusaoIA && conclusaoIA.trim()) ? conclusaoIA.trim().split(/\n\s*\n/).map(p => p.trim()).filter(Boolean) : conclusaoFixa;
+  out.push(sec('CONCLUSÃO'));
+  conclusao.forEach(p => out.push(bodyP(p)));
+  out.push(br());
+
+  // ASSINATURA
+  out.push(sec('ASSINATURA DO RESPONSÁVEL TÉCNICO'));
+  out.push(bodyP('Este Laudo Técnico de Constatação foi elaborado pela Engenheira Civil Gabriela Soares Borges.'));
+  out.push(br());
+  out.push(new Paragraph({ children: [N('_______________________________', 20)], alignment: AlignmentType.CENTER, spacing: { after: 60 } }));
+  out.push(new Paragraph({ children: [N('Gabriela Soares Borges', 20)], alignment: AlignmentType.CENTER, spacing: { after: 40 } }));
+  out.push(new Paragraph({ children: [N('Engenheira Civil · CREA: 427760MG', 20)], alignment: AlignmentType.CENTER, spacing: { after: 40 } }));
+  return out;
+}
+
 async function gerarDocx(payload) {
   const { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, Footer } = require('docx');
   const { dados, tipoVistoria, obsGeral, registros, plantaBase64, plantaMediaType, mapaBase64, mapaMediaType, conclusaoIA } = payload;
   const ehLocacao = tipoVistoria === 'Locação';
+  const ehConstatacao = tipoVistoria === 'Constatação';
 
   const dataFmt = dados.data
     ? new Date(dados.data + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })
     : new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
 
-  const coverImgData = fs.readFileSync(COVER_IMG);
+  const usarCapaConstatacao = ehConstatacao && fs.existsSync(COVER_CONSTATACAO_IMG);
+  const coverImgData = fs.readFileSync(usarCapaConstatacao ? COVER_CONSTATACAO_IMG : COVER_IMG);
+  const coverImgType = usarCapaConstatacao ? 'jpg' : 'png';
   const footerImgData = fs.readFileSync(FOOTER_IMG);
   const logoImgData = fs.readFileSync(LOGO_IMG);
 
@@ -305,7 +485,7 @@ async function gerarDocx(payload) {
   // sair no formato antigo (parágrafos repetidos); se a IA falhar mesmo depois
   // de tentar 2 vezes, a geração do laudo INTEIRO é interrompida aqui, e o app
   // do celular já trata isso (fila de reenvio automático) — nunca perde nada.
-  const resumosPorAmbiente = await gerarResumosDosAmbientes(ambientesInfo, ehLocacao);
+  const resumosPorAmbiente = await gerarResumosDosAmbientes(ambientesInfo, tipoVistoria);
 
   // 2ª passagem: agora sim monta o documento de verdade, usando os parágrafos e
   // legendas já prontos, na mesma ordem/numeração calculada na 1ª passagem.
@@ -425,6 +605,12 @@ async function gerarDocx(payload) {
     ? conclusaoIA.trim().split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
     : conclusaoTextoFixo;
 
+  // ─── LAUDO DE CONSTATAÇÃO (estrutura própria) ───────────
+  const childrenConstatacao = ehConstatacao ? montarConteudoConstatacao({
+    dados, dataFmt, endFull, mapaParagraphs, plantaBase64, plantaMediaType, registrosParagraphs, obsGeral, conclusaoIA,
+    h: { B, N, br, indent, secNum, subNum, bodyP, bodyBold, bulletP, defP, Paragraph, ImageRun, AlignmentType }
+  }) : null;
+
   const doc = new Document({
     sections: [
       // CAPA
@@ -432,7 +618,7 @@ async function gerarDocx(payload) {
         properties: { page: { size: { width: 11910, height: 16840 }, margin: { top: 0, right: 0, bottom: 0, left: 0 } } },
         children: [
           new Paragraph({
-            children: [new ImageRun({ data: coverImgData, transformation: { width: 794, height: 1123 }, type: 'png' })],
+            children: [new ImageRun({ data: coverImgData, transformation: { width: 794, height: 1123 }, type: coverImgType })],
             alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0 }
           })
         ]
@@ -441,7 +627,7 @@ async function gerarDocx(payload) {
       {
         properties: { page: { size: { width: 11910, height: 16840 }, margin: { top: 1134, right: 1134, bottom: 1134, left: 1134 } } },
         footers: { default: makeFooter() },
-        children: [
+        children: childrenConstatacao || [
           // 1. IDENTIFICAÇÃO
           secNum(1, 'IDENTIFICAÇÃO DO CONTRATANTE'),
           bodyP(ehLocacao
@@ -551,6 +737,52 @@ async function gerarDocx(payload) {
   });
 
   return Packer.toBuffer(doc);
+}
+
+// Conclusão ROBUSTA do Laudo de Constatação: usa os defeitos de cada ambiente,
+// a anamnese e os documentos entregues pra redigir uma conclusão no estilo
+// pericial, organizada por sistema construtivo e fundamentada nas normas ABNT.
+async function gerarConclusaoConstatacao({ registros, obsGeral, dados }) {
+  const porAmbiente = {};
+  (registros || []).forEach(r => { (porAmbiente[r.ambiente] = porAmbiente[r.ambiente] || []).push(r.defeito); });
+  const listaDefeitos = Object.entries(porAmbiente)
+    .map(([amb, defs]) => `${amb}:\n${[...new Set(defs)].map(d => `  - ${d}`).join('\n')}`)
+    .join('\n') || 'Nenhuma constatação registrada.';
+  const docs = Array.isArray(dados.documentos) ? dados.documentos : [];
+  const docsTexto = [...docs, ...emParagrafos(dados.documentosOutros)].join('; ') || 'Nenhum documento foi entregue.';
+
+  const system = `Você é um(a) engenheiro(a) civil perito(a), redigindo a seção CONCLUSÃO de um LAUDO DE CONSTATAÇÃO de imóvel, elaborado por inspeção exclusivamente visual (sem ensaios, cálculos ou procedimentos invasivos). A conclusão deve ser ROBUSTA, técnica e fundamentada em normas, no estilo de laudo pericial brasileiro.
+
+Estrutura obrigatória (em parágrafos corridos, sem títulos):
+1. Parágrafo de abertura: objetivo do laudo, natureza visual da inspeção e as normas que fundamentam a análise (escolha as pertinentes às constatações).
+2. Um parágrafo para CADA grupo de manifestações/sistema construtivo afetado (ex: umidade e infiltrações; cobertura e telhado; estrutura de concreto e armaduras; fissuras em alvenaria/lajes; revestimentos e pinturas; impermeabilização; instalações hidrossanitárias; instalações elétricas; esquadrias; intervenções/reparos executados). Em cada um: descreva o que foi constatado, explique tecnicamente o mecanismo provável e as consequências (usando linguagem cautelosa: "compatível com", "indícios de", "sugere"), e cite a norma ABNT aplicável e o requisito que deixa de ser atendido.
+3. Quando a anamnese relatar intervenções anteriores, relacione-as tecnicamente com o constatado (ex: reparo paliativo que não atua na causa), sem afirmar culpa de forma categórica.
+4. Se faltarem projetos ou documentos relevantes, registre a limitação que isso impõe à análise.
+5. Parágrafo de riscos (segurança dos usuários, progressão das patologias, redução da vida útil) quando pertinente.
+6. Parágrafo final conclusivo: as condições observadas não atendem aos requisitos de desempenho, segurança, estanqueidade e/ou durabilidade aplicáveis; recomendação de diagnóstico complementar/intervenções corretivas por profissional habilitado, atuando na causa raiz.
+
+Normas de referência (cite só as pertinentes, com número correto): ABNT NBR 16747:2020 (inspeção predial); NBR 5674:2024 (manutenção); NBR 15575 (desempenho de edificações habitacionais, partes 1 a 6); NBR 6118 (estruturas de concreto — durabilidade, cobrimento, corrosão de armaduras, estados-limite); NBR 7190 (estruturas de madeira); NBR 9575 e NBR 9574 (impermeabilização); NBR 13749 (revestimento de argamassa); NBR 13753/13754/13755 (revestimentos cerâmicos); NBR 15812 e NBR 16868 (alvenaria); NBR 5626 (água fria e quente); NBR 8160 (esgoto sanitário); NBR 10844 (águas pluviais, calhas e rufos); NBR 15575-5 (coberturas); NBR 5410 (instalações elétricas); NBR 10821 (esquadrias); NBR 6120 (cargas, ex: sobrecarga de reservatório).
+
+Regras: NÃO invente constatações, medidas, datas ou fatos que não estejam nas informações recebidas. Português formal, impessoal. Entre 6 e 10 parágrafos. Retorne SOMENTE os parágrafos, separados por uma linha em branco, sem títulos, sem markdown, sem numeração, sem listas.`;
+
+  const mensagem = `Contratante: ${dados.nome || 'não informado'}
+Imóvel: ${[dados.endereco, dados.cidade].filter(Boolean).join(', ') || 'não informado'}
+
+ANAMNESE (relato do contratante):
+${(dados.anamnese || '').trim() || 'Não informada.'}
+
+DOCUMENTOS ENTREGUES:
+${docsTexto}
+
+CONSTATAÇÕES REGISTRADAS NA VISTORIA (por ambiente):
+${listaDefeitos}
+
+OUTRAS OBSERVAÇÕES:
+${(obsGeral || '').trim() || 'Nenhuma'}
+
+Redija a conclusão do laudo.`;
+
+  return chamarClaudeTecnico({ maxTokens: 4000, system, messages: [{ role: 'user', content: mensagem }] });
 }
 
 // ── Login por senha única (protege dados de clientes) ──────
@@ -855,7 +1087,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
           const hist = lerHistorico();
-          const item = hist.find(h => h.arquivo === arquivoAlvo && pertenceAConta(h));
+          const item = hist.find(h => h.arquivo === arquivoAlvo);
           if (!item) throw new Error('Laudo não encontrado.');
           if (payload.valor !== undefined) item.valor = payload.valor;
           if (payload.formaPagamento !== undefined) item.formaPagamento = payload.formaPagamento;
@@ -949,8 +1181,13 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && req.url === '/gerar-conclusao') {
     try {
-      const { registros, tipoVistoria, obsGeral } = await lerCorpoJSON(req);
+      const { registros, tipoVistoria, obsGeral, dados } = await lerCorpoJSON(req);
       const ehLocacao = tipoVistoria === 'Locação';
+      if (tipoVistoria === 'Constatação') {
+        const texto = await gerarConclusaoConstatacao({ registros, obsGeral, dados: dados || {} });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ conclusao: texto.trim() }));
+      }
       const listaDefeitos = (registros || [])
         .map(r => `- ${r.ambiente}: ${r.defeito}`)
         .join('\n') || 'Nenhum defeito registrado.';
@@ -970,6 +1207,26 @@ const server = http.createServer(async (req, res) => {
       console.error('Erro em /gerar-conclusao:', e.message);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ conclusao: '' })); // falha silenciosa: server usa o texto padrão fixo
+    }
+  }
+
+  // Laudo de Constatação: transforma o relato informal do cliente (anotado às pressas
+  // na vistoria) num texto de ANAMNESE técnico e formal, no estilo dos laudos da G&G.
+  if (req.method === 'POST' && req.url === '/gerar-anamnese-texto') {
+    try {
+      const { relato, nome } = await lerCorpoJSON(req);
+      if (!relato || !relato.trim()) throw new Error('Relato vazio.');
+      const texto = await chamarClaudeTecnico({
+        maxTokens: 1500,
+        system: 'Você é um(a) engenheiro(a) civil redigindo a seção ANAMNESE de um Laudo de Constatação de imóvel. Vai receber anotações informais com o relato do(a) contratante sobre o histórico do imóvel e dos problemas. Reescreva em 2 a 5 parágrafos técnicos, formais e em terceira pessoa, iniciando com algo como "Conforme informações prestadas pelo(a) contratante..." ou "Segundo relato...", deixando claro que se trata de informação relatada (não constatada). Organize em ordem cronológica: motivo da solicitação, problemas originais, intervenções realizadas (por quem, quando), o que surgiu/piorou depois e as dúvidas/preocupações do(a) contratante. NÃO invente fatos, datas, nomes, quantidades ou causas que não estejam no relato — use apenas o que foi informado. Termine com um parágrafo dizendo que, diante desse cenário, foi solicitada a elaboração do presente Laudo de Constatação para registrar, por inspeção exclusivamente visual, as condições aparentes da edificação, sem ensaios, testes, cálculos estruturais, medições instrumentais ou procedimentos invasivos. Retorne SOMENTE os parágrafos, separados por uma linha em branco, sem título, sem markdown, sem numeração.',
+        messages: [{ role: 'user', content: `Contratante: ${nome || 'não informado'}\n\nAnotações do relato:\n${relato.trim()}` }]
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ texto: texto.trim() }));
+    } catch (e) {
+      console.error('Erro em /gerar-anamnese-texto:', e.message);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ erro: e.message }));
     }
   }
 
@@ -1006,7 +1263,6 @@ const server = http.createServer(async (req, res) => {
         if (!payload.dados || !payload.dados.nome) throw new Error('Nome do cliente é obrigatório.');
         const hist = lerHistorico();
         hist.push({
-          contaId: contaAtual.id,
           nome: payload.dados.nome,
           empreendimento: payload.dados.empreendimento || '',
           endereco: payload.dados.endereco || '',
