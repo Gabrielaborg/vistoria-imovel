@@ -37,6 +37,55 @@ function salvarHistorico(h) { fs.writeFileSync(HISTORICO_FILE, JSON.stringify(h,
 function lerAgenda() { try { return JSON.parse(fs.readFileSync(AGENDA_FILE, 'utf8')); } catch { return []; } }
 function salvarAgenda(a) { fs.writeFileSync(AGENDA_FILE, JSON.stringify(a, null, 2)); }
 
+// ── Vistorias não finalizadas (rascunhos) sincronizadas entre aparelhos ──
+// Cada aparelho continua guardando suas vistorias localmente (funciona sem
+// internet), e também envia uma cópia pra cá, assim todas aparecem em
+// qualquer aparelho. Estrutura no Volume:
+//   rascunhos/index.json              → resumo de cada vistoria (nome, tipo, versão...)
+//   rascunhos/<id>/estado.json        → dados da vistoria, SEM as imagens
+//   rascunhos/<id>/fotos/<fotoId>.json → cada foto, enviada uma única vez
+// Vistorias finalizadas/apagadas viram uma "lápide" no índice, pra que uma
+// cópia antiga em outro aparelho não faça a vistoria reaparecer sozinha.
+const RASC_DIR = path.join(OUTPUT_DIR, 'rascunhos');
+const RASC_INDEX = path.join(RASC_DIR, 'index.json');
+if (!fs.existsSync(RASC_DIR)) fs.mkdirSync(RASC_DIR, { recursive: true });
+const idValido = (id) => typeof id === 'string' && /^[A-Za-z0-9_]{1,100}$/.test(id);
+function lerIndiceRascunhos() { try { return JSON.parse(fs.readFileSync(RASC_INDEX, 'utf8')); } catch { return {}; } }
+function salvarIndiceRascunhos(idx) {
+  const tmp = RASC_INDEX + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(idx));
+  fs.renameSync(tmp, RASC_INDEX); // grava de forma atômica: nunca deixa o índice pela metade
+}
+const versaoRascunho = (r) => Math.max(r.atualizadoEm || 0, r.excluidoEm || 0, r.restauradoEm || 0);
+const pastaRascunho = (id) => path.join(RASC_DIR, id);
+const pastaFotosRascunho = (id) => path.join(RASC_DIR, id, 'fotos');
+function idsFotosDoEstado(st) {
+  const ids = [];
+  (st.registros || []).forEach(r => (r.fotos || []).forEach(f => f && f.id && ids.push(f.id)));
+  (st.fotosAtuais || []).forEach(f => f && f.id && ids.push(f.id));
+  return ids;
+}
+function apagarPastaRascunho(id) { try { fs.rmSync(pastaRascunho(id), { recursive: true, force: true }); } catch (e) { console.error('Falha ao apagar rascunho', id, e.message); } }
+
+// Apaga de vez vistorias não finalizadas que estão na lixeira há mais de 30 dias,
+// e esquece lápides com mais de 120 dias.
+function limparRascunhosAntigos() {
+  const idx = lerIndiceRascunhos();
+  const agora = Date.now();
+  let mudou = false;
+  for (const [id, m] of Object.entries(idx)) {
+    if (m.removidoEm && agora - m.removidoEm > 120 * 24 * 60 * 60 * 1000) { delete idx[id]; mudou = true; continue; }
+    if (!m.removidoEm && m.excluidoEm && agora - m.excluidoEm > 30 * 24 * 60 * 60 * 1000) {
+      apagarPastaRascunho(id);
+      idx[id] = { id, removidoEm: agora };
+      mudou = true;
+    }
+  }
+  if (mudou) salvarIndiceRascunhos(idx);
+}
+setTimeout(() => { try { limparRascunhosAntigos(); } catch (e) { console.error('Erro na limpeza de rascunhos:', e.message); } }, 60 * 1000);
+setInterval(() => { try { limparRascunhosAntigos(); } catch (e) { console.error('Erro na limpeza de rascunhos:', e.message); } }, 24 * 60 * 60 * 1000);
+
 // ── Compactação de laudos antigos (economiza espaço no Volume do Railway) ──
 
 // Compacta um arquivo com gzip (reduz bastante o tamanho, principalmente do .docx,
@@ -989,6 +1038,117 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ erro: e.message }));
+    }
+  }
+
+  // ── Vistorias não finalizadas: sincronização entre aparelhos ──
+  if (caminho.startsWith('/rascunhos')) {
+    const urlObj = new URL(req.url, `http://${req.headers.host}`);
+    const id = urlObj.searchParams.get('id');
+    const responder = (status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
+    try {
+      // Lista resumida de todas (inclusive as da lixeira e as lápides)
+      if (req.method === 'GET' && caminho === '/rascunhos') {
+        return responder(200, Object.values(lerIndiceRascunhos()));
+      }
+      if (!idValido(id)) return responder(400, { erro: 'Identificador inválido.' });
+
+      // Dados completos de uma vistoria (sem as imagens)
+      if (req.method === 'GET' && caminho === '/rascunhos/item') {
+        const meta = lerIndiceRascunhos()[id];
+        if (!meta || meta.removidoEm) return responder(404, { erro: 'Vistoria não encontrada no servidor.' });
+        const estado = JSON.parse(fs.readFileSync(path.join(pastaRascunho(id), 'estado.json'), 'utf8'));
+        return responder(200, { ...meta, state: estado });
+      }
+
+      // Envia/atualiza uma vistoria. Só aceita se for mais nova que a cópia daqui,
+      // assim um aparelho com cópia antiga nunca sobrescreve trabalho mais recente.
+      if (req.method === 'PUT' && caminho === '/rascunhos/item') {
+        const corpo = await lerCorpoJSON(req);
+        if (!corpo || !corpo.state) return responder(400, { erro: 'Dados ausentes.' });
+        const idx = lerIndiceRascunhos();
+        const atual = idx[id];
+        const novo = { atualizadoEm: corpo.atualizadoEm || 0, excluidoEm: corpo.excluidoEm || null, restauradoEm: corpo.restauradoEm || null };
+        if (atual && atual.removidoEm && versaoRascunho(novo) <= atual.removidoEm) return responder(200, { ok: false, removido: true, removidoEm: atual.removidoEm });
+        if (atual && !atual.removidoEm && versaoRascunho(novo) < versaoRascunho(atual)) return responder(200, { ok: false, maisAntigo: true });
+        fs.mkdirSync(pastaFotosRascunho(id), { recursive: true });
+        const estadoTmp = path.join(pastaRascunho(id), 'estado.json.tmp');
+        fs.writeFileSync(estadoTmp, JSON.stringify(corpo.state));
+        fs.renameSync(estadoTmp, path.join(pastaRascunho(id), 'estado.json'));
+        // Fotos que não fazem mais parte da vistoria (ex: removidas) saem do disco
+        const usadas = new Set(idsFotosDoEstado(corpo.state));
+        for (const arq of fs.readdirSync(pastaFotosRascunho(id))) {
+          if (!usadas.has(arq.replace(/\.json$/, ''))) { try { fs.unlinkSync(path.join(pastaFotosRascunho(id), arq)); } catch {} }
+        }
+        const d = corpo.state.dados || {};
+        idx[id] = {
+          id, ...novo,
+          nome: d.nome || '', tipo: d.tipo || '', locacaoModalidade: d.locacaoModalidade || '',
+          qtdRegistros: (corpo.state.registros || []).length, recebidoEm: Date.now()
+        };
+        salvarIndiceRascunhos(idx);
+        const fotosNoServidor = fs.readdirSync(pastaFotosRascunho(id)).map(a => a.replace(/\.json$/, ''));
+        return responder(200, { ok: true, fotos: fotosNoServidor });
+      }
+
+      // Quais fotos dessa vistoria já estão aqui (pra não reenviar)
+      if (req.method === 'GET' && caminho === '/rascunhos/fotos') {
+        const pasta = pastaFotosRascunho(id);
+        return responder(200, fs.existsSync(pasta) ? fs.readdirSync(pasta).map(a => a.replace(/\.json$/, '')) : []);
+      }
+
+      // Recebe um lote de fotos
+      if (req.method === 'POST' && caminho === '/rascunhos/fotos') {
+        const corpo = await lerCorpoJSON(req);
+        const meta = lerIndiceRascunhos()[id];
+        if (meta && meta.removidoEm) return responder(200, { ok: false, removido: true });
+        fs.mkdirSync(pastaFotosRascunho(id), { recursive: true });
+        let salvas = 0;
+        for (const f of (corpo.fotos || [])) {
+          if (!idValido(f.id) || !f.src) continue;
+          fs.writeFileSync(path.join(pastaFotosRascunho(id), f.id + '.json'), JSON.stringify({ src: f.src, thumb: f.thumb || null }));
+          salvas++;
+        }
+        return responder(200, { ok: true, salvas });
+      }
+
+      // Devolve um lote de fotos (pra abrir a vistoria em outro aparelho)
+      if (req.method === 'POST' && caminho === '/rascunhos/fotos/baixar') {
+        const corpo = await lerCorpoJSON(req);
+        const fotos = {};
+        for (const fid of (corpo.ids || [])) {
+          if (!idValido(fid)) continue;
+          const arq = path.join(pastaFotosRascunho(id), fid + '.json');
+          if (fs.existsSync(arq)) fotos[fid] = JSON.parse(fs.readFileSync(arq, 'utf8'));
+        }
+        return responder(200, { fotos });
+      }
+
+      // Mover pra lixeira / restaurar
+      if (req.method === 'POST' && caminho === '/rascunhos/acao') {
+        const acao = urlObj.searchParams.get('acao');
+        const idx = lerIndiceRascunhos();
+        const m = idx[id];
+        if (!m || m.removidoEm) return responder(200, { ok: false, naoEncontrado: true });
+        if (acao === 'excluir') m.excluidoEm = Date.now();
+        else if (acao === 'restaurar') { m.excluidoEm = null; m.restauradoEm = Date.now(); }
+        else return responder(400, { erro: 'Ação inválida.' });
+        salvarIndiceRascunhos(idx);
+        return responder(200, { ok: true, ...m });
+      }
+
+      // Apaga de vez (vistoria finalizada com laudo gerado, descartada ou apagada da lixeira)
+      if (req.method === 'DELETE' && caminho === '/rascunhos/item') {
+        const idx = lerIndiceRascunhos();
+        apagarPastaRascunho(id);
+        idx[id] = { id, removidoEm: Date.now() };
+        salvarIndiceRascunhos(idx);
+        return responder(200, { ok: true });
+      }
+      return responder(404, { erro: 'Rota não encontrada.' });
+    } catch (e) {
+      console.error('Erro em', caminho, e.message);
+      return responder(500, { erro: e.message });
     }
   }
 

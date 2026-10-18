@@ -867,8 +867,9 @@ async function salvarRascunho() {
     const db = await abrirDB();
     const tx = db.transaction(LOJA_RASCUNHOS, 'readwrite');
     tx.objectStore(LOJA_RASCUNHOS).put({ id: state.rascunhoId, atualizadoEm: Date.now(), state: state });
+    const idSalvo = state.rascunhoId;
     return new Promise(res => {
-      tx.oncomplete = () => res(true);
+      tx.oncomplete = () => { agendarEnvioRascunho(idSalvo); res(true); };
       tx.onerror = () => { console.error('Falha ao salvar rascunho local (transação):', tx.error); avisarFalhaAoSalvar(tx.error); res(false); };
     });
   } catch (e) {
@@ -879,31 +880,14 @@ async function salvarRascunho() {
 }
 
 // Lista as vistorias em andamento ATIVAS (não finalizadas, não excluídas),
-// mais recente primeiro.
+// juntando as deste aparelho com as salvas no servidor por outros aparelhos.
 async function listarRascunhos() {
-  try {
-    const db = await abrirDB();
-    const tx = db.transaction(LOJA_RASCUNHOS, 'readonly');
-    return new Promise(res => {
-      const req = tx.objectStore(LOJA_RASCUNHOS).getAll();
-      req.onsuccess = () => res((req.result || []).filter(r => !r.excluidoEm).sort((a, b) => b.atualizadoEm - a.atualizadoEm));
-      req.onerror = () => res([]);
-    });
-  } catch (e) { return []; }
+  return (await combinarRascunhos()).filter(r => !r.excluidoEm).sort((a, b) => b.atualizadoEm - a.atualizadoEm);
 }
 
-// Lista as vistorias em andamento que foram excluídas — ficam na Lixeira,
-// junto com os laudos concluídos excluídos, por 30 dias antes de sumir de vez.
+// Lista as vistorias em andamento que foram excluídas (Lixeira), deste e dos outros aparelhos.
 async function listarRascunhosLixeira() {
-  try {
-    const db = await abrirDB();
-    const tx = db.transaction(LOJA_RASCUNHOS, 'readonly');
-    return new Promise(res => {
-      const req = tx.objectStore(LOJA_RASCUNHOS).getAll();
-      req.onsuccess = () => res((req.result || []).filter(r => r.excluidoEm).sort((a, b) => b.excluidoEm - a.excluidoEm));
-      req.onerror = () => res([]);
-    });
-  } catch (e) { return []; }
+  return (await combinarRascunhos()).filter(r => r.excluidoEm).sort((a, b) => b.excluidoEm - a.excluidoEm);
 }
 
 // Apaga só a vistoria atual DE VERDADE (sem passar pela lixeira) — chamado só
@@ -914,6 +898,7 @@ async function limparRascunho() {
     const db = await abrirDB();
     const tx = db.transaction(LOJA_RASCUNHOS, 'readwrite');
     tx.objectStore(LOJA_RASCUNHOS).delete(state.rascunhoId);
+    apagarRascunhoServidor(state.rascunhoId);
   } catch (e) { console.error('Falha ao limpar rascunho local:', e); }
 }
 
@@ -929,7 +914,8 @@ async function excluirRascunhoPorId(id) {
       const item = getReq.result;
       if (item) { item.excluidoEm = Date.now(); store.put(item); }
     };
-    return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+    await new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+    await acaoRascunhoServidor(id, 'excluir');
   } catch (e) { console.error('Falha ao excluir rascunho:', e); }
 }
 
@@ -943,9 +929,10 @@ async function restaurarRascunho(id) {
     const getReq = store.get(id);
     getReq.onsuccess = () => {
       const item = getReq.result;
-      if (item) { delete item.excluidoEm; store.put(item); }
+      if (item) { delete item.excluidoEm; item.restauradoEm = Date.now(); store.put(item); }
     };
-    return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+    await new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+    await acaoRascunhoServidor(id, 'restaurar');
   } catch (e) { console.error('Falha ao restaurar rascunho:', e); }
 }
 
@@ -955,7 +942,8 @@ async function excluirRascunhoPermanente(id) {
     const db = await abrirDB();
     const tx = db.transaction(LOJA_RASCUNHOS, 'readwrite');
     tx.objectStore(LOJA_RASCUNHOS).delete(id);
-    return new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+    await new Promise(res => { tx.oncomplete = res; tx.onerror = res; });
+    await apagarRascunhoServidor(id);
   } catch (e) { console.error('Falha ao excluir rascunho definitivamente:', e); }
 }
 
@@ -965,13 +953,220 @@ async function limparRascunhosLixeiraAntiga() {
   try {
     const TRINTA_DIAS_MS = 30 * 24 * 60 * 60 * 1000;
     const agora = Date.now();
-    const lixeira = await listarRascunhosLixeira();
+    const lixeira = (await listarRascunhosLocais()).filter(r => r.excluidoEm);
     for (const item of lixeira) {
       if ((agora - item.excluidoEm) >= TRINTA_DIAS_MS) await excluirRascunhoPermanente(item.id);
     }
   } catch (e) { console.error('Falha ao limpar lixeira de rascunhos antigos:', e); }
 }
 
+
+// ══════════════════════════════════════════════════════════════
+// SINCRONIZAÇÃO DAS VISTORIAS NÃO FINALIZADAS ENTRE APARELHOS
+// Cada aparelho continua salvando tudo localmente (funciona sem internet) e
+// também manda uma cópia pro servidor. Assim, uma vistoria começada no celular
+// aparece no computador e vice-versa. Regras de segurança:
+//  • Nada local é apagado pela sincronização — só se envia e se baixa.
+//  • Cada foto sobe UMA vez só; depois, cada salvamento envia só os dados (leve).
+//  • A cópia mais nova sempre vence; uma cópia antiga nunca sobrescreve a nova.
+//  • Vistoria finalizada em outro aparelho vai pra Lixeira aqui (dá pra restaurar).
+// ══════════════════════════════════════════════════════════════
+const SYNC_ESPERA_MS = 6000;
+const fotosNoServidor = {};   // rascunhoId -> Set de ids de foto já enviadas
+const timersSync = {};
+const syncEmAndamento = {};
+const syncRepetir = {};
+let ultimoStatusServidor = {}; // id -> resumo vindo do servidor (pra mostrar status na lista)
+
+function versaoRascunho(r) { return Math.max((r && r.atualizadoEm) || 0, (r && r.excluidoEm) || 0, (r && r.restauradoEm) || 0); }
+
+function fotosDoEstado(st) {
+  const out = [];
+  ((st && st.registros) || []).forEach(r => (r.fotos || []).forEach(f => f && out.push(f)));
+  ((st && st.fotosAtuais) || []).forEach(f => f && out.push(f));
+  return out;
+}
+
+// Cópia dos dados SEM as imagens (que vão separadas, uma vez só)
+function estadoSemImagens(st) {
+  const semImagem = ({ src, thumb, ...resto }) => ({ ...resto, noServidor: true });
+  return { ...st, registros: (st.registros || []).map(r => ({ ...r, fotos: (r.fotos || []).map(semImagem) })), fotosAtuais: (st.fotosAtuais || []).map(semImagem) };
+}
+
+async function listarRascunhosLocais() {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA_RASCUNHOS, 'readonly');
+    return new Promise(res => {
+      const req = tx.objectStore(LOJA_RASCUNHOS).getAll();
+      req.onsuccess = () => res(req.result || []);
+      req.onerror = () => res([]);
+    });
+  } catch (e) { return []; }
+}
+async function lerRascunhoLocal(id) {
+  try {
+    const db = await abrirDB();
+    const tx = db.transaction(LOJA_RASCUNHOS, 'readonly');
+    return new Promise(res => { const req = tx.objectStore(LOJA_RASCUNHOS).get(id); req.onsuccess = () => res(req.result || null); req.onerror = () => res(null); });
+  } catch (e) { return null; }
+}
+async function gravarRascunhoLocal(reg) {
+  const db = await abrirDB();
+  const tx = db.transaction(LOJA_RASCUNHOS, 'readwrite');
+  tx.objectStore(LOJA_RASCUNHOS).put(reg);
+  return new Promise((res, rej) => { tx.oncomplete = () => res(true); tx.onerror = () => rej(tx.error); });
+}
+
+function agendarEnvioRascunho(id) {
+  if (!id) return;
+  clearTimeout(timersSync[id]);
+  timersSync[id] = setTimeout(() => { delete timersSync[id]; enviarRascunhoServidor(id); }, SYNC_ESPERA_MS);
+}
+// Ao minimizar/fechar o app, envia na hora o que estiver esperando
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'hidden') return;
+  Object.keys(timersSync).forEach(id => { clearTimeout(timersSync[id]); delete timersSync[id]; enviarRascunhoServidor(id); });
+});
+window.addEventListener('online', () => sincronizarRascunhos());
+
+async function enviarRascunhoServidor(id) {
+  if (syncEmAndamento[id]) { syncRepetir[id] = true; return false; }
+  syncEmAndamento[id] = true;
+  try {
+    const reg = await lerRascunhoLocal(id);
+    if (!reg || !reg.state) return false;
+    // Garante que toda foto tem identificador (vistorias bem antigas podem não ter)
+    let ajustou = false;
+    fotosDoEstado(reg.state).forEach(f => { if (!f.id) { f.id = 'p' + Date.now() + Math.random().toString(36).slice(2); ajustou = true; } });
+    if (ajustou) await gravarRascunhoLocal(reg);
+
+    let conhecidas = fotosNoServidor[id];
+    if (!conhecidas) {
+      const r = await fetch(`/rascunhos/fotos?id=${encodeURIComponent(id)}`);
+      if (!r.ok) throw new Error('servidor respondeu ' + r.status);
+      conhecidas = fotosNoServidor[id] = new Set(await r.json());
+    }
+    const faltando = fotosDoEstado(reg.state).filter(f => f.src && !conhecidas.has(f.id));
+    for (let i = 0; i < faltando.length; i += 4) {
+      const lote = faltando.slice(i, i + 4);
+      const r = await fetch(`/rascunhos/fotos?id=${encodeURIComponent(id)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fotos: lote.map(f => ({ id: f.id, src: f.src, thumb: f.thumb || null })) })
+      });
+      if (!r.ok) throw new Error('falha ao enviar fotos (' + r.status + ')');
+      const d = await r.json();
+      if (d.removido) return false;
+      lote.forEach(f => conhecidas.add(f.id));
+    }
+    const r = await fetch(`/rascunhos/item?id=${encodeURIComponent(id)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ atualizadoEm: reg.atualizadoEm, excluidoEm: reg.excluidoEm || null, restauradoEm: reg.restauradoEm || null, state: estadoSemImagens(reg.state) })
+    });
+    if (!r.ok) throw new Error('servidor respondeu ' + r.status);
+    const d = await r.json();
+    if (d.ok && Array.isArray(d.fotos)) fotosNoServidor[id] = new Set(d.fotos);
+    if (d.ok) ultimoStatusServidor[id] = { id, atualizadoEm: reg.atualizadoEm, excluidoEm: reg.excluidoEm || null, restauradoEm: reg.restauradoEm || null };
+    return !!d.ok;
+  } catch (e) {
+    console.warn('Vistoria', id, 'ainda não foi enviada ao servidor (tenta de novo depois):', e.message);
+    return false;
+  } finally {
+    syncEmAndamento[id] = false;
+    if (syncRepetir[id]) { syncRepetir[id] = false; agendarEnvioRascunho(id); }
+  }
+}
+
+// Baixa uma vistoria do servidor (com as fotos) e guarda neste aparelho
+async function baixarRascunhoServidor(id, aoProgredir) {
+  const r = await fetch(`/rascunhos/item?id=${encodeURIComponent(id)}`);
+  if (!r.ok) throw new Error('não encontrada no servidor');
+  const reg = await r.json();
+  const fotos = fotosDoEstado(reg.state);
+  const ids = [...new Set(fotos.map(f => f.id))];
+  const mapa = {};
+  for (let i = 0; i < ids.length; i += 6) {
+    if (aoProgredir) aoProgredir(i, ids.length);
+    const rr = await fetch(`/rascunhos/fotos/baixar?id=${encodeURIComponent(id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids.slice(i, i + 6) })
+    });
+    if (!rr.ok) throw new Error('falha ao baixar fotos');
+    Object.assign(mapa, (await rr.json()).fotos || {});
+  }
+  fotos.forEach(f => { const x = mapa[f.id]; if (x) { f.src = x.src; f.thumb = x.thumb || x.src; delete f.noServidor; } });
+  const faltam = fotos.filter(f => !f.src).length;
+  if (faltam) throw new Error(`${faltam} foto(s) não puderam ser baixadas`);
+  const local = { id, atualizadoEm: reg.atualizadoEm, state: reg.state };
+  if (reg.excluidoEm) local.excluidoEm = reg.excluidoEm;
+  if (reg.restauradoEm) local.restauradoEm = reg.restauradoEm;
+  await gravarRascunhoLocal(local);
+  fotosNoServidor[id] = new Set(ids);
+  return local;
+}
+
+async function acaoRascunhoServidor(id, acao) {
+  try { await fetch(`/rascunhos/acao?id=${encodeURIComponent(id)}&acao=${acao}`, { method: 'POST' }); } catch (e) { /* sem internet: a versão local é reenviada depois */ }
+}
+async function apagarRascunhoServidor(id) {
+  if (!id) return;
+  clearTimeout(timersSync[id]); delete timersSync[id];
+  try { await fetch(`/rascunhos/item?id=${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (e) { /* sem internet */ }
+}
+
+// Junta as vistorias deste aparelho com as do servidor, no formato usado pelas telas.
+async function combinarRascunhos() {
+  const [locais, remotos] = await Promise.all([
+    listarRascunhosLocais(),
+    fetch('/rascunhos').then(r => r.ok ? r.json() : null).catch(() => null)
+  ]);
+  if (remotos) { ultimoStatusServidor = {}; remotos.forEach(m => ultimoStatusServidor[m.id] = m); }
+  const porId = {};
+  locais.forEach(r => porId[r.id] = { local: r });
+  (remotos || []).forEach(m => (porId[m.id] = porId[m.id] || {}).remoto = m);
+
+  const lista = [];
+  for (const [id, e] of Object.entries(porId)) {
+    const vLocal = e.local ? versaoRascunho(e.local) : -1;
+    const rem = e.remoto;
+    if (rem && rem.removidoEm) {
+      if (!e.local) continue;                 // finalizada/apagada e não existe aqui
+      if (vLocal <= rem.removidoEm) {          // finalizada em outro aparelho: vai pra Lixeira aqui (sem apagar)
+        if (!e.local.excluidoEm) { e.local.excluidoEm = rem.removidoEm; try { await gravarRascunhoLocal(e.local); } catch {} }
+      }
+    }
+    if (rem && rem.removidoEm && vLocal <= rem.removidoEm) {
+      lista.push({ ...e.local, origem: 'finalizada-em-outro-aparelho' });
+      continue;
+    }
+    const usarRemoto = rem && !rem.removidoEm && versaoRascunho(rem) > vLocal;
+    if (usarRemoto) {
+      lista.push({
+        id, atualizadoEm: rem.atualizadoEm, excluidoEm: rem.excluidoEm || null, origem: e.local ? 'servidor-mais-novo' : 'outro-aparelho',
+        state: { dados: { nome: rem.nome, tipo: rem.tipo, locacaoModalidade: rem.locacaoModalidade }, registros: new Array(rem.qtdRegistros || 0) }
+      });
+    } else {
+      const sincronizado = rem && !rem.removidoEm && versaoRascunho(rem) >= vLocal;
+      lista.push({ ...e.local, origem: sincronizado ? 'sincronizado' : (remotos ? 'so-neste-aparelho' : 'sem-conexao') });
+    }
+  }
+  return lista;
+}
+
+// Envia ao servidor tudo deste aparelho que ainda não está lá (ou está mais novo aqui).
+// Roda ao abrir o app, ao voltar a internet e ao abrir a aba Histórico.
+let sincronizandoTudo = false;
+async function sincronizarRascunhos() {
+  if (sincronizandoTudo) return;
+  sincronizandoTudo = true;
+  try {
+    const lista = await combinarRascunhos();
+    const pendentes = lista.filter(r => r.origem === 'so-neste-aparelho');
+    for (const r of pendentes) {
+      const ok = await enviarRascunhoServidor(r.id);
+      if (ok && document.getElementById('historico-screen').style.display !== 'none') carregarNaoFinalizadas();
+    }
+  } finally { sincronizandoTudo = false; }
+}
 
 // ══════════════════════════════════════════════════════════════
 // FILA DE REENVIO AUTOMÁTICO — se o envio do laudo falhar (sem
@@ -1145,8 +1340,26 @@ async function verificarRascunhoAoAbrir() { /* ver seção "Não finalizadas" na
 // Carrega uma vistoria específica (por ID) de volta pro estado atual, preenchendo
 // os campos da tela de Dados e levando pra tela de ambientes — usado pelo botão
 // "Continuar" na lista de vistorias não finalizadas.
+function mostrarAvisoCarregando(texto) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300;display:flex;align-items:center;justify-content:center;padding:24px';
+  el.innerHTML = `<div style="background:#fff;border-radius:14px;padding:22px 20px;max-width:320px;width:100%;text-align:center;font-family:var(--font)"><span class="spinner"></span><p class="txt" style="margin-top:12px;font-size:13px;font-weight:600;color:var(--text)">${texto}</p></div>`;
+  document.body.appendChild(el);
+  return { texto: (t) => { const p = el.querySelector('.txt'); if (p) p.textContent = t; }, fechar: () => el.remove() };
+}
+
 async function carregarRascunhoPorId(id) {
-  const registro = (await listarRascunhos()).find(r => r.id === id);
+  const entrada = (await combinarRascunhos()).find(r => r.id === id);
+  let registro = await lerRascunhoLocal(id);
+  if (entrada && (entrada.origem === 'outro-aparelho' || entrada.origem === 'servidor-mais-novo')) {
+    const aviso = mostrarAvisoCarregando('Baixando a vistoria salva em outro aparelho...');
+    try {
+      registro = await baixarRascunhoServidor(id, (feitas, total) => aviso.texto(`Baixando fotos... ${feitas} de ${total}`));
+    } catch (e) {
+      if (!registro) { aviso.fechar(); alert('Não foi possível baixar essa vistoria agora. Verifique a internet e tente de novo.\n\nDetalhe: ' + e.message); return; }
+      alert('Não consegui baixar a versão mais nova do servidor agora, então vou abrir a cópia que está neste aparelho.');
+    } finally { aviso.fechar(); }
+  }
   if (!registro) { alert('Não foi possível encontrar essa vistoria salva.'); return; }
   const salvo = registro.state;
 
@@ -4177,6 +4390,7 @@ async function carregarHistorico() {
   catch { document.getElementById('historicoList').innerHTML='<p style="color:var(--danger);font-size:13px;text-align:center;padding:20px">Erro ao carregar.</p>'; }
   carregarArmazenamento();
   carregarNaoFinalizadas();
+  sincronizarRascunhos();
 }
 
 // Mostra, no topo da aba Histórico, as vistorias ainda não concluídas: as que
@@ -4197,6 +4411,7 @@ async function carregarNaoFinalizadas() {
       <div class="info">
         <strong>${d.nome || 'Sem nome ainda'}${badgeTipo(d.tipo, d.locacaoModalidade)}</strong>
         <span style="display:block">${qtdRegistros} registro${qtdRegistros === 1 ? '' : 's'} salvo${qtdRegistros === 1 ? '' : 's'} · em edição</span>
+        ${seloSincronia(r)}
       </div>
       <div style="display:flex;flex-direction:column;gap:5px">
         <button class="hist-btn" style="width:100%" onclick="carregarRascunhoPorId('${r.id}')"><i class="ti ti-player-play"></i> Continuar</button>
@@ -4220,6 +4435,18 @@ async function carregarNaoFinalizadas() {
     </div>`).join('');
 
   lista.innerHTML = cardsRascunhos + cardsFila;
+}
+
+function seloSincronia(r) {
+  const selos = {
+    'sincronizado': ['ti-cloud-check', 'var(--success)', 'Salva na nuvem · aparece em todos os aparelhos'],
+    'outro-aparelho': ['ti-device-mobile', 'var(--brand2)', 'Feita em outro aparelho · toque em Continuar pra abrir aqui'],
+    'servidor-mais-novo': ['ti-refresh', 'var(--brand2)', 'Tem versão mais nova de outro aparelho · será baixada ao continuar'],
+    'so-neste-aparelho': ['ti-cloud-upload', 'var(--accent)', 'Enviando pra nuvem...'],
+    'sem-conexao': ['ti-cloud-off', 'var(--muted)', 'Só neste aparelho (sem conexão agora)']
+  };
+  const s = selos[r.origem]; if (!s) return '';
+  return `<span style="display:flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;color:${s[1]};margin-top:3px"><i class="ti ${s[0]}"></i> ${s[2]}</span>`;
 }
 
 async function excluirRascunhoUI(id) {
@@ -4285,6 +4512,7 @@ function renderHistorico(listaCompleta) {
 carregarCorConfig();
 carregarCarimboConfig();
 atualizarBotaoCancelarDados();
+setTimeout(() => sincronizarRascunhos(), 3000); // envia as vistorias deste aparelho pro servidor logo ao abrir
 
 // A checagem do rascunho salvo só roda depois que a pessoa fecha a tela de
 // boas-vindas, pra não misturar o aviso de "vistoria em andamento" com a splash.
@@ -4294,6 +4522,7 @@ function fecharSplash() {
   verificarRascunhoAoAbrir();
   verificarEspacoArmazenamento();
   limparRascunhosLixeiraAntiga();
+  sincronizarRascunhos().then(() => { if (document.getElementById('historico-screen').style.display !== 'none') carregarNaoFinalizadas(); });
 }
 
 // Checa proativamente o espaço de armazenamento local do celular. Se estiver
