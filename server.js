@@ -211,6 +211,11 @@ async function chamarClaudeTecnico(opcoes) {
   throw ultimoErro;
 }
 
+// Lista de normas CONFERIDAS (número e assunto verificados em out/2026). A IA só
+// pode citar normas desta lista — evita número de norma errado no laudo.
+const NORMAS_REFERENCIA = 'ABNT NBR 15575 (desempenho de edificações habitacionais, partes 1 a 6); NBR 16747:2020 (inspeção predial); NBR 5674:2024 (manutenção); NBR 17170:2022 (garantias de edificações — prazos recomendados); NBR 13753, 13754 e 13755 (revestimentos de piso e parede com placas); NBR 13749 (revestimento de argamassa); NBR 13245 (execução de pinturas em edificações); NBR 9575 e 9574 (impermeabilização); NBR 5626 (água fria e quente); NBR 8160 (esgoto sanitário); NBR 10844 (águas pluviais — calhas e condutores); NBR 15575-5 (coberturas, inclusive estanqueidade, rufos e arremates); NBR 5410 (instalações elétricas); NBR 10821 (esquadrias); NBR 15930 (portas de madeira); NBR 6118 (projeto de estruturas de concreto); NBR 14931 (execução de estruturas de concreto); NBR 7190 (estruturas de madeira); NBR 16868 (alvenaria estrutural); NBR 6120 (ações/cargas para cálculo de estruturas, ex.: sobrecarga de reservatório); NBR 9050 (acessibilidade, quando pertinente).';
+const REGRA_NORMAS = `REGRA OBRIGATÓRIA SOBRE NORMAS: cite SOMENTE normas desta lista conferida, com o número exatamente como aparece aqui: ${NORMAS_REFERENCIA} NÃO cite nenhuma outra norma, NÃO cite número de item, seção, tabela ou anexo, NÃO informe valores numéricos de tolerância atribuídos a norma e NÃO coloque ano em norma que não tenha ano nesta lista. Use a norma apenas para o assunto descrito entre parênteses. Na dúvida, prefira "boas práticas de execução" a citar uma norma.`;
+
 // Lê o corpo (body) de uma requisição POST como JSON
 function lerCorpoJSON(req) {
   return new Promise((resolve, reject) => {
@@ -289,7 +294,7 @@ async function gerarResumosDosAmbientes(listaAmbientes, tipoVistoria, contextoEx
   for (let tentativa = 1; tentativa <= 2; tentativa++) {
     let texto = '';
     try {
-      texto = await chamarClaude({ model: 'claude-haiku-4-5-20251001', maxTokens, system, messages: [{ role: 'user', content: mensagem }] });
+      texto = await chamarClaude({ model: 'claude-haiku-4-5-20251001', maxTokens, system: system + '\n\n' + REGRA_NORMAS, messages: [{ role: 'user', content: mensagem }] });
       const inicio = texto.indexOf('{');
       const fim = texto.lastIndexOf('}');
       if (inicio === -1 || fim === -1) throw new Error('Resposta não contém um JSON reconhecível.');
@@ -426,7 +431,7 @@ function montarConteudoConstatacao({ dados, dataFmt, endFull, mapaParagraphs, pl
   out.push(sec('ELABORAÇÃO DO RELATÓRIO'));
   out.push(bodyP('A elaboração do presente laudo de constatação foi realizada com base na identificação dos elementos construtivos aparentes, sua localização dentro do imóvel e as manifestações patológicas visíveis no momento da inspeção.'));
   out.push(bodyP('Durante a vistoria, foram observados pontos de não conformidade, anomalias, falhas e manifestações patológicas que podem comprometer o desempenho, a segurança e a durabilidade dos sistemas e materiais da edificação.'));
-  out.push(bodyP('A inspeção foi feita com base nos princípios estabelecidos pela ABNT NBR 16747:2020 – Diretrizes para inspeção predial, na ABNT NBR 5674:2024 – Manutenção de edificações, na ABNT NBR 15575 – Edificações habitacionais: Desempenho, e também conforme os conceitos definidos pelo IBAPE Nacional.'));
+  out.push(bodyP('A inspeção foi feita com base nos princípios estabelecidos pela ABNT NBR 16747:2020 – Inspeção predial: diretrizes, conceitos, terminologia, requisitos e procedimento, na ABNT NBR 5674:2024 – Manutenção de edificações, na ABNT NBR 15575 – Edificações habitacionais: Desempenho, e também conforme os conceitos definidos pelo IBAPE Nacional.'));
   out.push(bodyP('Considerando que alguns termos utilizados neste documento podem não ser de conhecimento geral, seguem abaixo os principais conceitos utilizados ao longo do relatório:'));
   out.push(defP('Anomalia', 'Irregularidade que compromete o desempenho de um elemento ou sistema da edificação. Pode ter origem no projeto, execução, uso ou manutenção inadequada.'));
   out.push(defP('Manifestação Patológica', 'Sinais visíveis de degradação, como fissuras, manchas, destacamentos, entre outros.'));
@@ -656,7 +661,7 @@ async function gerarDocx(payload) {
   const elaboracaoTexto2 = ehLocacao
     ? 'Durante a vistoria, foram observadas as condições de conservação, funcionamento e acabamento dos ambientes, sendo cada constatação classificada quanto à sua natureza (avaria, desgaste natural, necessidade de manutenção, entre outras), conforme especificado em cada registro.'
     : 'Durante a vistoria, foram observados diversos pontos de não conformidade, falhas de acabamento, anomalias e possíveis vícios construtivos que podem comprometer o desempenho esperado dos sistemas e materiais.';
-  const elaboracaoTexto3 = 'A inspeção foi feita com base nos princípios estabelecidos pela ABNT NBR 16747:2020 – Diretrizes para inspeção predial, na ABNT NBR 5674:2024 – Manutenção de edificações, e também conforme os conceitos definidos pelo IBAPE Nacional' + (ehLocacao ? ', sem prejuízo das disposições da Lei nº 8.245/1991 (Lei do Inquilinato).' : '.');
+  const elaboracaoTexto3 = 'A inspeção foi feita com base nos princípios estabelecidos pela ABNT NBR 16747:2020 – Inspeção predial: diretrizes, conceitos, terminologia, requisitos e procedimento, na ABNT NBR 5674:2024 – Manutenção de edificações, e também conforme os conceitos definidos pelo IBAPE Nacional' + (ehLocacao ? ', sem prejuízo das disposições da Lei nº 8.245/1991 (Lei do Inquilinato).' : '.');
   const elaboracaoTexto4 = 'Considerando que alguns termos utilizados neste documento podem não ser de conhecimento geral, seguem abaixo os principais conceitos utilizados ao longo do relatório:';
   const elaboracaoTexto5 = ehLocacao
     ? 'A presente vistoria considera, sem prejuízo das demais normas técnicas aplicáveis, as disposições da Lei nº 8.245/1991 (Lei do Inquilinato), que rege a relação entre locador e locatário quanto ao estado de entrega e restituição do imóvel.'
@@ -845,7 +850,9 @@ Estrutura obrigatória (em parágrafos corridos, sem títulos):
 5. Parágrafo de riscos (segurança dos usuários, progressão das patologias, redução da vida útil) quando pertinente.
 6. Parágrafo final conclusivo: as condições observadas não atendem aos requisitos de desempenho, segurança, estanqueidade e/ou durabilidade aplicáveis; recomendação de diagnóstico complementar/intervenções corretivas por profissional habilitado, atuando na causa raiz.
 
-Normas de referência (cite só as pertinentes, com número correto): ABNT NBR 16747:2020 (inspeção predial); NBR 5674:2024 (manutenção); NBR 15575 (desempenho de edificações habitacionais, partes 1 a 6); NBR 6118 (estruturas de concreto — durabilidade, cobrimento, corrosão de armaduras, estados-limite); NBR 7190 (estruturas de madeira); NBR 9575 e NBR 9574 (impermeabilização); NBR 13749 (revestimento de argamassa); NBR 13753/13754/13755 (revestimentos cerâmicos); NBR 15812 e NBR 16868 (alvenaria); NBR 5626 (água fria e quente); NBR 8160 (esgoto sanitário); NBR 10844 (águas pluviais, calhas e rufos); NBR 15575-5 (coberturas); NBR 5410 (instalações elétricas); NBR 10821 (esquadrias); NBR 6120 (cargas, ex: sobrecarga de reservatório).
+Normas de referência (cite só as pertinentes, com número correto): ${NORMAS_REFERENCIA}
+
+${REGRA_NORMAS}
 
 Regras: NÃO invente constatações, medidas, datas ou fatos que não estejam nas informações recebidas. Português formal, impessoal. Entre 6 e 10 parágrafos. Retorne SOMENTE os parágrafos, separados por uma linha em branco, sem títulos, sem markdown, sem numeração, sem listas.`;
 
@@ -873,7 +880,6 @@ Redija a conclusão do laudo.`;
 // laudos não trazem mais parágrafo por ambiente (só fotos com legenda), toda a
 // análise técnica fica aqui: organizada por sistema construtivo, com o mecanismo
 // provável de cada falha, consequências e a norma aplicável.
-const NORMAS_REFERENCIA = 'ABNT NBR 15575 (desempenho de edificações habitacionais, partes 1 a 6); NBR 16747:2020 (inspeção predial); NBR 5674:2024 (manutenção); NBR 17170:2022 (garantias de edificações — prazos recomendados); NBR 13753, 13754 e 13755 (revestimentos de piso e parede com placas); NBR 13749 (revestimento de argamassa); NBR 13245 (execução de pinturas em edificações); NBR 9575 e 9574 (impermeabilização); NBR 5626 (água fria e quente); NBR 8160 (esgoto sanitário); NBR 10844 (águas pluviais, calhas e rufos); NBR 5410 (instalações elétricas); NBR 10821 (esquadrias); NBR 15930 (portas de madeira); NBR 6118 (estruturas de concreto); NBR 7190 (estruturas de madeira); NBR 9050 (acessibilidade, quando pertinente).';
 
 async function gerarConclusaoVistoria({ registros, obsGeral, tipoVistoria, dados }) {
   const ehLocacao = tipoVistoria === 'Locação';
@@ -914,6 +920,8 @@ ${estrutura}
 ${finalizacao}
 
 Normas de referência (cite só as pertinentes, com número correto): ${NORMAS_REFERENCIA}
+
+${REGRA_NORMAS}
 
 Regras: NÃO invente constatações, medidas, datas, marcas ou fatos que não estejam nas informações recebidas. Português formal e impessoal. Entre 5 e 9 parágrafos, proporcional à quantidade de constatações. Retorne SOMENTE os parágrafos, separados por uma linha em branco, sem títulos, sem markdown, sem numeração, sem listas.`;
 
@@ -1484,7 +1492,7 @@ const server = http.createServer(async (req, res) => {
       const texto = await chamarClaude({
         model: 'claude-haiku-4-5-20251001',
         maxTokens: 200,
-        system: 'Você é um(a) engenheiro(a) civil redigindo a descrição técnica de UM defeito construtivo específico, pra entrar na seção de registros fotográficos de um laudo de vistoria de imóvel. Use o mesmo estilo formal e objetivo de normas ABNT e do IBAPE Nacional. Escreva de 1 a 2 frases apenas, descrevendo o defeito de forma técnica, e se fizer sentido, uma recomendação breve de correção. NÃO use saudações, títulos, aspas, markdown ou numeração — retorne SOMENTE o texto final, pronto pra ser colado no laudo, como neste exemplo de estilo: "Foram identificados danos na superfície da parede, comprometendo a integridade e o acabamento do revestimento. Recomenda-se reparo com massa adequada e repintura do trecho afetado."',
+        system: 'Você é um(a) engenheiro(a) civil redigindo a descrição técnica de UM defeito construtivo específico, pra entrar na seção de registros fotográficos de um laudo de vistoria de imóvel. Use o mesmo estilo formal e objetivo de normas ABNT e do IBAPE Nacional. Escreva de 1 a 2 frases apenas, descrevendo o defeito de forma técnica, e se fizer sentido, uma recomendação breve de correção. NÃO use saudações, títulos, aspas, markdown ou numeração — retorne SOMENTE o texto final, pronto pra ser colado no laudo, como neste exemplo de estilo: "Foram identificados danos na superfície da parede, comprometendo a integridade e o acabamento do revestimento. Recomenda-se reparo com massa adequada e repintura do trecho afetado."' + '\n\n' + REGRA_NORMAS,
         messages: [{ role: 'user', content: `Ambiente: ${ambiente || 'não informado'}\nDefeito descrito de forma resumida pelo usuário: "${textoCurto.trim()}"\n\nRedija a descrição técnica formal desse defeito, pronta pra entrar no laudo.` }]
       });
       res.writeHead(200, { 'Content-Type': 'application/json' });
