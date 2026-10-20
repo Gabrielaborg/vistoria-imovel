@@ -3417,15 +3417,13 @@ async function processarLaudo() {
   btnDocx.style.pointerEvents = 'none';
   const msg = document.getElementById('gerandoMsg');
   msg.style.display = 'block';
-  msg.innerHTML = state.tipoVistoria === 'Constatação'
-    ? '<span class="sp2"></span> Redigindo conclusão técnica com base nas normas (pode levar até 1 minuto)...'
-    : '<span class="sp2"></span> Preparando conclusão personalizada...';
+  msg.innerHTML = '<span class="sp2"></span> Redigindo conclusão técnica com base nas normas (pode levar até 1 minuto)...';
 
   // Gera a conclusão personalizada por IA, com base nos defeitos reais.
   // Se falhar (rede, IA fora do ar, etc.), state.conclusaoIA fica vazio e o servidor
   // usa automaticamente o texto padrão fixo — a vistoria nunca trava por causa disso.
   try {
-    const registrosResumo = state.registros.map(r => ({ ambiente: r.ambiente, defeito: r.defeito }));
+    const registrosResumo = state.registros.map(r => ({ ambiente: r.ambiente, defeito: r.defeito, classificacao: r.classificacao || null }));
     const res = await fetch('/gerar-conclusao', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ registros: registrosResumo, tipoVistoria: state.tipoVistoria, obsGeral: state.obsGeral, dados: state.dados })

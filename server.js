@@ -567,12 +567,18 @@ async function gerarDocx(payload) {
     let imgAtual = info.inicioImg;
 
     registrosParagraphs.push(new Paragraph({
-      children: [B(ambiente, 20)], indent, spacing: { before: 200, after: 100 }
+      children: [B(ambiente, 20)], indent, spacing: { before: 200, after: 100 },
+      keepNext: true // não deixa o nome do ambiente sozinho no pé da página
     }));
 
-    registrosParagraphs.push(new Paragraph({
-      children: [N(resumoIA.paragrafo, 20)], indent, spacing: { after: 140 }, alignment: AlignmentType.JUSTIFIED
-    }));
+    // Parágrafo descritivo por ambiente: só no Laudo de Constatação. Na Vistoria,
+    // Revistoria e Locação cada ambiente traz só as fotos com legenda, e a análise
+    // técnica fica concentrada na Conclusão.
+    if (ehConstatacao) {
+      registrosParagraphs.push(new Paragraph({
+        children: [N(resumoIA.paragrafo, 20)], indent, spacing: { after: 140 }, alignment: AlignmentType.JUSTIFIED, keepNext: true
+      }));
+    }
 
     let idxDefeito = 0;
     for (const defeito of ordemDefeitos) {
@@ -583,7 +589,7 @@ async function gerarDocx(payload) {
         const foto = fotosDoGrupo[i];
         const rotulo = legendaCurta ? `Imagem ${imgAtual} - ${legendaCurta}` : `Imagem ${imgAtual}`;
         registrosParagraphs.push(new Paragraph({
-          children: [N(rotulo, 20)], alignment: AlignmentType.CENTER, spacing: { after: 60 }
+          children: [N(rotulo, 20)], alignment: AlignmentType.CENTER, spacing: { after: 60 }, keepNext: true
         }));
         try {
           const imgBuf = Buffer.from(foto.base64, 'base64');
@@ -782,8 +788,8 @@ async function gerarDocx(payload) {
           // 7. REGISTROS
           secNum(6 + numOffset, ehLocacao ? 'REGISTRO DE CONSTATAÇÕES DA VISTORIA' : 'REGISTRO DE NÃO CONFORMIDADES DA VISTORIA'),
           bodyP(ehLocacao
-            ? `A seguir, são apresentados os registros fotográficos das constatações identificadas durante a vistoria no dia ${dataFmt}, acompanhados da respectiva descrição detalhada.`
-            : `A seguir, são apresentados os registros fotográficos das não conformidades identificadas durante a vistoria no dia ${dataFmt}, acompanhados da respectiva descrição detalhada.`),
+            ? `A seguir, são apresentados, por ambiente, os registros fotográficos das constatações identificadas durante a vistoria no dia ${dataFmt}, cada um acompanhado de legenda identificando o item registrado. A análise técnica consolidada dessas constatações é apresentada na Conclusão deste relatório.`
+            : `A seguir, são apresentados, por ambiente, os registros fotográficos das não conformidades identificadas durante a vistoria no dia ${dataFmt}, cada um acompanhado de legenda identificando a não conformidade registrada. A análise técnica consolidada dessas não conformidades, com a fundamentação normativa aplicável, é apresentada na Conclusão deste relatório.`),
           br(),
           ...registrosParagraphs,
 
@@ -852,6 +858,68 @@ ${(dados.anamnese || '').trim() || 'Não informada.'}
 DOCUMENTOS ENTREGUES:
 ${docsTexto}
 
+CONSTATAÇÕES REGISTRADAS NA VISTORIA (por ambiente):
+${listaDefeitos}
+
+OUTRAS OBSERVAÇÕES:
+${(obsGeral || '').trim() || 'Nenhuma'}
+
+Redija a conclusão do laudo.`;
+
+  return chamarClaudeTecnico({ maxTokens: 4000, system, messages: [{ role: 'user', content: mensagem }] });
+}
+
+// Conclusão ROBUSTA dos laudos de Vistoria, Revistoria e Locação. Como esses
+// laudos não trazem mais parágrafo por ambiente (só fotos com legenda), toda a
+// análise técnica fica aqui: organizada por sistema construtivo, com o mecanismo
+// provável de cada falha, consequências e a norma aplicável.
+const NORMAS_REFERENCIA = 'ABNT NBR 15575 (desempenho de edificações habitacionais, partes 1 a 6); NBR 16747:2020 (inspeção predial); NBR 5674:2024 (manutenção); NBR 17170:2022 (garantias de edificações — prazos recomendados); NBR 13753, 13754 e 13755 (revestimentos de piso e parede com placas); NBR 13749 (revestimento de argamassa); NBR 13245 (execução de pinturas em edificações); NBR 9575 e 9574 (impermeabilização); NBR 5626 (água fria e quente); NBR 8160 (esgoto sanitário); NBR 10844 (águas pluviais, calhas e rufos); NBR 5410 (instalações elétricas); NBR 10821 (esquadrias); NBR 15930 (portas de madeira); NBR 6118 (estruturas de concreto); NBR 7190 (estruturas de madeira); NBR 9050 (acessibilidade, quando pertinente).';
+
+async function gerarConclusaoVistoria({ registros, obsGeral, tipoVistoria, dados }) {
+  const ehLocacao = tipoVistoria === 'Locação';
+  const ehRevistoria = tipoVistoria === 'Revistoria';
+  const modalidade = ehLocacao ? MODALIDADES_LOCACAO[dados.locacaoModalidade] : null;
+
+  const porAmbiente = {};
+  (registros || []).forEach(r => {
+    const linha = r.classificacao ? `${r.defeito} [classificação: ${r.classificacao}]` : r.defeito;
+    (porAmbiente[r.ambiente] = porAmbiente[r.ambiente] || []).push(linha);
+  });
+  const listaDefeitos = Object.entries(porAmbiente)
+    .map(([amb, defs]) => `${amb}:\n${[...new Set(defs)].map(d => `  - ${d}`).join('\n')}`)
+    .join('\n') || 'Nenhuma constatação registrada.';
+
+  const estrutura = `Estrutura (em parágrafos corridos, sem títulos):
+1. Abertura: o que foi vistoriado, a natureza visual da inspeção e as normas que fundamentam a análise (escolha as pertinentes).
+2. Um parágrafo para CADA sistema/grupo afetado, agrupando os itens de todos os ambientes (ex: revestimentos de piso e parede e rejuntes; pintura e acabamentos; paredes, fissuras, prumo e esquadro; esquadrias, portas e janelas; instalações hidrossanitárias, louças, metais e ralos; instalações elétricas; caimentos e estanqueidade/impermeabilização; cobertura, telhado e alçapão; garagem e fachada; limpeza). Em cada um: descreva o conjunto do que foi registrado (cite os ambientes quando ajudar), explique tecnicamente as causas prováveis e as consequências (linguagem cautelosa: "compatível com", "indícios de"), e cite a norma ABNT aplicável e o requisito que deixa de ser atendido. Dê mais peso ao que afeta segurança, estanqueidade, funcionamento e durabilidade do que ao que é só estético.
+3. Um parágrafo de priorização: o que exige correção mais urgente (segurança, risco elétrico, infiltrações, estrutura) e o que é de acabamento.`;
+
+  let papel, finalizacao;
+  if (ehLocacao) {
+    papel = `Você é um(a) engenheiro(a) civil redigindo a seção CONCLUSÃO de um laudo técnico de VISTORIA DE LOCAÇÃO de imóvel${dados.locacaoModalidade ? ` — modalidade: ${dados.locacaoModalidade.toUpperCase()}` : ''}. ${modalidade ? modalidade.contextoIA : ''} As constatações podem vir com classificação (avaria, desgaste natural, necessita manutenção, sinal de umidade, estado de conservação, funcionamento, não testado, não acessível) — use-as ao agrupar e comentar. NUNCA atribua culpa ou responsabilidade ao locatário ou ao locador de forma categórica; trate como registro técnico do estado do imóvel. NÃO mencione construtora nem aceitação de obra. NÃO inclua menção à Lei 8.245/1991 nem parágrafo de proteção legal — isso é acrescentado automaticamente depois do seu texto.`;
+    finalizacao = '4. Parágrafo final: síntese do estado geral de conservação e funcionamento do imóvel na data da vistoria e recomendação de manutenção dos itens apontados.';
+  } else if (ehRevistoria) {
+    papel = 'Você é um(a) engenheiro(a) civil redigindo a seção CONCLUSÃO de um laudo técnico de REVISTORIA de imóvel (nova inspeção para verificar se as não conformidades apontadas na vistoria anterior foram corrigidas). As constatações listadas são as não conformidades que PERMANECEM pendentes ou foram identificadas nesta revistoria.';
+    finalizacao = '4. Parágrafo final: as não conformidades listadas permanecem pendentes de correção, não sendo recomendável a aceitação definitiva do imóvel até sua correção integral pela construtora/responsável técnico, com acompanhamento técnico e nova verificação após os reparos.';
+  } else {
+    papel = 'Você é um(a) engenheiro(a) civil redigindo a seção CONCLUSÃO de um laudo técnico de VISTORIA DE RECEBIMENTO de imóvel (entrega de unidade pela construtora), seguindo a ABNT NBR 16747:2020, a ABNT NBR 15575 e os conceitos do IBAPE Nacional.';
+    finalizacao = '4. Parágrafo final: conclusão de que as não conformidades registradas devem ser corrigidas pela construtora/responsável técnico antes da aceitação definitiva do imóvel, com acompanhamento técnico e observância às normas aplicáveis; quando pertinente, mencione que eventuais vícios ocultos que se manifestem depois seguem os prazos de garantia da ABNT NBR 17170:2022, e que vícios aparentes devem ser formalmente comunicados à construtora.';
+  }
+
+  const system = `${papel}
+
+A conclusão deve ser ROBUSTA, técnica e fundamentada em normas — ela é a única parte do laudo com análise escrita (os ambientes trazem apenas fotos com legenda curta).
+
+${estrutura}
+${finalizacao}
+
+Normas de referência (cite só as pertinentes, com número correto): ${NORMAS_REFERENCIA}
+
+Regras: NÃO invente constatações, medidas, datas, marcas ou fatos que não estejam nas informações recebidas. Português formal e impessoal. Entre 5 e 9 parágrafos, proporcional à quantidade de constatações. Retorne SOMENTE os parágrafos, separados por uma linha em branco, sem títulos, sem markdown, sem numeração, sem listas.`;
+
+  const mensagem = `Tipo de laudo: ${tipoVistoria || 'Vistoria'}${dados.locacaoModalidade ? ` (${dados.locacaoModalidade})` : ''}
+Imóvel: ${[dados.empreendimento, dados.endereco, dados.bloco, dados.apto, dados.cidade].filter(Boolean).join(', ') || 'não informado'}
+${dados.construtora ? `Construtora: ${dados.construtora}\n` : ''}
 CONSTATAÇÕES REGISTRADAS NA VISTORIA (por ambiente):
 ${listaDefeitos}
 
@@ -1377,21 +1445,7 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ conclusao: texto.trim() }));
       }
-      const listaDefeitos = (registros || [])
-        .map(r => `- ${r.ambiente}: ${r.defeito}`)
-        .join('\n') || 'Nenhum defeito registrado.';
-      const outrosProblemas = (obsGeral || '').trim();
-      const modalidade = ehLocacao ? MODALIDADES_LOCACAO[(dados || {}).locacaoModalidade] : null;
-      let system = ehLocacao
-        ? 'Você é um(a) engenheiro(a) civil redigindo a seção de CONCLUSÃO de um laudo técnico de VISTORIA DE LOCAÇÃO de imóvel (não é vistoria de entrega de obra nova), considerando a Lei nº 8.245/1991 (Lei do Inquilinato). Escreva 2 a 3 parágrafos técnicos, objetivos e formais, em português, resumindo as constatações registradas (que já vêm classificadas por natureza: avaria, desgaste natural, necessidade de manutenção, sinal de umidade, estado de conservação, funcionamento, não testado ou não acessível). NÃO atribua responsabilidade/culpa ao locatário de forma direta — trate isso como registro objetivo do estado do imóvel na data da vistoria, para fins de comparação futura entre entrada e saída. NÃO mencione "construtora" nem "aceitação de obra". Retorne SOMENTE os parágrafos de texto, separados por uma linha em branco, sem títulos, sem markdown, sem numeração. Não inclua nenhuma menção à Lei 8.245/1991 ou parágrafo de proteção legal — isso é adicionado automaticamente depois, fora do seu texto.'
-        : 'Você é um(a) engenheiro(a) civil redigindo a seção de CONCLUSÃO de um laudo técnico de vistoria de imóvel, seguindo ABNT NBR 16747:2020, ABNT NBR 5674:2024 e conceitos do IBAPE Nacional. Escreva 3 a 4 parágrafos técnicos, objetivos e formais, em português, baseados nos defeitos e observações fornecidos, recomendando a correção antes da entrega/aceitação do imóvel. Retorne SOMENTE os parágrafos de texto, separados por uma linha em branco, sem títulos, sem markdown, sem numeração.';
-      if (modalidade && modalidade.semComparacao) system = system.replace('para fins de comparação futura entre entrada e saída', 'para conhecimento do estado atual do imóvel e do que nele existe');
-      const texto = await chamarClaude({
-        model: 'claude-haiku-4-5-20251001',
-        maxTokens: 700,
-        system,
-        messages: [{ role: 'user', content: `Tipo de vistoria: ${tipoVistoria || 'não informado'}${modalidade ? ` — ${(dados || {}).locacaoModalidade}\n${modalidade.contextoIA}` : ''}\n\nConstatações registradas (por legenda escolhida em cada foto):\n${listaDefeitos}\n\nOutros problemas observados:\n${outrosProblemas || 'Nenhum'}\n\nRedija a conclusão do laudo.` }]
-      });
+      const texto = await gerarConclusaoVistoria({ registros, obsGeral, tipoVistoria, dados: dados || {} });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ conclusao: texto.trim() }));
     } catch (e) {
