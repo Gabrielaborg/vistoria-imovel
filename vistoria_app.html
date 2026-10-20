@@ -352,7 +352,6 @@ Sacada;</textarea>
       <button class="opt-btn" onclick="selecionarAmbiente('Sacada')"><i class="ti ti-building-arch"></i> Sacada</button>
       <button class="opt-btn" onclick="selecionarAmbiente('Laje técnica')"><i class="ti ti-building"></i> Laje técnica</button>
       <button class="opt-btn" onclick="selecionarAmbiente('Lavabo')"><i class="ti ti-droplet"></i> Lavabo</button>
-      <button class="opt-btn" onclick="selecionarAmbiente('Garagem')"><i class="ti ti-car"></i> Garagem</button>
       <button class="opt-btn" onclick="selecionarAmbiente('Banheiro social')"><i class="ti ti-bath"></i> Banheiro social</button>
       <button class="opt-btn" onclick="selecionarAmbiente('Banheiro suíte 1')"><i class="ti ti-bath"></i> Banheiro suíte 1</button>
       <button class="opt-btn" onclick="selecionarAmbiente('Banheiro suíte 2')"><i class="ti ti-bath"></i> Banheiro suíte 2</button>
@@ -362,6 +361,10 @@ Sacada;</textarea>
       <button class="opt-btn" onclick="selecionarAmbiente('Quarto suíte 1')"><i class="ti ti-bed"></i> Quarto suíte 1</button>
       <button class="opt-btn" onclick="selecionarAmbiente('Quarto suíte 2')"><i class="ti ti-bed"></i> Quarto suíte 2</button>
       <button class="opt-btn" onclick="selecionarAmbiente('Quarto suíte 3')"><i class="ti ti-bed"></i> Quarto suíte 3</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Garagem')"><i class="ti ti-car"></i> Garagem</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Fachada')"><i class="ti ti-building"></i> Fachada</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Telhado')"><i class="ti ti-home"></i> Telhado</button>
+      <button class="opt-btn" onclick="selecionarAmbiente('Alçapão')"><i class="ti ti-ladder"></i> Alçapão</button>
       <button class="opt-btn" onclick="pedirOutroAmbiente()"><i class="ti ti-plus"></i> Outro</button>
     </div>
     <div id="outroAmbienteField" style="display:none;margin-top:10px">
@@ -2530,8 +2533,7 @@ const LEGENDAS = {
   "Contra-piso": [
     {t:"Contra-piso oco", d:"Foi identificado contra piso com áreas ocas (som oco ao toque), indicando falha no assentamento da argamassa. Recomenda-se remoção das áreas comprometidas, correção do assentamento e verificação da superfície adjacente."}
   ],
-  "Garagem / Diversos": [
-    {t:"Falha na fixação de placa pré-moldada", d:"Foi identificada anomalia de fixação em uma das placas de piso pré-moldadas, caracterizando falha de estabilidade. Recomenda-se a recolocação e nivelamento adequado da placa, com correção da base de apoio."},
+  "Diversos": [
     {t:"Fissura e infiltração no forro", d:"Foi identificada manifestação patológica no forro de gesso, com fissuras lineares e marcas de umidade. Recomenda-se investigar a origem da infiltração antes de qualquer reparo estético."},
     {t:"Spot de iluminação não funciona", d:"Foi constatado que um dos spots embutidos no teto não está funcionando, enquanto os demais funcionam normalmente. Recomenda-se verificação do ponto elétrico e substituição da lâmpada, se necessário."},
     {t:"Armário com falha no encaixe", d:"O armário apresenta falha no encaixe das portas, com amortecedor não funcionando adequadamente. Recomenda-se revisar o ajuste das portas e substituir o amortecedor danificado."}
@@ -2542,6 +2544,46 @@ const LEGENDAS = {
     {t:"Vidros/esquadrias sujos", d:"As esquadrias e vidros apresentam sujidade, resíduos de silicone, tinta ou poeira, comprometendo a transparência e o acabamento estético. Recomenda-se limpeza adequada."},
     {t:"Metais e louças sujos", d:"Metais e louças sanitárias apresentam resíduos e sujidade, comprometendo o acabamento e a higiene do ambiente. Recomenda-se limpeza adequada."},
     {t:"Resíduos de obra (massa/tinta/silicone)", d:"Foram identificados resíduos de obra (massa, tinta, silicone ou similares) aderidos a superfícies e acabamentos, comprometendo a estética. Recomenda-se remoção e limpeza adequada dos resíduos."}
+  ],
+  "Telhado": [
+    {t:"Telha sem fixação", d:"Foi constatada telha sem fixação adequada à estrutura de apoio, solta ou apenas apoiada, sujeita a deslocamento por ação do vento e comprometendo a estanqueidade e a segurança da cobertura, em desacordo com os requisitos de desempenho da ABNT NBR 15575-5. Recomenda-se a fixação de todas as telhas com acessórios adequados, conforme especificação do fabricante."},
+    {t:"Pontalete sem fixação (solto)", d:"Foi constatado pontalete sem fixação, solto em sua base e/ou no topo, comprometendo a transmissão de cargas e a estabilidade da estrutura do telhado, podendo provocar deformações e deslocamento da cobertura. Recomenda-se a fixação adequada dos pontaletes, conforme ABNT NBR 7190 e boas práticas de execução."},
+    {t:"Furo sem parafuso de fixação", d:"Foi constatado furo na telha sem o respectivo parafuso de fixação, deixando abertura exposta que permite a entrada de água e compromete a estanqueidade da cobertura. Recomenda-se a instalação do parafuso com vedação adequada ou a vedação do furo com material compatível, ou a substituição da telha."},
+    {t:"Falta de vedação no rufo", d:"Foi constatada ausência ou falha de vedação no rufo, no encontro entre a cobertura e a alvenaria, permitindo a infiltração de água pelas juntas e comprometendo a estanqueidade do sistema, em desacordo com a ABNT NBR 10844 e a ABNT NBR 15575-5. Recomenda-se a vedação com selante adequado e a verificação do transpasse do rufo."},
+    {t:"Falta de vedação na calha", d:"Foi constatada ausência ou falha de vedação nas emendas e/ou nas extremidades da calha, permitindo vazamentos e infiltrações nas paredes e forros adjacentes, em desacordo com a ABNT NBR 10844. Recomenda-se a vedação das emendas com selante adequado e o teste de estanqueidade da calha."},
+    {t:"Falta de vedação nos parafusos", d:"Foi constatada ausência de vedação (arruela de vedação/selante) nos parafusos de fixação das telhas, permitindo a infiltração de água pelos furos e comprometendo a estanqueidade da cobertura. Recomenda-se a instalação de conjunto de fixação com vedação adequada, conforme especificação do fabricante."},
+    {t:"Telha trincada", d:"Foi identificada telha trincada, sinalizada com adesivo {CORF}, comprometendo a estanqueidade da cobertura e podendo permitir infiltrações. Recomenda-se a substituição da peça."},
+    {t:"Telha de zinco amassada (entrada de água pela emenda)", d:"Foi constatada telha metálica (zinco) amassada, com deformação que compromete o encaixe e o transpasse com a peça adjacente, permitindo a entrada de água pela emenda. Recomenda-se a substituição da telha danificada e a verificação dos transpasses e da vedação."},
+    {t:"Falha na inclinação do telhado", d:"Foi constatada inclinação do telhado em desacordo com o mínimo recomendado pelo fabricante para o tipo de telha utilizado, o que pode provocar retorno de água, empoçamento e infiltrações pelas sobreposições, em desacordo com a ABNT NBR 15575-5. Recomenda-se a adequação da estrutura de apoio para obter a inclinação mínima especificada."}
+  ],
+  "Garagem": [
+    {t:"Falha na fixação de placa pré-moldada", d:"Foi identificada anomalia de fixação em uma das placas de piso pré-moldadas, caracterizando falha de estabilidade. Recomenda-se a recolocação e nivelamento adequado da placa, com correção da base de apoio."},
+    {t:"Fissura no piso da garagem", d:"Foi identificada fissura no piso da garagem, sinalizada com adesivo {CORC}, podendo estar associada à retração do concreto, ausência ou falha de juntas de dilatação ou recalque da base. Recomenda-se o tratamento da fissura e o acompanhamento de sua evolução."},
+    {t:"Empoçamento de água no piso da garagem", d:"Foi constatado empoçamento de água no piso da garagem, indicando caimento insuficiente ou irregular em direção aos pontos de drenagem. Recomenda-se a correção do caimento do piso, conforme ABNT NBR 15575-3."},
+    {t:"Demarcação de vaga ausente ou apagada", d:"Foi constatado que a demarcação da vaga de garagem encontra-se ausente, incompleta ou apagada, dificultando a identificação e o uso adequado do espaço. Recomenda-se a execução ou a recomposição da sinalização."},
+    {t:"Portão com falha no funcionamento", d:"Foi constatada falha no funcionamento do portão da garagem (abertura, fechamento, travamento ou automatização), comprometendo a segurança e o uso. Recomenda-se a revisão e o ajuste do conjunto por profissional habilitado."},
+    {t:"Mancha de infiltração no teto da garagem", d:"Foram identificadas manchas de umidade/infiltração no teto da garagem, possivelmente associadas a falhas na impermeabilização da laje ou das instalações hidráulicas acima, em desacordo com a ABNT NBR 9575 e a ABNT NBR 15575. Recomenda-se investigar e eliminar a origem da infiltração antes do reparo do acabamento."},
+    {t:"Armadura exposta / desplacamento do concreto", d:"Foi identificada armadura exposta com desplacamento do concreto de cobrimento, com sinais de corrosão, comprometendo a durabilidade do elemento estrutural, em desacordo com os requisitos de cobrimento e durabilidade da ABNT NBR 6118. Recomenda-se a limpeza e o tratamento das armaduras e a recomposição do cobrimento com argamassa estrutural adequada."},
+    {t:"Iluminação da garagem não funciona", d:"Foi constatado que ponto(s) de iluminação da garagem não estão funcionando, comprometendo a visibilidade e a segurança de circulação. Recomenda-se a verificação do circuito e a substituição das lâmpadas/luminárias."}
+  ],
+  "Alçapão": [
+    {t:"Caixa d'água com apoio impróprio", d:"Foi constatado que a caixa d'água está apoiada sobre base imprópria (irregular, sem base plana contínua ou sobre elementos não destinados a esse fim), em desacordo com as recomendações do fabricante e com a ABNT NBR 5626. Essa condição pode provocar deformação e trincas no reservatório, vazamentos e sobrecarga localizada na laje. Recomenda-se a execução de base plana, nivelada e com resistência compatível com o peso do reservatório cheio."},
+    {t:"Falta de reboco", d:"Foi constatada a ausência de reboco nas paredes internas da área do alçapão/ático, com alvenaria exposta, comprometendo a durabilidade e a proteção dos elementos. Recomenda-se a execução do revestimento de argamassa, conforme ABNT NBR 13749."},
+    {t:"Sujeira e resíduos de obra no alçapão", d:"Foi constatado acúmulo de sujeira e resíduos de obra na área do alçapão, que podem obstruir o acesso, contaminar o reservatório e dificultar a manutenção das instalações. Recomenda-se a limpeza completa do local."},
+    {t:"Tubulação da caixa sem apoio adequado", d:"Foi constatado que a tubulação de alimentação/distribuição da caixa d'água não possui apoio e fixação adequados, ficando sujeita a esforços nas conexões, o que pode provocar vazamentos, em desacordo com a ABNT NBR 5626. Recomenda-se a instalação de suportes e abraçadeiras adequados ao longo da tubulação."},
+    {t:"Fio de energia desencapado", d:"Foi constatado condutor elétrico com isolação danificada (desencapado), com risco de choque elétrico, curto-circuito e incêndio, em desacordo com a ABNT NBR 5410. Recomenda-se a substituição do trecho danificado ou o isolamento adequado por profissional habilitado."},
+    {t:"Fio de energia fora de eletroduto", d:"Foi constatado condutor elétrico instalado fora de eletroduto, sem proteção mecânica, sujeito a danos, umidade e contato acidental, em desacordo com a ABNT NBR 5410. Recomenda-se a passagem dos condutores por eletroduto adequado."},
+    {t:"Passagem elétrica na laje próxima à caixa (risco de curto)", d:"Foi constatado furo de passagem na laje para ponto elétrico executado rente à superfície da laje e próximo à caixa d'água, sem ressalto ou proteção contra a entrada de água. Em caso de vazamento ou transbordamento do reservatório, a água pode escoar pela passagem até a instalação elétrica, com risco de curto-circuito e choque elétrico, em desacordo com a ABNT NBR 5410. Recomenda-se a proteção da passagem com ressalto/vedação e o afastamento das instalações elétricas da área sujeita a molhagem."},
+    {t:"Tampa do alçapão não tranca", d:"Foi constatado que a tampa do alçapão não possui travamento ou que o mecanismo de fechamento não funciona, permitindo abertura indevida e comprometendo a segurança. Recomenda-se o ajuste ou a instalação de fecho adequado."},
+    {t:"Tampa do alçapão quebrada", d:"Foi constatado que a tampa do alçapão encontra-se quebrada/danificada, comprometendo a vedação, a segurança e o acabamento. Recomenda-se o reparo ou a substituição da tampa."}
+  ],
+  "Fachada": [
+    {t:"Fissura na fachada", d:"Foi identificada fissura no revestimento da fachada, sinalizada com adesivo {CORC}, que pode permitir a infiltração de água e comprometer a durabilidade do sistema de revestimento externo, em desacordo com a ABNT NBR 13749 e a ABNT NBR 15575-4. Recomenda-se o tratamento das fissuras com material flexível e a repintura com sistema adequado para áreas externas."},
+    {t:"Pintura descascando na fachada", d:"Foi constatado descascamento da pintura da fachada, comprometendo a proteção do revestimento contra a umidade e a estética da edificação. Recomenda-se a remoção das partes soltas, o tratamento da base e a repintura com tinta adequada para áreas externas."},
+    {t:"Mancha de umidade / eflorescência na fachada", d:"Foram identificadas manchas de umidade e/ou eflorescência (depósitos esbranquiçados) na fachada, indicando percolação de água através do revestimento, possivelmente por falhas de impermeabilização, vedação ou ausência de pingadeiras. Recomenda-se investigar e eliminar a origem da umidade antes do reparo do acabamento."},
+    {t:"Ausência de pingadeira", d:"Foi constatada a ausência de pingadeira em peitoris, muros ou platibandas, permitindo o escorrimento de água pela fachada, com formação de manchas e infiltrações. Recomenda-se a instalação de pingadeiras com caimento e friso adequados."},
+    {t:"Revestimento da fachada oco ou descolando", d:"Ao realizar a inspeção por percussão, foi constatado som cavo (oco) e/ou descolamento no revestimento da fachada, sinalizado com adesivo {CORA}, com risco de desprendimento e queda de peças. Recomenda-se a remoção das áreas comprometidas e a recomposição do revestimento, conforme ABNT NBR 13755."},
+    {t:"Falha de vedação na esquadria externa", d:"Foi constatada falha na vedação entre a esquadria e a alvenaria da fachada, com selante ausente, ressecado ou descontínuo, permitindo a infiltração de água para o interior. Recomenda-se a recomposição da vedação com selante adequado, conforme ABNT NBR 10821."}
   ]
 };
 
