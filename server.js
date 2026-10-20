@@ -1233,7 +1233,7 @@ function paginaUsuarios(msg, erro) {
       <td><strong>${escHtml(u.nome)}</strong><br><span style="font-size:11px;color:#666">Usuário: ${escHtml(u.usuario)}${u.crea ? ` · CREA ${escHtml(u.crea)}` : ' · sem CREA'}</span><br>${situacao}</td>
       <td>${termo}</td>
       <td>
-        <form class="inline" method="POST" action="/admin/usuarios" onsubmit="return this.senha.value.length>=8 || (alert('A nova senha precisa ter pelo menos 8 caracteres.'),false)">
+        <form class="inline" method="POST" action="/admin/usuarios" onsubmit="return this.senha.value.length>=6 || (alert('A senha provisória precisa ter pelo menos 6 caracteres.'),false)">
           <input type="hidden" name="acao" value="senha"><input type="hidden" name="id" value="${escHtml(u.id)}">
           <input type="text" name="senha" placeholder="Nova senha" style="margin-bottom:6px;padding:7px 9px;font-size:12px">
           <button class="peq" type="submit">Redefinir senha</button>
@@ -1256,7 +1256,7 @@ function paginaUsuarios(msg, erro) {
       <input type="hidden" name="acao" value="criar">
       <div class="linha">
         <div><label>Usuário (para login)</label><input type="text" name="usuario" placeholder="Ex: Aline" required autocapitalize="none"></div>
-        <div><label>Senha inicial</label><input type="text" name="senha" placeholder="Mín. 8 caracteres" required></div>
+        <div><label>Senha inicial</label><input type="text" name="senha" placeholder="Mín. 6 caracteres (ela troca no 1º acesso)" required></div>
       </div>
       <label>Nome completo (sai no laudo)</label><input type="text" name="nome" placeholder="Ex: Aline Baron Camargos de Deus Gomes" required>
       <label>CREA (deixe em branco se não for engenheira)</label><input type="text" name="crea" placeholder="Ex: 353718MG">
@@ -1353,7 +1353,7 @@ async function rotasDeConta(req, res, caminho) {
         const senha = form.get('senha') || '';
         const crea = (form.get('crea') || '').trim().toUpperCase();
         if (!usuario || !nome) return html(200, paginaUsuarios('', 'Preencha usuário e nome completo.'));
-        if (senha.length < 8) return html(200, paginaUsuarios('', 'A senha inicial precisa ter pelo menos 8 caracteres.'));
+        if (senha.length < 6) return html(200, paginaUsuarios('', 'A senha inicial precisa ter pelo menos 6 caracteres.'));
         const norm = normalizarUsuario(usuario);
         if (['gabriela', 'admin', 'adm'].includes(norm) || lista.some(x => normalizarUsuario(x.usuario) === norm)) return html(200, paginaUsuarios('', `Já existe um usuário "${usuario}".`));
         const salt = crypto.randomBytes(16).toString('hex');
@@ -1365,7 +1365,7 @@ async function rotasDeConta(req, res, caminho) {
       if (!alvo) return html(200, paginaUsuarios('', 'Usuária não encontrada.'));
       if (acao === 'senha') {
         const senha = form.get('senha') || '';
-        if (senha.length < 8) return html(200, paginaUsuarios('', 'A nova senha precisa ter pelo menos 8 caracteres.'));
+        if (senha.length < 6) return html(200, paginaUsuarios('', 'A senha provisória precisa ter pelo menos 6 caracteres.'));
         alvo.salt = crypto.randomBytes(16).toString('hex');
         alvo.senhaHash = hashSenha(senha, alvo.salt);
         alvo.senhaVersao = (alvo.senhaVersao || 0) + 1; // derruba sessões abertas
