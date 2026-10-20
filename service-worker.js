@@ -34,7 +34,7 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-  const rotasDinamicas = ['/historico', '/download', '/download-pdf', '/gerar-laudo', '/gerar-conclusao', '/rascunhos', '/agenda', '/armazenamento'];
+  const rotasDinamicas = ['/historico', '/download', '/download-pdf', '/gerar-laudo', '/gerar-conclusao', '/rascunhos', '/agenda', '/armazenamento', '/eu', '/login', '/logout', '/termo', '/minha-senha', '/admin', '/ver-conta'];
   if (rotasDinamicas.some((r) => url.pathname.startsWith(r))) return;
 
   event.respondWith(

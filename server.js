@@ -77,7 +77,7 @@ function limparRascunhosAntigos() {
     if (m.removidoEm && agora - m.removidoEm > 120 * 24 * 60 * 60 * 1000) { delete idx[id]; mudou = true; continue; }
     if (!m.removidoEm && m.excluidoEm && agora - m.excluidoEm > 30 * 24 * 60 * 60 * 1000) {
       apagarPastaRascunho(id);
-      idx[id] = { id, removidoEm: agora };
+      idx[id] = { id, contaId: m.contaId, removidoEm: agora };
       mudou = true;
     }
   }
@@ -341,7 +341,7 @@ function emParagrafos(texto) {
 // → Planta → Documentos entregues → Anamnese → Metodologia → Registro fotográfico
 // → (Outras observações) → Conclusão → Assinatura. A numeração das seções é
 // calculada na hora, então seções opcionais (planta, observações) não deixam buraco.
-function montarConteudoConstatacao({ dados, dataFmt, endFull, mapaParagraphs, plantaBase64, plantaMediaType, registrosParagraphs, obsGeral, conclusaoIA, h }) {
+function montarConteudoConstatacao({ dados, dataFmt, endFull, mapaParagraphs, plantaBase64, plantaMediaType, registrosParagraphs, obsGeral, conclusaoIA, executor, h }) {
   const { B, N, br, indent, secNum, subNum, bodyP, bodyBold, bulletP, defP, Paragraph, ImageRun, AlignmentType } = h;
   let n = 0;
   const sec = (titulo) => secNum(++n, titulo);
@@ -369,8 +369,8 @@ function montarConteudoConstatacao({ dados, dataFmt, endFull, mapaParagraphs, pl
   out.push(...mapaParagraphs);
   out.push(br());
   out.push(subNum(`${s3}.2`, 'Realização da vistoria'));
-  out.push(bodyP('Responsável: Engenheira Civil Gabriela Soares Borges'));
-  out.push(bodyP('Registro CREA: 427760MG'));
+  if (textoRealizacaoVistoria(executor)) out.push(bodyP(textoRealizacaoVistoria(executor)));
+  else { out.push(bodyP('Responsável: Engenheira Civil Gabriela Soares Borges')); out.push(bodyP('Registro CREA: 427760MG')); }
   out.push(br());
   out.push(subNum(`${s3}.3`, 'Data da vistoria'));
   out.push(bodyP(`A vistoria foi realizada dia ${dataFmt}.`));
@@ -467,16 +467,35 @@ function montarConteudoConstatacao({ dados, dataFmt, endFull, mapaParagraphs, pl
   out.push(br());
 
   // ASSINATURA
-  out.push(sec('ASSINATURA DO RESPONSÁVEL TÉCNICO'));
-  out.push(bodyP('Este Laudo Técnico de Constatação foi elaborado pela Engenheira Civil Gabriela Soares Borges.'));
-  out.push(br());
-  out.push(new Paragraph({ children: [N('_______________________________', 20)], alignment: AlignmentType.CENTER, spacing: { after: 60 } }));
-  out.push(new Paragraph({ children: [N('Gabriela Soares Borges', 20)], alignment: AlignmentType.CENTER, spacing: { after: 40 } }));
-  out.push(new Paragraph({ children: [N('Engenheira Civil · CREA: 427760MG', 20)], alignment: AlignmentType.CENTER, spacing: { after: 40 } }));
+  const ehExecutora = !!textoRealizacaoVistoria(executor);
+  out.push(sec(ehExecutora ? 'ASSINATURAS' : 'ASSINATURA DO RESPONSÁVEL TÉCNICO'));
+  out.push(bodyP(ehExecutora
+    ? `Este Laudo Técnico de Constatação foi elaborado com base na vistoria realizada ${executor.titulo ? 'pela Eng. ' : 'por '}${executor.nome}, sob responsabilidade técnica da Engenheira Civil Gabriela Soares Borges, CREA 427760MG.`
+    : 'Este Laudo Técnico de Constatação foi elaborado pela Engenheira Civil Gabriela Soares Borges.'));
+  out.push(...blocoAssinaturas(executor, { N, B, br, Paragraph, AlignmentType }));
   return out;
 }
 
-async function gerarDocx(payload) {
+// Textos de autoria do laudo. Quando quem fez a vistoria é uma executora, o laudo
+// diz quem executou e mantém a Gabriela como responsável técnica (ART), e sai
+// com duas assinaturas.
+function textoRealizacaoVistoria(executor) {
+  if (!executor || executor.ehResponsavelTecnica) return null;
+  return `A vistoria foi realizada ${executor.titulo ? 'pela Eng. ' : 'por '}${executor.nome}, sob responsabilidade técnica da Eng. Gabriela Borges, conforme registro CREA 427760MG.`;
+}
+function blocoAssinaturas(executor, h) {
+  const { N, B, br, Paragraph, AlignmentType } = h;
+  const linha = () => new Paragraph({ children: [N('_______________________________', 20)], alignment: AlignmentType.CENTER, spacing: { before: 400, after: 60 } });
+  const texto = (t, negrito) => new Paragraph({ children: [negrito ? B(t, 20) : N(t, 20)], alignment: AlignmentType.CENTER, spacing: { after: 40 } });
+  const gabriela = [linha(), texto('Gabriela Soares Borges', true), texto('Engenheira Civil · CREA: 427760MG'), texto('Responsável técnica')];
+  if (!executor || executor.ehResponsavelTecnica) return [linha(), texto('Gabriela Soares Borges'), texto('Engenheira Civil · CREA: 427760MG')];
+  const exec = [linha(), texto(executor.nome, true)];
+  if (executor.crea) exec.push(texto(`Engenheira Civil · CREA: ${executor.crea}`));
+  exec.push(texto('Responsável pela execução da vistoria'));
+  return [...exec, br(), ...gabriela];
+}
+
+async function gerarDocx(payload, executor) {
   const { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, Footer } = require('docx');
   const { dados, tipoVistoria, obsGeral, registros, plantaBase64, plantaMediaType, mapaBase64, mapaMediaType, conclusaoIA } = payload;
   const ehLocacao = tipoVistoria === 'Locação';
@@ -690,7 +709,7 @@ async function gerarDocx(payload) {
 
   // ─── LAUDO DE CONSTATAÇÃO (estrutura própria) ───────────
   const childrenConstatacao = ehConstatacao ? montarConteudoConstatacao({
-    dados, dataFmt, endFull, mapaParagraphs, plantaBase64, plantaMediaType, registrosParagraphs, obsGeral, conclusaoIA,
+    dados, dataFmt, endFull, mapaParagraphs, plantaBase64, plantaMediaType, registrosParagraphs, obsGeral, conclusaoIA, executor,
     h: { B, N, br, indent, secNum, subNum, bodyP, bodyBold, bulletP, defP, Paragraph, ImageRun, AlignmentType }
   }) : null;
 
@@ -739,8 +758,9 @@ async function gerarDocx(payload) {
           ...mapaParagraphs,
           br(),
           subNum('3.2', 'Realização da vistoria'),
-          bodyP('Responsável: Engenheira Civil Gabriela Soares Borges'),
-          bodyP('Registro CREA: 427760MG'),
+          ...(textoRealizacaoVistoria(executor)
+            ? [bodyP(textoRealizacaoVistoria(executor))]
+            : [bodyP('Responsável: Engenheira Civil Gabriela Soares Borges'), bodyP('Registro CREA: 427760MG')]),
           br(),
           subNum('3.3', 'Data das Vistorias'),
           bodyP(`A vistoria foi realizada dia ${dataFmt}.`),
@@ -814,11 +834,8 @@ async function gerarDocx(payload) {
           br(),
 
           // ASSINATURA
-          secNum(obsGeral ? 9 + numOffset : 8 + numOffset, 'ASSINATURA DO RESPONSÁVEL'),
-          br(),
-          new Paragraph({ children: [N('_______________________________', 20)], alignment: AlignmentType.CENTER, spacing: { after: 60 } }),
-          new Paragraph({ children: [N('Gabriela Soares Borges', 20)], alignment: AlignmentType.CENTER, spacing: { after: 40 } }),
-          new Paragraph({ children: [N('Engenheira Civil · CREA: 427760MG', 20)], alignment: AlignmentType.CENTER, spacing: { after: 40 } }),
+          secNum(obsGeral ? 9 + numOffset : 8 + numOffset, textoRealizacaoVistoria(executor) ? 'ASSINATURAS' : 'ASSINATURA DO RESPONSÁVEL'),
+          ...blocoAssinaturas(executor, { N, B, br, Paragraph, AlignmentType }),
 
         ]
       }
@@ -950,39 +967,422 @@ function parseCookies(cabecalho) {
   return cookies;
 }
 
-function estaAutenticado(req) {
-  if (!APP_PASSWORD) return true; // sem senha configurada, não bloqueia (comportamento de antes)
-  const cookies = parseCookies(req.headers.cookie);
-  return cookies['engcheck_auth'] === APP_PASSWORD;
+// ══════════════════════════════════════════════════════════════
+// CONTAS DE USUÁRIO
+// • ADM (Gabriela): entra com o usuário "Gabriela" e a senha de APP_PASSWORD
+//   (a mesma de sempre). Vê os próprios dados e, pela guia "Ver conta", os
+//   dados de qualquer executora.
+// • Executoras: cadastradas pela ADM na tela /admin/usuarios. Cada uma vê só
+//   os próprios laudos, agenda, vistorias em andamento e financeiro.
+// As senhas ficam só no Volume do Railway, criptografadas (scrypt) — nunca no
+// código (o repositório é público).
+// ══════════════════════════════════════════════════════════════
+const crypto = require('crypto');
+const USUARIOS_FILE = path.join(OUTPUT_DIR, 'usuarios.json');
+const SEGREDO_FILE = path.join(OUTPUT_DIR, '.segredo_sessao');
+const ADMIN_ID = 'gabriela';
+const ADMIN = {
+  id: ADMIN_ID, usuario: 'Gabriela', nome: 'Gabriela Soares Borges', nomeCurto: 'Gabriela Borges',
+  titulo: 'Eng.', crea: '427760MG', papel: 'admin'
+};
+const TERMO_VERSAO = '2026-10';
+
+function segredoSessao() {
+  try { return fs.readFileSync(SEGREDO_FILE, 'utf8').trim(); } catch {}
+  const novo = crypto.randomBytes(32).toString('hex');
+  fs.writeFileSync(SEGREDO_FILE, novo);
+  return novo;
+}
+const SEGREDO = segredoSessao();
+
+function lerUsuarios() { try { return JSON.parse(fs.readFileSync(USUARIOS_FILE, 'utf8')); } catch { return []; } }
+function salvarUsuarios(lista) {
+  const tmp = USUARIOS_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(lista, null, 2));
+  fs.renameSync(tmp, USUARIOS_FILE);
+}
+// "Victória", "victoria", " VICTORIA " → "victoria"
+const normalizarUsuario = (u) => String(u || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+function hashSenha(senha, salt) { return crypto.scryptSync(String(senha), salt, 64).toString('hex'); }
+function conferirSenha(senha, salt, hash) {
+  const a = Buffer.from(hashSenha(senha, salt), 'hex'), b = Buffer.from(hash, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+function senhaForte(s) { return typeof s === 'string' && s.length >= 8 && /[A-Za-z]/.test(s) && /\d/.test(s); }
+
+// Sessão: cookie assinado com "id.versaoDaSenha.validade" — trocar/redefinir a
+// senha derruba as sessões antigas daquela pessoa.
+function criarToken(id, versao) {
+  const corpo = `${id}.${versao || 0}.${Date.now() + 365 * 24 * 3600 * 1000}`;
+  const assinatura = crypto.createHmac('sha256', SEGREDO).update(corpo).digest('hex');
+  return `${corpo}.${assinatura}`;
+}
+function lerToken(token) {
+  const partes = String(token || '').split('.');
+  if (partes.length !== 4) return null;
+  const corpo = partes.slice(0, 3).join('.');
+  const esperado = crypto.createHmac('sha256', SEGREDO).update(corpo).digest('hex');
+  if (esperado.length !== partes[3].length || !crypto.timingSafeEqual(Buffer.from(esperado), Buffer.from(partes[3]))) return null;
+  if (Number(partes[2]) < Date.now()) return null;
+  return { id: partes[0], versao: Number(partes[1]) };
+}
+function cookieSessao(id, versao) {
+  return `engcheck_sessao=${criarToken(id, versao)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=31536000`;
 }
 
-function paginaLogin(erro) {
-  return `<!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EngCheck · Login</title>
+// Quem está usando o sistema nesta requisição (ou null se ninguém logado)
+function usuarioDaSessao(req) {
+  if (!APP_PASSWORD) return { ...ADMIN }; // sem senha configurada: comportamento antigo, sem login
+  const cookies = parseCookies(req.headers.cookie);
+  const t = lerToken(cookies['engcheck_sessao']);
+  if (t) {
+    if (t.id === ADMIN_ID) return { ...ADMIN };
+    const u = lerUsuarios().find(x => x.id === t.id);
+    if (u && u.ativo !== false && (u.senhaVersao || 0) === t.versao) return { ...u, papel: 'executora' };
+    return null;
+  }
+  // compatibilidade: sessões antigas da ADM (antes das contas) continuam valendo
+  if (cookies['engcheck_auth'] && cookies['engcheck_auth'] === APP_PASSWORD) return { ...ADMIN, sessaoAntiga: true };
+  return null;
+}
+function pendenciaDoUsuario(u) {
+  if (!u || u.papel === 'admin') return null;
+  if (!u.termo || u.termo.versao !== TERMO_VERSAO) return 'termo';
+  if (u.trocarSenha) return 'senha';
+  return null;
+}
+
+// Qual conta a ADM está visualizando (guia "Ver conta"): o id de uma executora,
+// 'todas', ou a própria (padrão). Executoras sempre veem só a própria.
+function contaVisualizada(req, u) {
+  if (!u || u.papel !== 'admin') return u ? u.id : null;
+  const ver = parseCookies(req.headers.cookie)['engcheck_ver'];
+  if (ver === 'todas') return 'todas';
+  if (ver && ver !== ADMIN_ID && lerUsuarios().some(x => x.id === ver)) return ver;
+  return ADMIN_ID;
+}
+const donoDoItem = (item) => (item && item.contaId) || ADMIN_ID; // itens antigos = da ADM
+// Filtro das listas (histórico, agenda, rascunhos) conforme quem está logado e a conta visualizada
+function filtroDeConta(req, u) {
+  const ver = contaVisualizada(req, u);
+  if (ver === 'todas') return () => true;
+  return (item) => donoDoItem(item) === ver;
+}
+// Pode mexer neste item? ADM pode tudo; executora só no que é dela
+const podeMexer = (u, item) => !!u && (u.papel === 'admin' || donoDoItem(item) === u.id);
+
+function nomeDaConta(id) {
+  if (id === ADMIN_ID) return ADMIN.nome;
+  const u = lerUsuarios().find(x => x.id === id);
+  return u ? u.nome : id;
+}
+// Quem executou a vistoria (vai pro laudo): nome, título (Eng. ou não) e CREA
+function executorDaConta(id) {
+  if (!id || id === ADMIN_ID) return { ...ADMIN, ehResponsavelTecnica: true };
+  const u = lerUsuarios().find(x => x.id === id);
+  if (!u) return { ...ADMIN, ehResponsavelTecnica: true };
+  return { id: u.id, nome: u.nome, titulo: u.crea ? 'Eng.' : '', crea: u.crea || '', ehResponsavelTecnica: false };
+}
+
+// Proteção simples contra tentativa de adivinhar senha: 8 erros em 15 min bloqueiam o IP por 15 min
+const tentativasLogin = new Map();
+function ipDe(req) { return String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim(); }
+function loginBloqueado(ip) {
+  const t = tentativasLogin.get(ip);
+  return t && t.qtd >= 8 && Date.now() - t.inicio < 15 * 60 * 1000;
+}
+function registrarFalhaLogin(ip) {
+  const t = tentativasLogin.get(ip);
+  if (!t || Date.now() - t.inicio > 15 * 60 * 1000) tentativasLogin.set(ip, { qtd: 1, inicio: Date.now() });
+  else t.qtd++;
+}
+
+const escHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function lerCorpoFormulario(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', c => chunks.push(c));
+    req.on('end', () => resolve(new URLSearchParams(Buffer.concat(chunks).toString('utf8'))));
+    req.on('error', reject);
+  });
+}
+
+// ── Páginas simples (login, termo, troca de senha, usuários) ──
+const ESTILO_PAGINA = `<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Montserrat',sans-serif;background:#1A3C5E;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.card{background:#fff;border-radius:16px;padding:32px 28px;max-width:340px;width:100%;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.25)}
-img{width:64px;height:64px;object-fit:contain;background:#fff;border-radius:12px;padding:6px;border:1px solid #eee;margin-bottom:16px}
+body{font-family:'Montserrat',sans-serif;background:#1A3C5E;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:28px 16px;color:#1C1917}
+.card{background:#fff;border-radius:16px;padding:28px 24px;max-width:380px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+.card.larga{max-width:720px}
+.centro{text-align:center}
+img.logo{width:64px;height:64px;object-fit:contain;background:#fff;border-radius:12px;padding:6px;border:1px solid #eee;margin-bottom:16px}
 h1{font-size:22px;font-weight:800;color:#1A3C5E;margin-bottom:4px}
+h2{font-size:15px;font-weight:800;color:#1A3C5E;margin:20px 0 8px}
 p.sub{font-size:12px;color:#888;margin-bottom:22px}
-input{width:100%;padding:13px 14px;border:1.5px solid #ddd;border-radius:9px;font-size:15px;font-family:inherit;margin-bottom:14px;outline:none}
+label{display:block;font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.04em;margin:0 0 5px}
+input[type=text],input[type=password]{width:100%;padding:12px 13px;border:1.5px solid #ddd;border-radius:9px;font-size:15px;font-family:inherit;margin-bottom:14px;outline:none}
 input:focus{border-color:#D4762A}
-button{width:100%;background:#D4762A;color:#fff;border:none;border-radius:9px;padding:13px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer}
+button,.btn{display:inline-block;width:100%;background:#D4762A;color:#fff;border:none;border-radius:9px;padding:13px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;text-align:center;text-decoration:none}
+.btn.sec{background:#fff;color:#1A3C5E;border:1.5px solid #1A3C5E}
+.btn.peq,button.peq{width:auto;padding:7px 12px;font-size:12px}
 .erro{background:#FDECEA;color:#C0392B;font-size:12px;font-weight:600;padding:9px;border-radius:8px;margin-bottom:14px}
-</style></head>
-<body>
-  <form class="card" method="POST" action="/login">
-    <img src="/logo.png" alt="EngCheck">
+.ok{background:#E6F4EC;color:#1A6B3C;font-size:12px;font-weight:600;padding:9px;border-radius:8px;margin-bottom:14px}
+.termo{font-size:13px;line-height:1.6;color:#333;max-height:55vh;overflow-y:auto;border:1px solid #eee;border-radius:10px;padding:16px;margin-bottom:16px;background:#FAFAF8}
+.termo h3{font-size:13px;margin:14px 0 6px;color:#1A3C5E}
+.termo p,.termo li{margin-bottom:8px;text-align:justify}
+.termo ol,.termo ul{padding-left:20px}
+.check{display:flex;gap:10px;align-items:flex-start;font-size:13px;font-weight:600;margin-bottom:14px;text-transform:none;letter-spacing:0;color:#1C1917}
+.check input{width:18px;height:18px;margin-top:2px;flex-shrink:0}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:10px}
+td,th{padding:9px 8px;border-bottom:1px solid #eee;text-align:left;vertical-align:top}
+th{font-size:11px;color:#666;text-transform:uppercase}
+.tag{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px}
+.tag.ok{background:#E6F4EC;color:#1A6B3C;margin:0;padding:2px 7px}.tag.pend{background:#FDECD2;color:#8A5A00}.tag.off{background:#eee;color:#777}
+form.inline{display:inline}
+.linha{display:flex;gap:8px;flex-wrap:wrap}
+.linha > *{flex:1;min-width:140px}
+a.voltar{display:inline-block;font-size:13px;font-weight:700;color:#1A3C5E;text-decoration:none;margin-bottom:14px}
+</style>`;
+
+function paginaLogin(erro) {
+  return `<!DOCTYPE html><html lang="pt-BR"><head>${ESTILO_PAGINA}<title>EngCheck · Login</title></head><body style="align-items:center">
+  <form class="card centro" method="POST" action="/login">
+    <img class="logo" src="/logo.png" alt="EngCheck">
     <h1>EngCheck</h1>
-    <p class="sub">Digite a senha de acesso</p>
-    ${erro ? '<div class="erro">Senha incorreta. Tente de novo.</div>' : ''}
-    <input type="password" name="senha" placeholder="Senha" autofocus required>
+    <p class="sub">Entre com seu usuário e senha</p>
+    ${erro ? `<div class="erro">${escHtml(erro)}</div>` : ''}
+    <input type="text" name="usuario" placeholder="Usuário" autocomplete="username" autocapitalize="none" required autofocus>
+    <input type="password" name="senha" placeholder="Senha" autocomplete="current-password" required>
     <button type="submit">Entrar</button>
   </form>
 </body></html>`;
+}
+
+// Termo de Confidencialidade e Proteção de Dados (LGPD). Ao mudar o texto,
+// troque TERMO_VERSAO — todas as executoras terão que aceitar de novo.
+function textoTermoHtml(nome) {
+  return `
+<p><strong>TERMO DE CONFIDENCIALIDADE E DE PROTEÇÃO DE DADOS PESSOAIS</strong><br>Sistema EngCheck — G&amp;G Engenharia · Versão ${TERMO_VERSAO}</p>
+<p>Pelo presente termo, <strong>${escHtml(nome)}</strong> ("USUÁRIA"), ao receber acesso ao sistema EngCheck, de titularidade e sob responsabilidade técnica da Eng. Civil Gabriela Soares Borges, CREA 427760MG (G&amp;G Engenharia, "CONTROLADORA"), declara estar ciente e de acordo com as condições abaixo.</p>
+<h3>1. Objeto</h3>
+<p>Este termo regula o acesso e o uso do sistema EngCheck e de todas as informações nele contidas ou obtidas em razão das vistorias realizadas, incluindo dados de clientes, imóveis, fotografias, laudos, agendas, valores e demais informações técnicas, comerciais e financeiras ("INFORMAÇÕES CONFIDENCIAIS").</p>
+<h3>2. Dados pessoais tratados</h3>
+<p>No uso do sistema, a USUÁRIA terá acesso a dados pessoais de clientes e terceiros, tais como nome, CPF, telefone, endereço, localização e imagens de imóveis, os quais são protegidos pela Lei nº 13.709/2018 (Lei Geral de Proteção de Dados Pessoais — LGPD).</p>
+<h3>3. Obrigações da USUÁRIA</h3>
+<ol>
+<li>Utilizar as INFORMAÇÕES CONFIDENCIAIS e os dados pessoais exclusivamente para a execução das vistorias e a elaboração dos laudos para os quais foi designada, observando as finalidades informadas aos clientes e os princípios do art. 6º da LGPD.</li>
+<li>Não divulgar, compartilhar, copiar, encaminhar, publicar ou armazenar fora do sistema quaisquer dados de clientes, fotografias, laudos ou informações do sistema, inclusive em redes sociais, aplicativos de mensagem ou dispositivos pessoais, salvo quando necessário à execução do serviço e com autorização da CONTROLADORA.</li>
+<li>Manter sigilo sobre seu usuário e senha, que são pessoais e intransferíveis, não permitindo o uso por terceiros e comunicando imediatamente à CONTROLADORA qualquer suspeita de acesso indevido.</li>
+<li>Coletar apenas os dados estritamente necessários à vistoria e registrar fotografias somente do imóvel objeto do serviço, evitando captar pessoas, documentos ou objetos pessoais que não sejam relevantes ao laudo.</li>
+<li>Adotar cuidados de segurança no aparelho utilizado (bloqueio de tela, não emprestar o aparelho com o sistema aberto e encerrar a sessão em aparelhos compartilhados).</li>
+<li>Comunicar imediatamente à CONTROLADORA qualquer incidente de segurança, perda de aparelho, vazamento ou uso indevido de dados de que tenha conhecimento, para as providências do art. 48 da LGPD.</li>
+<li>Não acessar, tentar acessar ou utilizar informações de outras usuárias ou da CONTROLADORA que não lhe tenham sido disponibilizadas.</li>
+</ol>
+<h3>4. Responsabilidade técnica</h3>
+<p>A USUÁRIA declara ciência de que os laudos são emitidos sob responsabilidade técnica da Eng. Civil Gabriela Soares Borges, CREA 427760MG, responsável pela respectiva ART, comprometendo-se a registrar as constatações de forma fiel ao que foi efetivamente observado em campo.</p>
+<h3>5. Vigência e devolução</h3>
+<p>As obrigações de sigilo e proteção de dados vigoram durante todo o período de acesso ao sistema e permanecem por prazo indeterminado após o seu encerramento. Encerrado o vínculo, a USUÁRIA deverá excluir de seus aparelhos pessoais quaisquer cópias de dados, fotografias e laudos obtidos em razão do serviço, e o acesso ao sistema será desativado.</p>
+<h3>6. Descumprimento</h3>
+<p>O descumprimento deste termo poderá acarretar o imediato bloqueio do acesso ao sistema, sem prejuízo da responsabilização civil, administrativa e penal cabível, inclusive pelos danos causados à CONTROLADORA, aos clientes e a terceiros, nos termos da legislação vigente e da LGPD.</p>
+<h3>7. Registro do aceite</h3>
+<p>O aceite eletrônico deste termo, com a digitação do nome completo e a marcação de concordância, será registrado no sistema com data, hora, endereço IP e identificação do aparelho, e tem validade como manifestação de vontade da USUÁRIA.</p>`;
+}
+
+function paginaTermo(u, erro) {
+  return `<!DOCTYPE html><html lang="pt-BR"><head>${ESTILO_PAGINA}<title>EngCheck · Termo</title></head><body>
+  <form class="card larga" method="POST" action="/termo">
+    <h1>Termo de confidencialidade</h1>
+    <p class="sub">Antes do primeiro acesso, leia e aceite o termo abaixo.</p>
+    ${erro ? `<div class="erro">${escHtml(erro)}</div>` : ''}
+    <div class="termo">${textoTermoHtml(u.nome)}</div>
+    <label>Digite seu nome completo para assinar</label>
+    <input type="text" name="nome" placeholder="${escHtml(u.nome)}" required>
+    <label class="check"><input type="checkbox" name="aceito" value="1" required> Li, entendi e concordo com o Termo de Confidencialidade e de Proteção de Dados Pessoais.</label>
+    <button type="submit">Aceitar e continuar</button>
+    <p style="margin-top:12px;text-align:center"><a href="/logout" style="font-size:12px;color:#888">Sair</a></p>
+  </form>
+</body></html>`;
+}
+
+function paginaTrocarSenha(u, erro, obrigatoria) {
+  return `<!DOCTYPE html><html lang="pt-BR"><head>${ESTILO_PAGINA}<title>EngCheck · Senha</title></head><body style="align-items:center">
+  <form class="card" method="POST" action="/minha-senha">
+    ${obrigatoria ? '' : '<a class="voltar" href="/">← Voltar ao app</a>'}
+    <h1>${obrigatoria ? 'Crie sua senha' : 'Trocar senha'}</h1>
+    <p class="sub">${obrigatoria ? 'Por segurança, troque a senha inicial por uma senha só sua.' : escHtml(u.nome)}</p>
+    ${erro ? `<div class="erro">${escHtml(erro)}</div>` : ''}
+    <label>Senha atual</label><input type="password" name="atual" autocomplete="current-password" required>
+    <label>Nova senha (mín. 8 caracteres, com letras e números)</label><input type="password" name="nova" autocomplete="new-password" required>
+    <label>Repita a nova senha</label><input type="password" name="nova2" autocomplete="new-password" required>
+    <button type="submit">Salvar nova senha</button>
+  </form>
+</body></html>`;
+}
+
+function paginaUsuarios(msg, erro) {
+  const usuarios = lerUsuarios();
+  const fmt = (ts) => ts ? new Date(ts).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '';
+  const linhas = usuarios.map(u => {
+    const termo = u.termo && u.termo.versao === TERMO_VERSAO
+      ? `<span class="tag ok">Termo aceito</span><br><span style="font-size:11px;color:#666">${fmt(u.termo.em)} · IP ${escHtml(u.termo.ip)}<br>Assinado como "${escHtml(u.termo.nomeDigitado)}"</span>`
+      : '<span class="tag pend">Termo pendente</span>';
+    const situacao = u.ativo === false ? '<span class="tag off">Desativada</span>' : (u.trocarSenha ? '<span class="tag pend">Senha inicial</span>' : '<span class="tag ok">Ativa</span>');
+    return `<tr>
+      <td><strong>${escHtml(u.nome)}</strong><br><span style="font-size:11px;color:#666">Usuário: ${escHtml(u.usuario)}${u.crea ? ` · CREA ${escHtml(u.crea)}` : ' · sem CREA'}</span><br>${situacao}</td>
+      <td>${termo}</td>
+      <td>
+        <form class="inline" method="POST" action="/admin/usuarios" onsubmit="return this.senha.value.length>=8 || (alert('A nova senha precisa ter pelo menos 8 caracteres.'),false)">
+          <input type="hidden" name="acao" value="senha"><input type="hidden" name="id" value="${escHtml(u.id)}">
+          <input type="text" name="senha" placeholder="Nova senha" style="margin-bottom:6px;padding:7px 9px;font-size:12px">
+          <button class="peq" type="submit">Redefinir senha</button>
+        </form>
+        <form class="inline" method="POST" action="/admin/usuarios" style="margin-top:6px;display:block">
+          <input type="hidden" name="acao" value="${u.ativo === false ? 'ativar' : 'desativar'}"><input type="hidden" name="id" value="${escHtml(u.id)}">
+          <button class="peq" type="submit" style="background:${u.ativo === false ? '#1A6B3C' : '#C0392B'}" onclick="return confirm('${u.ativo === false ? 'Reativar' : 'Desativar'} o acesso de ${escHtml(u.nome).replace(/'/g, "\\'")}?')">${u.ativo === false ? 'Reativar acesso' : 'Desativar acesso'}</button>
+        </form>
+      </td></tr>`;
+  }).join('');
+  return `<!DOCTYPE html><html lang="pt-BR"><head>${ESTILO_PAGINA}<title>EngCheck · Usuários</title></head><body>
+  <div class="card larga">
+    <a class="voltar" href="/">← Voltar ao app</a>
+    <h1>Usuários</h1>
+    <p class="sub">Você (Gabriela) é a ADM: entra com o usuário <strong>Gabriela</strong> e sua senha de sempre.</p>
+    ${msg ? `<div class="ok">${escHtml(msg)}</div>` : ''}${erro ? `<div class="erro">${escHtml(erro)}</div>` : ''}
+    ${usuarios.length ? `<table><tr><th>Executora</th><th>Termo LGPD</th><th>Ações</th></tr>${linhas}</table>` : '<p style="font-size:13px;color:#666;margin-bottom:10px">Nenhuma executora cadastrada ainda.</p>'}
+    <h2>Cadastrar executora</h2>
+    <form method="POST" action="/admin/usuarios">
+      <input type="hidden" name="acao" value="criar">
+      <div class="linha">
+        <div><label>Usuário (para login)</label><input type="text" name="usuario" placeholder="Ex: Aline" required autocapitalize="none"></div>
+        <div><label>Senha inicial</label><input type="text" name="senha" placeholder="Mín. 8 caracteres" required></div>
+      </div>
+      <label>Nome completo (sai no laudo)</label><input type="text" name="nome" placeholder="Ex: Aline Baron Camargos de Deus Gomes" required>
+      <label>CREA (deixe em branco se não for engenheira)</label><input type="text" name="crea" placeholder="Ex: 353718MG">
+      <p style="font-size:11.5px;color:#666;margin:-6px 0 14px">Com CREA, o laudo sai "realizada pela Eng. [nome]". Sem CREA, sai "realizada por [nome]". No primeiro acesso ela aceita o termo e troca a senha.</p>
+      <button type="submit">Cadastrar</button>
+    </form>
+  </div>
+</body></html>`;
+}
+
+// Trata as rotas de conta. Retorna true se respondeu a requisição.
+async function rotasDeConta(req, res, caminho) {
+  const html = (status, corpo, extra = {}) => { res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', ...extra }); res.end(corpo); return true; };
+  const redirecionar = (para, extra = {}) => { res.writeHead(302, { Location: para, ...extra }); res.end(); return true; };
+
+  if (caminho === '/login') {
+    if (req.method === 'GET') return html(200, paginaLogin(''));
+    if (req.method === 'POST') {
+      const ip = ipDe(req);
+      if (loginBloqueado(ip)) return html(429, paginaLogin('Muitas tentativas. Aguarde 15 minutos e tente de novo.'));
+      const form = await lerCorpoFormulario(req);
+      const usuario = normalizarUsuario(form.get('usuario'));
+      const senha = form.get('senha') || '';
+      if (APP_PASSWORD && ['gabriela', 'admin', 'adm'].includes(usuario) && senha === APP_PASSWORD) {
+        return redirecionar('/', { 'Set-Cookie': [cookieSessao(ADMIN_ID, 0), 'engcheck_auth=; Path=/; HttpOnly; Max-Age=0'] });
+      }
+      const u = lerUsuarios().find(x => normalizarUsuario(x.usuario) === usuario);
+      if (u && u.ativo !== false && conferirSenha(senha, u.salt, u.senhaHash)) {
+        return redirecionar('/', { 'Set-Cookie': cookieSessao(u.id, u.senhaVersao || 0) });
+      }
+      registrarFalhaLogin(ip);
+      return html(200, paginaLogin(u && u.ativo === false ? 'Este acesso está desativado. Fale com a Gabriela.' : 'Usuário ou senha incorretos.'));
+    }
+  }
+
+  if (caminho === '/logout') {
+    return redirecionar('/login', { 'Set-Cookie': ['engcheck_sessao=; Path=/; HttpOnly; Max-Age=0', 'engcheck_auth=; Path=/; HttpOnly; Max-Age=0', 'engcheck_ver=; Path=/; Max-Age=0'] });
+  }
+
+  const u = usuarioDaSessao(req);
+  if (!u) return false; // o bloqueio geral (fora daqui) cuida de quem não está logado
+
+  // Sessão antiga da ADM: troca pelo cookie novo, sem pedir login de novo
+  if (u.sessaoAntiga && req.method === 'GET' && (req.headers.accept || '').includes('text/html')) {
+    res.setHeader('Set-Cookie', [cookieSessao(ADMIN_ID, 0), 'engcheck_auth=; Path=/; HttpOnly; Max-Age=0']);
+  }
+
+  if (caminho === '/termo' && u.papel !== 'admin') {
+    if (req.method === 'GET') return html(200, paginaTermo(u, ''));
+    if (req.method === 'POST') {
+      const form = await lerCorpoFormulario(req);
+      const nome = (form.get('nome') || '').trim();
+      if (form.get('aceito') !== '1') return html(200, paginaTermo(u, 'Marque a caixa de concordância para continuar.'));
+      if (normalizarUsuario(nome).replace(/\s+/g, ' ') !== normalizarUsuario(u.nome).replace(/\s+/g, ' ')) return html(200, paginaTermo(u, `Digite seu nome completo exatamente como cadastrado: ${u.nome}`));
+      const lista = lerUsuarios();
+      const alvo = lista.find(x => x.id === u.id);
+      alvo.termo = { versao: TERMO_VERSAO, em: Date.now(), ip: ipDe(req), aparelho: String(req.headers['user-agent'] || '').slice(0, 200), nomeDigitado: nome };
+      salvarUsuarios(lista);
+      console.log(`✓ Termo de confidencialidade aceito por ${u.nome} (${ipDe(req)})`);
+      return redirecionar(alvo.trocarSenha ? '/minha-senha' : '/');
+    }
+  }
+
+  if (caminho === '/minha-senha' && u.papel !== 'admin') {
+    const obrigatoria = !!u.trocarSenha;
+    if (req.method === 'GET') return html(200, paginaTrocarSenha(u, '', obrigatoria));
+    if (req.method === 'POST') {
+      const form = await lerCorpoFormulario(req);
+      const lista = lerUsuarios();
+      const alvo = lista.find(x => x.id === u.id);
+      if (!conferirSenha(form.get('atual') || '', alvo.salt, alvo.senhaHash)) return html(200, paginaTrocarSenha(u, 'Senha atual incorreta.', obrigatoria));
+      const nova = form.get('nova') || '';
+      if (nova !== (form.get('nova2') || '')) return html(200, paginaTrocarSenha(u, 'As duas senhas novas não são iguais.', obrigatoria));
+      if (!senhaForte(nova)) return html(200, paginaTrocarSenha(u, 'A nova senha precisa ter pelo menos 8 caracteres, com letras e números.', obrigatoria));
+      if (conferirSenha(nova, alvo.salt, alvo.senhaHash)) return html(200, paginaTrocarSenha(u, 'A nova senha precisa ser diferente da atual.', obrigatoria));
+      alvo.salt = crypto.randomBytes(16).toString('hex');
+      alvo.senhaHash = hashSenha(nova, alvo.salt);
+      alvo.senhaVersao = (alvo.senhaVersao || 0) + 1;
+      alvo.trocarSenha = false;
+      salvarUsuarios(lista);
+      return redirecionar('/', { 'Set-Cookie': cookieSessao(alvo.id, alvo.senhaVersao) });
+    }
+  }
+
+  if (caminho === '/admin/usuarios' && u.papel === 'admin') {
+    if (req.method === 'GET') return html(200, paginaUsuarios('', ''));
+    if (req.method === 'POST') {
+      const form = await lerCorpoFormulario(req);
+      const acao = form.get('acao');
+      const lista = lerUsuarios();
+      if (acao === 'criar') {
+        const usuario = (form.get('usuario') || '').trim();
+        const nome = (form.get('nome') || '').trim().replace(/\s+/g, ' ');
+        const senha = form.get('senha') || '';
+        const crea = (form.get('crea') || '').trim().toUpperCase();
+        if (!usuario || !nome) return html(200, paginaUsuarios('', 'Preencha usuário e nome completo.'));
+        if (senha.length < 8) return html(200, paginaUsuarios('', 'A senha inicial precisa ter pelo menos 8 caracteres.'));
+        const norm = normalizarUsuario(usuario);
+        if (['gabriela', 'admin', 'adm'].includes(norm) || lista.some(x => normalizarUsuario(x.usuario) === norm)) return html(200, paginaUsuarios('', `Já existe um usuário "${usuario}".`));
+        const salt = crypto.randomBytes(16).toString('hex');
+        lista.push({ id: 'u_' + norm.replace(/[^a-z0-9]/g, '') + '_' + crypto.randomBytes(3).toString('hex'), usuario, nome, crea, salt, senhaHash: hashSenha(senha, salt), senhaVersao: 0, trocarSenha: true, ativo: true, criadoEm: Date.now() });
+        salvarUsuarios(lista);
+        return html(200, paginaUsuarios(`${nome} cadastrada. Usuário: ${usuario}.`, ''));
+      }
+      const alvo = lista.find(x => x.id === form.get('id'));
+      if (!alvo) return html(200, paginaUsuarios('', 'Usuária não encontrada.'));
+      if (acao === 'senha') {
+        const senha = form.get('senha') || '';
+        if (senha.length < 8) return html(200, paginaUsuarios('', 'A nova senha precisa ter pelo menos 8 caracteres.'));
+        alvo.salt = crypto.randomBytes(16).toString('hex');
+        alvo.senhaHash = hashSenha(senha, alvo.salt);
+        alvo.senhaVersao = (alvo.senhaVersao || 0) + 1; // derruba sessões abertas
+        alvo.trocarSenha = true;
+        salvarUsuarios(lista);
+        return html(200, paginaUsuarios(`Senha de ${alvo.nome} redefinida. No próximo acesso ela cria uma senha nova.`, ''));
+      }
+      if (acao === 'desativar' || acao === 'ativar') {
+        alvo.ativo = acao === 'ativar';
+        if (!alvo.ativo) alvo.senhaVersao = (alvo.senhaVersao || 0) + 1; // derruba sessões abertas
+        salvarUsuarios(lista);
+        return html(200, paginaUsuarios(`Acesso de ${alvo.nome} ${alvo.ativo ? 'reativado' : 'desativado'}.`, ''));
+      }
+      return html(400, paginaUsuarios('', 'Ação inválida.'));
+    }
+  }
+  return false;
 }
 
 
@@ -991,48 +1391,53 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const caminho = req.url.split('?')[0];
 
-  // Login: mostra o formulário, ou confere a senha enviada
-  if (caminho === '/login') {
-    if (req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      return res.end(paginaLogin(false));
-    }
-    if (req.method === 'POST') {
-      const chunks = [];
-      req.on('data', chunk => chunks.push(chunk));
-      req.on('end', () => {
-        const body = Buffer.concat(chunks).toString('utf8');
-        const params = new URLSearchParams(body);
-        const senha = params.get('senha') || '';
-        if (APP_PASSWORD && senha === APP_PASSWORD) {
-          res.writeHead(302, {
-            'Set-Cookie': `engcheck_auth=${encodeURIComponent(senha)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=31536000`,
-            Location: '/'
-          });
-          return res.end();
-        }
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        return res.end(paginaLogin(true));
-      });
-      return;
-    }
+  // Login, logout, termo, troca de senha e tela de usuários (ADM)
+  try {
+    if (await rotasDeConta(req, res, caminho)) return;
+  } catch (e) {
+    console.error('Erro nas rotas de conta:', e.message);
+    res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end('Erro interno. Tente de novo.');
   }
 
-  if (caminho === '/logout') {
-    res.writeHead(302, { 'Set-Cookie': 'engcheck_auth=; Path=/; HttpOnly; Max-Age=0', Location: '/login' });
-    return res.end();
-  }
-
-  // Bloqueia todo o resto do app se a senha estiver configurada e a pessoa não tiver logado
+  // Bloqueia todo o resto do app pra quem não está logado
   // (ícones/manifest do PWA ficam liberados, senão a própria tela de login não carrega o logo)
   const PUBLICO = ['/logo.png', '/icon-192.png', '/icon-512.png', '/manifest.json', '/service-worker.js'];
-  if (!PUBLICO.includes(caminho) && !estaAutenticado(req)) {
-    if (req.method === 'GET' && (req.headers.accept || '').includes('text/html')) {
-      res.writeHead(302, { Location: '/login' });
-      return res.end();
+  const usuario = usuarioDaSessao(req);
+  const querHtml = req.method === 'GET' && (req.headers.accept || '').includes('text/html');
+  if (!PUBLICO.includes(caminho)) {
+    if (!usuario) {
+      if (querHtml) { res.writeHead(302, { Location: '/login' }); return res.end(); }
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ erro: 'Não autorizado. Faça login novamente.' }));
     }
-    res.writeHead(401, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ erro: 'Não autorizado. Faça login novamente.' }));
+    // Executora com termo pendente ou senha inicial: só entra depois de resolver
+    const pendencia = pendenciaDoUsuario(usuario);
+    if (pendencia) {
+      const destino = pendencia === 'termo' ? '/termo' : '/minha-senha';
+      if (querHtml) { res.writeHead(302, { Location: destino }); return res.end(); }
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ erro: pendencia === 'termo' ? 'Aceite o termo de confidencialidade para continuar.' : 'Troque sua senha inicial para continuar.', pendencia }));
+    }
+  }
+
+  // Quem está logado (o app usa pra mostrar o nome e, pra ADM, a guia "Ver conta")
+  if (req.method === 'GET' && caminho === '/eu') {
+    const ver = contaVisualizada(req, usuario);
+    const contas = usuario.papel === 'admin'
+      ? [{ id: ADMIN_ID, nome: ADMIN.nome, usuario: ADMIN.usuario }, ...lerUsuarios().map(x => ({ id: x.id, nome: x.nome, usuario: x.usuario, ativo: x.ativo !== false }))]
+      : [];
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ id: usuario.id, nome: usuario.nome, usuario: usuario.usuario, papel: usuario.papel, crea: usuario.crea || '', verConta: ver, contas }));
+  }
+
+  // ADM escolhe de quem quer ver os dados (Histórico, Agenda, Financeiro, Não finalizadas)
+  if (req.method === 'POST' && caminho === '/ver-conta') {
+    if (usuario.papel !== 'admin') { res.writeHead(403, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ erro: 'Sem permissão.' })); }
+    const conta = new URL(req.url, `http://${req.headers.host}`).searchParams.get('conta') || ADMIN_ID;
+    const valida = conta === 'todas' || conta === ADMIN_ID || lerUsuarios().some(x => x.id === conta);
+    res.writeHead(valida ? 200 : 400, { 'Content-Type': 'application/json', 'Set-Cookie': `engcheck_ver=${encodeURIComponent(valida ? conta : ADMIN_ID)}; Path=/; Secure; SameSite=Lax; Max-Age=31536000` });
+    return res.end(JSON.stringify({ ok: valida }));
   }
 
   if (req.method === 'GET' && req.url === '/') {
@@ -1089,6 +1494,7 @@ const server = http.createServer(async (req, res) => {
 
   // Dispara a compactação na hora, sem esperar a rotina automática diária — útil pra testar.
   if (req.method === 'GET' && req.url === '/compactar-agora') {
+    if (usuario.papel !== 'admin') { res.writeHead(403); return res.end('Sem permissão.'); }
     try {
       compactarLaudosAntigos();
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1125,9 +1531,14 @@ const server = http.createServer(async (req, res) => {
     try {
       // Lista resumida de todas (inclusive as da lixeira e as lápides)
       if (req.method === 'GET' && caminho === '/rascunhos') {
-        return responder(200, Object.values(lerIndiceRascunhos()));
+        // escopo=meu: só os do próprio usuário (usado na sincronização do aparelho)
+        const soMeus = urlObj.searchParams.get('escopo') === 'meu';
+        const daConta = soMeus ? (m) => donoDoItem(m) === usuario.id : filtroDeConta(req, usuario);
+        return responder(200, Object.values(lerIndiceRascunhos()).filter(daConta).map(m => ({ ...m, contaNome: nomeDaConta(donoDoItem(m)) })));
       }
       if (!idValido(id)) return responder(400, { erro: 'Identificador inválido.' });
+      const metaExistente = lerIndiceRascunhos()[id];
+      if (metaExistente && !podeMexer(usuario, metaExistente)) return responder(403, { erro: 'Esta vistoria pertence a outra conta.' });
 
       // Dados completos de uma vistoria (sem as imagens)
       if (req.method === 'GET' && caminho === '/rascunhos/item') {
@@ -1158,7 +1569,7 @@ const server = http.createServer(async (req, res) => {
         }
         const d = corpo.state.dados || {};
         idx[id] = {
-          id, ...novo,
+          id, contaId: (atual && atual.contaId) || usuario.id, ...novo,
           nome: d.nome || '', tipo: d.tipo || '', locacaoModalidade: d.locacaoModalidade || '',
           qtdRegistros: (corpo.state.registros || []).length, recebidoEm: Date.now()
         };
@@ -1217,7 +1628,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'DELETE' && caminho === '/rascunhos/item') {
         const idx = lerIndiceRascunhos();
         apagarPastaRascunho(id);
-        idx[id] = { id, removidoEm: Date.now() };
+        idx[id] = { id, contaId: (idx[id] && idx[id].contaId) || usuario.id, removidoEm: Date.now() };
         salvarIndiceRascunhos(idx);
         return responder(200, { ok: true });
       }
@@ -1230,7 +1641,7 @@ const server = http.createServer(async (req, res) => {
 
   // ── Agenda: pré-cadastro dos dados do cliente/imóvel antes da vistoria ──
   if (req.method === 'GET' && req.url === '/agenda') {
-    const lista = lerAgenda().sort((a, b) => (a.dados.data || '9999').localeCompare(b.dados.data || '9999'));
+    const lista = lerAgenda().filter(filtroDeConta(req, usuario)).sort((a, b) => (a.dados.data || '9999').localeCompare(b.dados.data || '9999'));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(lista));
   }
@@ -1248,6 +1659,7 @@ const server = http.createServer(async (req, res) => {
         const agenda = lerAgenda();
         const item = {
           id: 'ag_' + Date.now() + Math.random().toString(36).slice(2),
+          contaId: usuario.id,
           dados: payload.dados,
           plantaBase64: payload.plantaBase64 || null,
           plantaMediaType: payload.plantaMediaType || null,
@@ -1270,7 +1682,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'DELETE' && req.url.startsWith('/agenda')) {
     const urlObj = new URL(req.url, `http://${req.headers.host}`);
     const id = urlObj.searchParams.get('id');
-    const agenda = lerAgenda().filter(a => a.id !== id);
+    const agenda = lerAgenda().filter(a => !(a.id === id && podeMexer(usuario, a)));
     salvarAgenda(agenda);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ ok: true }));
@@ -1285,7 +1697,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         const agenda = lerAgenda();
-        const item = agenda.find(a => a.id === id);
+        const item = agenda.find(a => a.id === id && podeMexer(usuario, a));
         if (!item) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({ erro: 'Agendamento não encontrado.' }));
@@ -1310,7 +1722,9 @@ const server = http.createServer(async (req, res) => {
     const urlObj = new URL(req.url, `http://${req.headers.host}`);
     const verLixeira = urlObj.searchParams.get('lixeira') === '1';
     const hist = lerHistorico();
-    const filtrado = verLixeira ? hist.filter(h => h.excluidoEm) : hist.filter(h => !h.excluidoEm);
+    const daConta = filtroDeConta(req, usuario);
+    const filtrado = (verLixeira ? hist.filter(h => h.excluidoEm) : hist.filter(h => !h.excluidoEm)).filter(daConta)
+      .map(h => ({ ...h, contaNome: nomeDaConta(donoDoItem(h)) }));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(filtrado.reverse()));
   }
@@ -1322,7 +1736,7 @@ const server = http.createServer(async (req, res) => {
       const urlObj = new URL(req.url, `http://${req.headers.host}`);
       const arquivoAlvo = urlObj.searchParams.get('arquivo');
       const hist = lerHistorico();
-      const item = hist.find(h => h.arquivo === arquivoAlvo);
+      const item = hist.find(h => h.arquivo === arquivoAlvo && podeMexer(usuario, h));
       if (!item) throw new Error('Laudo não encontrado.');
       delete item.excluidoEm;
       salvarHistorico(hist);
@@ -1352,7 +1766,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
           const hist = lerHistorico();
-          const item = hist.find(h => h.arquivo === arquivoAlvo);
+          const item = hist.find(h => h.arquivo === arquivoAlvo && podeMexer(usuario, h));
           if (!item) throw new Error('Laudo não encontrado.');
           if (payload.valor !== undefined) item.valor = payload.valor;
           if (payload.formaPagamento !== undefined) item.formaPagamento = payload.formaPagamento;
@@ -1377,7 +1791,8 @@ const server = http.createServer(async (req, res) => {
       const arquivoAlvo = urlObj.searchParams.get('arquivo'); // se vier, mexe só nesse; senão, em tudo
       const permanente = urlObj.searchParams.get('permanente') === '1'; // apaga de vez, sem passar pela lixeira
       const hist = lerHistorico();
-      const alvos = arquivoAlvo ? hist.filter(h => h.arquivo === arquivoAlvo) : hist;
+      // Sem "arquivo": mexe só no que pertence à conta visualizada (nunca no de outra pessoa)
+      const alvos = arquivoAlvo ? hist.filter(h => h.arquivo === arquivoAlvo && podeMexer(usuario, h)) : hist.filter(filtroDeConta(req, usuario));
 
       if (permanente) {
         for (const item of alvos) {
@@ -1405,6 +1820,10 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && req.url.startsWith('/download-pdf/')) {
     const filename = decodeURIComponent(req.url.replace('/download-pdf/', ''));
+    const registroLaudo = lerHistorico().find(h => h.arquivo === filename);
+    if (filename.includes('..') || filename.includes('/') || (registroLaudo ? !podeMexer(usuario, registroLaudo) : usuario.papel !== 'admin')) {
+      res.writeHead(404); return res.end('Not found');
+    }
     const docxPath = path.join(OUTPUT_DIR, filename);
     const pdfPath = docxPath.replace('.docx', '.pdf');
     const pdfBuf = lerArquivoTalvezCompactado(pdfPath);
@@ -1435,6 +1854,10 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && req.url.startsWith('/download/')) {
     const filename = decodeURIComponent(req.url.replace('/download/', ''));
+    const registroLaudo = lerHistorico().find(h => h.arquivo === filename);
+    if (filename.includes('..') || filename.includes('/') || (registroLaudo ? !podeMexer(usuario, registroLaudo) : usuario.papel !== 'admin')) {
+      res.writeHead(404); return res.end('Not found');
+    }
     const filepath = path.join(OUTPUT_DIR, filename);
     const buf = lerArquivoTalvezCompactado(filepath);
     if (buf) {
@@ -1516,6 +1939,8 @@ const server = http.createServer(async (req, res) => {
         if (!payload.dados || !payload.dados.nome) throw new Error('Nome do cliente é obrigatório.');
         const hist = lerHistorico();
         hist.push({
+          contaId: usuario.id,
+          executor: executorDaConta(usuario.id).nome,
           nome: payload.dados.nome,
           empreendimento: payload.dados.empreendimento || '',
           endereco: payload.dados.endereco || '',
@@ -1545,7 +1970,8 @@ const server = http.createServer(async (req, res) => {
     req.on('end', async () => {
       try {
         const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        const docxBuffer = await gerarDocx(payload);
+        const executor = executorDaConta(usuario.id);
+        const docxBuffer = await gerarDocx(payload, executor);
         const ts = Date.now();
         const nomeArquivo = `Laudo_${(payload.dados.nome||'cliente').replace(/\s+/g,'_')}_${payload.dados.data||'vistoria'}_${ts}.docx`;
         const docxPath = path.join(OUTPUT_DIR, nomeArquivo);
@@ -1553,7 +1979,7 @@ const server = http.createServer(async (req, res) => {
 
         const hist = lerHistorico();
         const registrosResumo = (payload.registros || []).map(r => ({ ambiente: r.ambiente, defeito: r.defeito }));
-        hist.push({ nome: payload.dados.nome||'Cliente', empreendimento: payload.dados.empreendimento||'', endereco: payload.dados.endereco||'', data: payload.dados.data||'—', tipo: payload.tipoVistoria||'—', modalidade: payload.dados.locacaoModalidade || null, valor: payload.dados.valor || null, formaPagamento: payload.dados.formaPagamento || null, registros: registrosResumo, arquivo: nomeArquivo, ts });
+        hist.push({ contaId: usuario.id, executor: executor.nome, nome: payload.dados.nome||'Cliente', empreendimento: payload.dados.empreendimento||'', endereco: payload.dados.endereco||'', data: payload.dados.data||'—', tipo: payload.tipoVistoria||'—', modalidade: payload.dados.locacaoModalidade || null, valor: payload.dados.valor || null, formaPagamento: payload.dados.formaPagamento || null, registros: registrosResumo, arquivo: nomeArquivo, ts });
         salvarHistorico(hist);
 
         if (payload.formato === 'docx') {

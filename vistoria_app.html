@@ -162,6 +162,7 @@
       <span id="carimboToggleDot" style="position:absolute;top:2px;left:16px;width:14px;height:14px;background:#fff;border-radius:50%;transition:left .15s"></span>
     </span>
   </label>
+  <a id="linkConta" href="#" title="Conta" style="display:none;color:#fff;opacity:.85;font-size:15px;margin-right:10px;align-items:center;gap:4px;text-decoration:none"><i class="ti ti-users"></i></a>
   <a href="/logout" title="Sair" style="color:#fff;opacity:.75;font-size:15px;margin-right:8px;display:flex;align-items:center" onclick="return confirm('Sair do EngCheck? Vai precisar da senha pra entrar de novo.')"><i class="ti ti-logout"></i></a>
   <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:10%"></div></div>
 </div>
@@ -183,6 +184,15 @@
     <button class="nav-tab" id="tab-financeiro" onclick="switchTab('financeiro')"><i class="ti ti-report-money"></i> Financeiro</button>
     <button class="nav-tab" id="tab-historico" onclick="switchTab('historico')"><i class="ti ti-history"></i> Histórico</button>
   </div>
+  <div id="barraConta" style="display:none;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--muted);margin:8px 2px 0">
+    <i class="ti ti-user-circle" style="font-size:16px"></i>
+    <span id="barraContaNome"></span>
+    <span id="barraVerConta" style="display:none;margin-left:auto;align-items:center;gap:6px">
+      Ver:
+      <select id="seletorConta" onchange="trocarContaVisualizada(this.value)" style="padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-family:var(--font);font-size:12px;font-weight:600;background:#fff"></select>
+    </span>
+  </div>
+  <div id="avisoContaOutra" style="display:none;background:#FDECD2;color:#8A5A00;font-size:12px;font-weight:700;padding:8px 12px;border-radius:9px;margin-top:8px"></div>
 </div>
 
 <div id="vistoria-screens">
@@ -872,7 +882,7 @@ async function salvarRascunho() {
     if (!state.rascunhoId) state.rascunhoId = 'r_' + Date.now() + Math.random().toString(36).slice(2);
     const db = await abrirDB();
     const tx = db.transaction(LOJA_RASCUNHOS, 'readwrite');
-    tx.objectStore(LOJA_RASCUNHOS).put({ id: state.rascunhoId, atualizadoEm: Date.now(), state: state });
+    tx.objectStore(LOJA_RASCUNHOS).put({ id: state.rascunhoId, contaId: (usuarioAtual && usuarioAtual.id) || null, atualizadoEm: Date.now(), state: state });
     const idSalvo = state.rascunhoId;
     return new Promise(res => {
       tx.oncomplete = () => { agendarEnvioRascunho(idSalvo); res(true); };
@@ -966,6 +976,56 @@ async function limparRascunhosLixeiraAntiga() {
   } catch (e) { console.error('Falha ao limpar lixeira de rascunhos antigos:', e); }
 }
 
+
+// ══════════════════════════════════════════════════════════════
+// CONTA LOGADA — nome no topo; pra ADM, link "Usuários" e guia "Ver conta"
+// (escolhe de quem ver Histórico, Agenda, Financeiro e Não finalizadas).
+// Executoras veem só os próprios dados (o servidor já filtra).
+// ══════════════════════════════════════════════════════════════
+let usuarioAtual = null;
+async function carregarUsuarioAtual() {
+  try {
+    const r = await fetch('/eu');
+    if (!r.ok) return;
+    usuarioAtual = await r.json();
+  } catch (e) { return; }
+  const eAdm = usuarioAtual.papel === 'admin';
+  document.getElementById('barraConta').style.display = 'flex';
+  document.getElementById('barraContaNome').textContent = (usuarioAtual.nome || '').split(' ')[0] + (eAdm ? ' · ADM' : '');
+  const link = document.getElementById('linkConta');
+  link.style.display = 'flex';
+  link.href = eAdm ? '/admin/usuarios' : '/minha-senha';
+  link.title = eAdm ? 'Usuários (cadastrar executoras, termo LGPD)' : 'Trocar minha senha';
+  link.innerHTML = eAdm ? '<i class="ti ti-users"></i>' : '<i class="ti ti-key"></i>';
+  if (eAdm && usuarioAtual.contas.length > 1) {
+    document.getElementById('barraVerConta').style.display = 'flex';
+    const sel = document.getElementById('seletorConta');
+    sel.innerHTML = usuarioAtual.contas.map(c => `<option value="${c.id}">${c.id === usuarioAtual.id ? 'Minha conta' : c.nome.split(' ')[0]}${c.ativo === false ? ' (desativada)' : ''}</option>`).join('') + '<option value="todas">Todas</option>';
+    sel.value = usuarioAtual.verConta;
+  }
+  atualizarAvisoConta();
+}
+function vendoOutraConta() { return !!usuarioAtual && usuarioAtual.papel === 'admin' && usuarioAtual.verConta !== usuarioAtual.id; }
+function atualizarAvisoConta() {
+  const aviso = document.getElementById('avisoContaOutra');
+  if (!vendoOutraConta()) { aviso.style.display = 'none'; return; }
+  const c = usuarioAtual.contas.find(x => x.id === usuarioAtual.verConta);
+  aviso.style.display = 'block';
+  aviso.innerHTML = usuarioAtual.verConta === 'todas'
+    ? '<i class="ti ti-eye"></i> Vendo os dados de TODAS as contas. Vistorias e agendamentos novos ficam na sua conta.'
+    : `<i class="ti ti-eye"></i> Vendo os dados de ${c ? c.nome : 'outra conta'}. Vistorias e agendamentos novos ficam na sua conta. <a href="#" onclick="trocarContaVisualizada('${usuarioAtual.id}');return false" style="color:#8A5A00">Voltar pra minha</a>`;
+}
+async function trocarContaVisualizada(conta) {
+  try { await fetch(`/ver-conta?conta=${encodeURIComponent(conta)}`, { method: 'POST' }); } catch (e) { alert('Sem conexão agora.'); return; }
+  usuarioAtual.verConta = conta;
+  document.getElementById('seletorConta').value = conta;
+  atualizarAvisoConta();
+  // recarrega a aba que estiver aberta
+  if (document.getElementById('historico-screen').style.display !== 'none') carregarHistorico();
+  if (document.getElementById('agenda-screen').style.display !== 'none') carregarAgenda();
+  if (document.getElementById('financeiro-screen').style.display !== 'none') carregarFinanceiro();
+}
+const quemFez = (l) => (usuarioAtual && usuarioAtual.verConta === 'todas' && l.contaNome) ? ` <span style="font-size:10px;font-weight:700;color:var(--brand2)">· ${l.contaNome.split(' ')[0]}</span>` : '';
 
 // ══════════════════════════════════════════════════════════════
 // SINCRONIZAÇÃO DAS VISTORIAS NÃO FINALIZADAS ENTRE APARELHOS
@@ -1120,11 +1180,18 @@ async function apagarRascunhoServidor(id) {
 }
 
 // Junta as vistorias deste aparelho com as do servidor, no formato usado pelas telas.
-async function combinarRascunhos() {
-  const [locais, remotos] = await Promise.all([
+async function combinarRascunhos(soMinhas) {
+  const [todosLocais, remotos] = await Promise.all([
     listarRascunhosLocais(),
-    fetch('/rascunhos').then(r => r.ok ? r.json() : null).catch(() => null)
+    fetch(soMinhas ? '/rascunhos?escopo=meu' : '/rascunhos').then(r => r.ok ? r.json() : null).catch(() => null)
   ]);
+  // Rascunhos deste aparelho: só os da conta logada (os antigos, sem dono, são da ADM).
+  // Se a ADM está vendo a conta de uma executora, mostra só o que veio do servidor.
+  const meuId = usuarioAtual ? usuarioAtual.id : null;
+  const dono = (r) => r.contaId || 'gabriela';
+  const locais = !meuId ? todosLocais
+    : (!soMinhas && vendoOutraConta() && usuarioAtual.verConta !== 'todas') ? []
+    : todosLocais.filter(r => dono(r) === meuId);
   if (remotos) { ultimoStatusServidor = {}; remotos.forEach(m => ultimoStatusServidor[m.id] = m); }
   const porId = {};
   locais.forEach(r => porId[r.id] = { local: r });
@@ -1147,7 +1214,7 @@ async function combinarRascunhos() {
     const usarRemoto = rem && !rem.removidoEm && versaoRascunho(rem) > vLocal;
     if (usarRemoto) {
       lista.push({
-        id, atualizadoEm: rem.atualizadoEm, excluidoEm: rem.excluidoEm || null, origem: e.local ? 'servidor-mais-novo' : 'outro-aparelho',
+        id, atualizadoEm: rem.atualizadoEm, excluidoEm: rem.excluidoEm || null, contaNome: rem.contaNome, origem: e.local ? 'servidor-mais-novo' : 'outro-aparelho',
         state: { dados: { nome: rem.nome, tipo: rem.tipo, locacaoModalidade: rem.locacaoModalidade }, registros: new Array(rem.qtdRegistros || 0) }
       });
     } else {
@@ -1165,7 +1232,7 @@ async function sincronizarRascunhos() {
   if (sincronizandoTudo) return;
   sincronizandoTudo = true;
   try {
-    const lista = await combinarRascunhos();
+    const lista = await combinarRascunhos(true);
     const pendentes = lista.filter(r => r.origem === 'so-neste-aparelho');
     for (const r of pendentes) {
       const ok = await enviarRascunhoServidor(r.id);
@@ -4485,7 +4552,7 @@ async function carregarNaoFinalizadas() {
     return `<div class="hist-item">
       <i class="ti ti-pencil" style="font-size:24px;color:var(--accent)"></i>
       <div class="info">
-        <strong>${d.nome || 'Sem nome ainda'}${badgeTipo(d.tipo, d.locacaoModalidade)}</strong>
+        <strong>${d.nome || 'Sem nome ainda'}${badgeTipo(d.tipo, d.locacaoModalidade)}${quemFez(r)}</strong>
         <span style="display:block">${qtdRegistros} registro${qtdRegistros === 1 ? '' : 's'} salvo${qtdRegistros === 1 ? '' : 's'} · em edição</span>
         ${seloSincronia(r)}
       </div>
@@ -4575,7 +4642,7 @@ function renderHistorico(listaCompleta) {
   document.getElementById('historicoList').innerHTML=lista.map(l=>`
     <div class="hist-item">
       <i class="ti ti-file-text" style="font-size:26px;color:var(--brand)"></i>
-      <div class="info"><strong>${l.nome}${l.empreendimento?' - '+l.empreendimento:''}</strong>${l.compactado?' <i class="ti ti-box" style="font-size:12px;color:var(--muted)" title="Compactado (economiza espaço)"></i>':''}<span>${l.data}</span></div>
+      <div class="info"><strong>${l.nome}${l.empreendimento?' - '+l.empreendimento:''}${quemFez(l)}</strong>${l.compactado?' <i class="ti ti-box" style="font-size:12px;color:var(--muted)" title="Compactado (economiza espaço)"></i>':''}<span>${l.data}</span></div>
       <div style="display:flex;flex-direction:column;gap:5px">
         <button class="hist-btn" style="width:100%" onclick="baixarWordHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-word"></i> Word</button>
         <button class="hist-btn" style="background:#C0392B;width:100%" onclick="baixarPdfHistorico('${encodeURIComponent(l.arquivo)}')"><i class="ti ti-file-type-pdf"></i> PDF</button>
@@ -4588,6 +4655,7 @@ function renderHistorico(listaCompleta) {
 carregarCorConfig();
 carregarCarimboConfig();
 atualizarBotaoCancelarDados();
+carregarUsuarioAtual();
 setTimeout(() => sincronizarRascunhos(), 3000); // envia as vistorias deste aparelho pro servidor logo ao abrir
 
 // A checagem do rascunho salvo só roda depois que a pessoa fecha a tela de
