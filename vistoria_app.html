@@ -2012,11 +2012,17 @@ function gerarMiniatura(dataUrl, maxDim = 320) {
 }
 
 async function handleFiles(files) {
-  const arquivos = Array.from(files).slice(0,5); // limite menor por vez, pra não sobrecarregar a memória do celular
+  // Sem limite de quantidade: as fotos são processadas UMA de cada vez (com uma
+  // pequena pausa entre elas), então a memória do celular não acumula. A cada
+  // 5 fotos o rascunho é salvo, pra nada se perder se o app fechar no meio.
+  const arquivos = Array.from(files);
   const statusMsg = document.getElementById('carimboStatusMsg');
   if (statusMsg) statusMsg.style.display = 'block';
   const falhas = [];
+  let processadas = 0;
   for (const file of arquivos) {
+    processadas++;
+    if (statusMsg) statusMsg.innerHTML = `<span class="sp2"></span> Processando foto ${processadas} de ${arquivos.length}${carimboAtivo ? ' (aplicando carimbo de data/hora/local)' : ''}...`;
     let dataUrl = await comTimeout(redimensionarImagem(file), 15000, null);
     let mediaType = 'image/jpeg'; // depois de passar pelo redimensionamento, sempre vira jpeg
     if (!dataUrl) { falhas.push(file.name || 'foto sem nome'); continue; }
@@ -2030,9 +2036,10 @@ async function handleFiles(files) {
     const id = 'p'+Date.now()+Math.random().toString(36).slice(2);
     const entry = { id, src: dataUrl, thumb, mediaType };
     state.fotosAtuais.push(entry); renderFotoPreview();
+    if (processadas % 5 === 0) await salvarRascunho(); // salva aos poucos em lotes grandes
     await new Promise(r => setTimeout(r, 150)); // pequena pausa: dá tempo do celular liberar memória antes da próxima foto
   }
-  await salvarRascunho(); // salva uma vez só, depois de processar o lote inteiro (não a cada foto)
+  await salvarRascunho(); // salva o final do lote
   if (statusMsg) statusMsg.style.display = 'none';
   if (falhas.length > 0) {
     alert(`⚠ ${falhas.length} foto${falhas.length === 1 ? ' não pôde' : 's não puderam'} ser processada${falhas.length === 1 ? '' : 's'} e ${falhas.length === 1 ? 'foi' : 'foram'} ignorada${falhas.length === 1 ? '' : 's'} (formato não suportado, como HEIC do iPhone).\n\nAs outras fotos foram adicionadas normalmente. Pra essa(s) que falhou(aram), tente: enviar de novo, tirar a foto direto pela Câmera do app, ou salvar essa foto como JPEG antes de enviar.`);
